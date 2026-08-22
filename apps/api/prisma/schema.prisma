@@ -5,7 +5,8 @@
 // added as their owning epics (E8/E9) are built, per spec §22 order.
 
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
