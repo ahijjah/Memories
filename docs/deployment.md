@@ -9,8 +9,8 @@ other apps on this VPS.
 
 ## 0. Before you start
 
-Pick a subdomain, e.g. `memories.yourdomain.com`. Replace it everywhere
-below (including in `infra/nginx/memory-app.conf`).
+Subdomain for this project: **memories.ai970.cloud** (already baked into
+`infra/nginx/memory-app.conf` — no substitution needed).
 
 Check nothing on the VPS is already using port 3000 on `127.0.0.1`, and
 that `memory-app-postgres` / `memory-app-redis` / `memory-app-api` don't
@@ -26,10 +26,10 @@ ss -tulpn | grep 3000
 At your domain registrar / DNS provider, add an A record:
 
 ```
-memories.yourdomain.com  ->  <your VPS IP>
+memories.ai970.cloud  ->  <your VPS IP>
 ```
 
-Wait for it to propagate (`dig memories.yourdomain.com` should return your
+Wait for it to propagate (`dig memories.ai970.cloud` should return your
 VPS IP) before running Certbot in step 5.
 
 ## 2. Clone the repo on the VPS
@@ -85,7 +85,6 @@ you're just adding one more server block, which doesn't touch the others.
 
 ```bash
 sudo cp ~/apps/memory-app/infra/nginx/memory-app.conf /etc/nginx/sites-available/memory-app.conf
-sudo sed -i 's/SUBDOMAIN.YOURDOMAIN.COM/memories.yourdomain.com/' /etc/nginx/sites-available/memory-app.conf
 sudo ln -s /etc/nginx/sites-available/memory-app.conf /etc/nginx/sites-enabled/memory-app.conf
 sudo nginx -t   # validate config before reloading — catches typos safely
 sudo systemctl reload nginx
@@ -99,7 +98,7 @@ successful".
 ## 7. Get an SSL certificate for the subdomain
 
 ```bash
-sudo certbot --nginx -d memories.yourdomain.com
+sudo certbot --nginx -d memories.ai970.cloud
 ```
 
 This only touches the `memory-app.conf` server block (matched by
@@ -153,5 +152,5 @@ cd ~/apps/memory-app/infra
 docker compose -f docker-compose.prod.yml down -v   # -v also removes this project's volumes
 sudo rm /etc/nginx/sites-enabled/memory-app.conf /etc/nginx/sites-available/memory-app.conf
 sudo nginx -t && sudo systemctl reload nginx
-sudo certbot delete --cert-name memories.yourdomain.com
+sudo certbot delete --cert-name memories.ai970.cloud
 ```
