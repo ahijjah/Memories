@@ -1,0 +1,83 @@
+name: memory-app
+
+# Everything on this file's own bridge network, isolated from other
+# projects on the VPS. Only the "api" service is reachable from the host
+# (via 127.0.0.1, so only local Nginx can reach it) — Postgres and Redis
+# are internal-only.
+
+networks:
+  memory-app-internal:
+    name: memory-app-internal
+
+volumes:
+  memory-app-postgres-data:
+    name: memory-app-postgres-data
+  memory-app-redis-data:
+    name: memory-app-redis-data
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: memory-app-postgres
+    restart: unless-stopped
+    env_file: .env.production
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - memory-app-postgres-data:/var/lib/postgresql/data
+    networks:
+      - memory-app-internal
+    # No "ports:" — deliberately not exposed to the host, so it can never
+    # collide with another project's Postgres on this VPS.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: memory-app-redis
+    restart: unless-stopped
+    volumes:
+      - memory-app-redis-data:/data
+    networks:
+      - memory-app-internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    # Runs both the HTTP API and the BullMQ AI-processing worker in the
+    # same process for now (the AiProcessor is registered as a Nest
+    # provider — see apps/api/src/modules/ai/ai.module.ts). Split into a
+    # separate worker container later if AI processing needs to scale
+    # independently of HTTP traffic; not needed yet at MVP volume.
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: memory-app-api
+    restart: unless-stopped
+    env_file: .env.production
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      PORT: 3000
+      NODE_ENV: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - memory-app-internal
+    # Bind only to localhost — the outside world reaches this exclusively
+    # through Nginx on 80/443, never directly on 3000.
+    ports:
+      - "127.0.0.1:3000:3000"
+

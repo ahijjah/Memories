@@ -1,0 +1,45 @@
+name: Deploy (production)
+
+# Runs after CI succeeds on main, and only once the required secrets below
+# are configured (Settings -> Secrets and variables -> Actions).
+#
+# Required secrets:
+#   DEPLOY_SSH_HOST   e.g. your VPS IP or hostname
+#   DEPLOY_SSH_USER   the deploy user on that VPS
+#   DEPLOY_SSH_KEY    private key (PEM) with access to that user
+#   DEPLOY_SSH_PORT   optional, defaults to 22
+#
+# Assumes on the server:
+#   - Repo already cloned at ~/apps/memory-app (see docs/deployment.md)
+#   - ~/apps/memory-app/infra/.env.production exists (created once, by
+#     hand, from infra/.env.production.example — never committed)
+#   - Docker + Docker Compose plugin are installed
+
+on:
+  workflow_run:
+    workflows: ['CI']
+    types: [completed]
+    branches: [main]
+
+jobs:
+  deploy:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_SSH_HOST }}
+          username: ${{ secrets.DEPLOY_SSH_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_SSH_PORT || 22 }}
+          script: |
+            set -euo pipefail
+            cd ~/apps/memory-app
+            git fetch origin main
+            git reset --hard origin/main
+            cd infra
+            docker compose -f docker-compose.prod.yml --env-file .env.production build
+            docker compose -f docker-compose.prod.yml --env-file .env.production run --rm api npm run prisma:deploy --workspace=apps/api
+            docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+            docker image prune -f
