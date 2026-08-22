@@ -1,0 +1,168 @@
+// Prisma schema — core entities for MVP vertical slice #1
+// (Share URL/Image -> Saved -> AI title/summary -> Memory Detail)
+// Full data model per spec §6; not every entity is implemented yet —
+// Person/Vault/Collection/Reminder/Embedding/Activity/Conversation are
+// added as their owning epics (E8/E9) are built, per spec §22 order.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [vector]
+}
+
+// ---------------------------------------------------------------------
+// User & session
+// ---------------------------------------------------------------------
+
+model User {
+  id          String   @id @default(uuid())
+  email       String   @unique
+  displayName String?
+  locale      String   @default("en")
+  plan        String   @default("free")
+  preferences Json     @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  deviceSessions  DeviceSession[]
+  memories        Memory[]
+  userConfirmations UserConfirmation[]
+
+  @@map("users")
+}
+
+model DeviceSession {
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceId   String
+  pushToken  String?
+  platform   String? // ios | android
+  lastSeenAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  @@unique([userId, deviceId])
+  @@map("device_sessions")
+}
+
+// ---------------------------------------------------------------------
+// Memory core
+// ---------------------------------------------------------------------
+
+enum MemorySourceType {
+  share
+  url
+  image
+  screenshot
+  camera
+  text
+  document_scan
+}
+
+enum MemoryType {
+  article
+  video
+  post
+  image
+  note
+  document
+  event
+  place
+  product
+  tutorial
+  other
+}
+
+enum ProcessingState {
+  queued
+  processing
+  understood
+  partial
+  failed
+}
+
+enum LifecycleState {
+  active
+  archived
+  deleted_pending
+  deleted
+}
+
+model Memory {
+  id              String           @id @default(uuid())
+  userId          String
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourceType      MemorySourceType
+  sourceUri       String?
+  memoryType      MemoryType?
+  title           String?
+  capturedAt      DateTime         @default(now())
+  processingState ProcessingState  @default(queued)
+  lifecycleState  LifecycleState   @default(active)
+  securityScope   String           @default("private") // private | vault (Vault added in E8)
+  idempotencyKey  String           @unique
+
+  assets            MemoryAsset[]
+  aiInferences      AIInference[]
+  userConfirmations UserConfirmation[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, lifecycleState])
+  @@index([userId, processingState])
+  @@map("memories")
+}
+
+model MemoryAsset {
+  id          String   @id @default(uuid())
+  memoryId    String
+  memory      Memory   @relation(fields: [memoryId], references: [id], onDelete: Cascade)
+  objectKey   String // private object storage key — never a public URL
+  mimeType    String
+  checksum    String?
+  pageIndex   Int?
+  variant     String? // e.g. original | thumbnail | ocr_page
+  createdAt   DateTime @default(now())
+
+  @@index([memoryId])
+  @@map("memory_assets")
+}
+
+// ---------------------------------------------------------------------
+// AI processing output & user corrections
+// (precedence rule, spec §6: confirmed > AI inference > raw fallback)
+// ---------------------------------------------------------------------
+
+model AIInference {
+  id            String   @id @default(uuid())
+  memoryId      String
+  memory        Memory   @relation(fields: [memoryId], references: [id], onDelete: Cascade)
+  field         String // e.g. "title", "summary", "type", "topics"
+  valueJson     Json
+  confidence    Float // 0..1
+  provenance    String? // e.g. "ocr", "llm_extraction"
+  modelVersion  String
+  createdAt     DateTime @default(now())
+
+  @@index([memoryId, field])
+  @@map("ai_inferences")
+}
+
+model UserConfirmation {
+  id             String   @id @default(uuid())
+  memoryId       String
+  memory         Memory   @relation(fields: [memoryId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  field          String
+  confirmedValue Json
+  createdAt      DateTime @default(now())
+
+  @@index([memoryId, field])
+  @@map("user_confirmations")
+}

@@ -1,0 +1,10 @@
+{
+  "name": "@memory-app/ai",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI provider adapters, extraction schemas, and pipeline versioning (spec §9)",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.27.3"
+  }
+}
