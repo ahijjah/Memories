@@ -9,6 +9,12 @@ pnpm-debug.log*
 dist/
 build/
 *.tsbuildinfo
+apps/api/prisma/*.d.ts
+apps/api/prisma/*.js
+apps/api/prisma/*.js.map
+packages/**/*.d.ts
+packages/**/*.js
+packages/**/*.js.map
 
 # Environment
 .env
