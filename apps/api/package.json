@@ -20,6 +20,8 @@
     "prisma:seed": "ts-node prisma/seed.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.600.0",
+    "@aws-sdk/s3-request-presigner": "^3.600.0",
     "@memory-app/ai": "*",
     "@memory-app/domain": "*",
     "@nestjs/bullmq": "^10.2.3",

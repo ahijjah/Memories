@@ -127,8 +127,6 @@ See the workflow file for the exact commands it runs.
 
 - Auth is dev-only JWT; swap for a managed identity provider before any real
   user data touches this (ADR-001).
-- Asset upload is stubbed (`stub://...` URLs); no real object storage is
-  wired up yet.
 - `packages/ai` and `packages/domain` are consumed via TS path aliases in
   dev (`ts-node` + `tsconfig-paths`); production builds will need either a
   build step for those packages or a bundler — not yet set up.

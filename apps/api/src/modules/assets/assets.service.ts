@@ -1,29 +1,62 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, InternalServerErrorException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { S3Client, PutObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { nanoid } from 'nanoid';
 import { PrismaService } from '../../common/prisma/prisma.service';
 
-// NOTE: this is a stub. It records the intent to upload and returns a
-// placeholder "signed URL" shape so the mobile client can be built against
-// a stable contract now. Wiring a real S3/R2/MinIO signer is a follow-up
-// task (see ADR-001 — object storage provider not yet selected).
 @Injectable()
 export class AssetsService {
-  constructor(private readonly prisma: PrismaService) {}
+  private s3Client: S3Client;
+  private bucket: string;
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
+  ) {
+    const endpoint = this.config.getOrThrow('OBJECT_STORAGE_ENDPOINT');
+    const accessKeyId = this.config.getOrThrow('OBJECT_STORAGE_ACCESS_KEY');
+    const secretAccessKey = this.config.getOrThrow('OBJECT_STORAGE_SECRET_KEY');
+    this.bucket = this.config.getOrThrow('OBJECT_STORAGE_BUCKET');
+
+    this.s3Client = new S3Client({
+      endpoint,
+      region: 'us-east-1',
+      credentials: { accessKeyId, secretAccessKey },
+      forcePathStyle: true,
+    });
+  }
 
   async createUploadTarget(memoryId: string, mimeType: string) {
     const memory = await this.prisma.memory.findUnique({ where: { id: memoryId } });
     if (!memory) throw new NotFoundException('Memory not found');
 
     const objectKey = `memories/${memoryId}/${nanoid()}`;
+    const expiresInSeconds = 900;
 
-    // TODO(object-storage-spike): replace with a real short-lived signed
-    // PUT URL from the chosen provider. Never return a public URL (spec §12).
-    const uploadUrl = `stub://object-storage/${objectKey}?expires=900`;
+    const command = new PutObjectCommand({
+      Bucket: this.bucket,
+      Key: objectKey,
+      ContentType: mimeType,
+    });
 
-    return { objectKey, uploadUrl, mimeType, expiresInSeconds: 900 };
+    const uploadUrl = await getSignedUrl(this.s3Client, command, { expiresIn: expiresInSeconds });
+
+    return { objectKey, uploadUrl, mimeType, expiresInSeconds };
   }
 
   async completeUpload(memoryId: string, objectKey: string, mimeType: string, checksum?: string) {
+    const headCommand = new HeadObjectCommand({
+      Bucket: this.bucket,
+      Key: objectKey,
+    });
+
+    try {
+      await this.s3Client.send(headCommand);
+    } catch (error) {
+      throw new InternalServerErrorException('Object not found in storage');
+    }
+
     return this.prisma.memoryAsset.create({
       data: { memoryId, objectKey, mimeType, checksum, variant: 'original' },
     });
