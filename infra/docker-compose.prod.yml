@@ -14,6 +14,8 @@ volumes:
     name: memory-app-postgres-data
   memory-app-redis-data:
     name: memory-app-redis-data
+  memory-app-minio-data:
+    name: memory-app-minio-data
 
 services:
   postgres:
@@ -51,6 +53,27 @@ services:
       timeout: 5s
       retries: 10
 
+  minio:
+    image: minio/minio:latest
+    container_name: memory-app-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    env_file: .env.production
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - memory-app-minio-data:/data
+    networks:
+      - memory-app-internal
+    ports:
+      - "127.0.0.1:9001:9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   api:
     # Runs both the HTTP API and the BullMQ AI-processing worker in the
     # same process for now (the AiProcessor is registered as a Nest
@@ -69,10 +92,16 @@ services:
       REDIS_PORT: 6379
       PORT: 3000
       NODE_ENV: production
+      OBJECT_STORAGE_ENDPOINT: http://minio:9000
+      OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET}
+      OBJECT_STORAGE_ACCESS_KEY: ${MINIO_ROOT_USER}
+      OBJECT_STORAGE_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      minio:
         condition: service_healthy
     networks:
       - memory-app-internal
