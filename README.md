@@ -137,4 +137,4 @@ See the workflow file for the exact commands it runs.
 
 ---
 
-**Last verified deploy:** 2026-08-23
+**Last verified deploy:** 2026-08-23 (pipeline test - workspace modules verified)
