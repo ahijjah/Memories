@@ -18,13 +18,9 @@
     "forceConsistentCasingInFileNames": true,
     "noFallthroughCasesInSwitch": true,
     "esModuleInterop": true,
-    "lib": ["ES2021"],
-    "paths": {
-      "@memory-app/ai": ["../../packages/ai/src/index.ts"],
-      "@memory-app/domain": ["../../packages/domain/src/index.ts"]
-    }
+    "lib": ["ES2021"]
   },
   "include": ["src/**/*"],
-  "exclude": ["../../packages/**", "node_modules", "dist", "prisma"]
+  "exclude": ["node_modules", "dist", "prisma"]
 }
 

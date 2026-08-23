@@ -9,7 +9,8 @@
   ],
   "scripts": {
     "dev:api": "npm run start:dev --workspace=apps/api",
-    "build:api": "npm run build --workspace=apps/api",
+    "build": "npm run build --workspace=packages/ai && npm run build --workspace=packages/domain && npm run build --workspace=apps/api",
+    "build:api": "npm run build --workspace=packages/ai && npm run build --workspace=packages/domain && npm run build --workspace=apps/api",
     "test:api": "npm run test --workspace=apps/api",
     "lint": "npm run lint --workspace=apps/api",
     "prisma:generate": "npm run prisma:generate --workspace=apps/api",

@@ -17,6 +17,8 @@ COPY apps/api apps/api
 COPY packages packages
 
 RUN npm run prisma:generate --workspace=apps/api
+RUN npm run build --workspace=packages/ai
+RUN npm run build --workspace=packages/domain
 RUN npm run build --workspace=apps/api
 
 FROM node:20-slim AS runner
@@ -34,7 +36,10 @@ RUN npm install --omit=dev
 COPY --from=builder /repo/apps/api/dist apps/api/dist
 COPY --from=builder /repo/apps/api/prisma apps/api/prisma
 COPY --from=builder /repo/node_modules/.prisma node_modules/.prisma
-COPY packages packages
+COPY --from=builder /repo/packages/ai/dist packages/ai/dist
+COPY --from=builder /repo/packages/domain/dist packages/domain/dist
+COPY packages/ai/package.json packages/ai/package.json
+COPY packages/domain/package.json packages/domain/package.json
 
 WORKDIR /repo/apps/api
 EXPOSE 3000
