@@ -58,7 +58,7 @@ services:
     # separate worker container later if AI processing needs to scale
     # independently of HTTP traffic; not needed yet at MVP volume.
     build:
-      context: .
+      context: ..
       dockerfile: apps/api/Dockerfile
     container_name: memory-app-api
     restart: unless-stopped

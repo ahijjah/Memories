@@ -29,3 +29,6 @@ Thumbs.db
 # Prisma
 .env.test
 .prisma/
+
+# Production secrets (belt-and-suspenders, on top of .env* above)
+infra/.env.production
