@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  api:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: memory_app
+          POSTGRES_PASSWORD: memory_app_ci_password
+          POSTGRES_DB: memory_app_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U memory_app -d memory_app_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://memory_app:memory_app_ci_password@localhost:5432/memory_app_test?schema=public
+      REDIS_HOST: localhost
+      REDIS_PORT: 6379
+      JWT_SECRET: ci-test-secret
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run prisma:generate --workspace=apps/api
+
+      - name: Run migrations
+        run: npm run prisma:deploy --workspace=apps/api
+
+      - name: Build workspace packages
+        run: npm run build --workspace=packages/ai && npm run build --workspace=packages/domain
+
+      - name: Lint
+        run: npm run lint --workspace=apps/api
+
+      - name: Build
+        run: npm run build --workspace=apps/api
+
+      - name: Unit tests
+        run: npm run test --workspace=apps/api
