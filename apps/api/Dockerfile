@@ -1,8 +1,9 @@
 # Build context is the monorepo root (see infra/docker-compose.prod.yml:
-# "context: .", "dockerfile: apps/api/Dockerfile") because apps/api
+# "context: ..", "dockerfile: apps/api/Dockerfile") because apps/api
 # depends on the packages/ai workspace package.
 
 FROM node:20-slim AS builder
+RUN apt-get update && apt-get install -y openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /repo
 
 COPY package.json ./
@@ -19,6 +20,7 @@ RUN npm run prisma:generate --workspace=apps/api
 RUN npm run build --workspace=apps/api
 
 FROM node:20-slim AS runner
+RUN apt-get update && apt-get install -y openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /repo
 ENV NODE_ENV=production
 
@@ -31,7 +33,7 @@ RUN npm install --omit=dev
 
 COPY --from=builder /repo/apps/api/dist apps/api/dist
 COPY --from=builder /repo/apps/api/prisma apps/api/prisma
-COPY --from=builder /repo/apps/api/node_modules/.prisma apps/api/node_modules/.prisma
+COPY --from=builder /repo/node_modules/.prisma node_modules/.prisma
 COPY packages packages
 
 WORKDIR /repo/apps/api
