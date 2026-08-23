@@ -134,3 +134,7 @@ See the workflow file for the exact commands it runs.
   build step for those packages or a bundler — not yet set up.
 - No mobile app yet — framework choice (Flutter vs React Native) is an open
   spike per spec §4/§29.
+
+---
+
+**Last verified deploy:** 2026-08-23
