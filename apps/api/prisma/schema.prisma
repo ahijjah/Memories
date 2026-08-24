@@ -21,6 +21,7 @@ datasource db {
 
 model User {
   id          String   @id @default(uuid())
+  clerkUserId String?  @unique
   email       String   @unique
   displayName String?
   locale      String   @default("en")

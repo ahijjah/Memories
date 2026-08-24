@@ -59,34 +59,7 @@ The API listens on `http://localhost:3000`. Swagger docs are at
 
 ### Trying the vertical slice end-to-end
 
-```bash
-# Get a dev token (creates the user if it doesn't exist)
-curl -X POST http://localhost:3000/auth/dev-login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"you@example.com"}'
-# -> { "accessToken": "...", "user": {...} }
-
-# Create a Memory (use the accessToken above)
-curl -X POST http://localhost:3000/memories \
-  -H "Authorization: Bearer <accessToken>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "sourceType": "url",
-    "sourceUri": "https://example.com/some-article",
-    "title": "Interesting article about X",
-    "idempotencyKey": "11111111-1111-1111-1111-111111111111"
-  }'
-# -> Memory created with processingState "queued"
-
-# Poll processing status
-curl http://localhost:3000/memories/<memoryId>/processing-status \
-  -H "Authorization: Bearer <accessToken>"
-# -> processingState moves queued -> processing -> understood (or failed)
-
-# Fetch full detail (original + AI inferences)
-curl http://localhost:3000/memories/<memoryId> \
-  -H "Authorization: Bearer <accessToken>"
-```
+See `docs/testing-with-clerk.md` for instructions on obtaining a Clerk test token and testing the API endpoints.
 
 ## Testing
 
@@ -125,8 +98,6 @@ See the workflow file for the exact commands it runs.
 
 ## Known limitations / follow-ups
 
-- Auth is dev-only JWT; swap for a managed identity provider before any real
-  user data touches this (ADR-001).
 - `packages/ai` and `packages/domain` are consumed via TS path aliases in
   dev (`ts-node` + `tsconfig-paths`); production builds will need either a
   build step for those packages or a bundler — not yet set up.
