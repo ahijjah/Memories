@@ -43,7 +43,11 @@ export class MemoryService {
 
   async findAllForUser(userId: string) {
     return this.prisma.memory.findMany({
-      where: { userId, lifecycleState: { not: 'deleted' } },
+      where: {
+        userId,
+        lifecycleState: { not: 'deleted' },
+        securityScope: { not: 'vault' },
+      },
       orderBy: { capturedAt: 'desc' },
     });
   }
@@ -55,16 +59,22 @@ export class MemoryService {
     });
     if (!memory) throw new NotFoundException('Memory not found');
     this.assertOwnership(memory.userId, userId);
+    if (memory.securityScope === 'vault') {
+      throw new NotFoundException('Memory not found');
+    }
     return memory;
   }
 
   async getProcessingStatus(userId: string, id: string) {
     const memory = await this.prisma.memory.findUnique({
       where: { id },
-      select: { id: true, userId: true, processingState: true, updatedAt: true },
+      select: { id: true, userId: true, processingState: true, updatedAt: true, securityScope: true },
     });
     if (!memory) throw new NotFoundException('Memory not found');
     this.assertOwnership(memory.userId, userId);
+    if (memory.securityScope === 'vault') {
+      throw new NotFoundException('Memory not found');
+    }
     return memory;
   }
 

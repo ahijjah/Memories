@@ -19,12 +19,12 @@ export class SearchService {
     private readonly embeddingService: EmbeddingService,
   ) {}
 
-  async search(query: string, limit: number = 20): Promise<SearchResult[]> {
+  async search(userId: string, query: string, limit: number = 20): Promise<SearchResult[]> {
     // Embed the query
     const queryEmbedding = await this.embeddingService.embed(query, 'query');
     const vectorLiteral = toVectorLiteral(queryEmbedding);
 
-    // Raw SQL similarity search using cosine distance
+    // Raw SQL similarity search using cosine distance, scoped to user's memories
     const results = await this.prisma.$queryRaw<
       {
         id: string;
@@ -38,12 +38,19 @@ export class SearchService {
       SELECT
         m."id",
         m."title",
-        m."summary",
+        summary_inf."valueJson" #>> '{}' AS "summary",
         m."sourceUri",
         e."vector" <=> ${vectorLiteral}::"vector"(1024) AS "distance",
         m."createdAt"
       FROM "embeddings" e
       JOIN "memories" m ON e."memoryId" = m."id"
+      LEFT JOIN LATERAL (
+        SELECT "valueJson" FROM "ai_inferences" ai
+        WHERE ai."memoryId" = m."id" AND ai."field" = 'summary'
+        ORDER BY ai."createdAt" DESC
+        LIMIT 1
+      ) AS summary_inf ON true
+      WHERE m."userId" = ${userId} AND m."lifecycleState" != 'deleted' AND m."securityScope" != 'vault'
       ORDER BY "distance" ASC
       LIMIT ${limit}
     `;

@@ -27,7 +27,25 @@ export interface UnderstandInput {
   sourceUri?: string;
 }
 
+export interface ContextMemory {
+  memoryId: string;
+  title: string;
+  summary: string;
+  sourceUri: string | null;
+}
+
+export interface AnswerWithContextResponse {
+  answer: string;
+  citedMemoryIds: string[];
+}
+
 export interface AiProvider {
   /** §9 AI Processing Contract — title/summary/type/topics extraction. */
   understand(input: UnderstandInput): Promise<MemoryUnderstanding>;
+
+  /** Ask/RAG Contract — answer a question grounded in user's Memories. */
+  answerWithContext(
+    question: string,
+    context: ContextMemory[],
+  ): Promise<AnswerWithContextResponse>;
 }
