@@ -3,13 +3,18 @@ import { Logger } from '@nestjs/common';
 import type { Job } from 'bullmq';
 import { AnthropicAiProvider } from '@memory-app/ai';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { toVectorLiteral } from '../../common/pgvector.util';
+import { EmbeddingService } from './embedding.service';
 import { AI_PROCESSING_QUEUE, AiProcessingJobData } from './ai-queue.service';
 
 @Processor(AI_PROCESSING_QUEUE)
 export class AiProcessor extends WorkerHost {
   private readonly logger = new Logger(AiProcessor.name);
 
-  constructor(private readonly prisma: PrismaService) {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly embeddingService: EmbeddingService,
+  ) {
     super();
   }
 
@@ -81,6 +86,36 @@ export class AiProcessor extends WorkerHost {
           },
         }),
       ]);
+
+      // Generate embedding for semantic search (non-fatal; Memory already understood).
+      try {
+        const embeddingText = `${result.title}\n\n${result.summary}\n\nTopics: ${result.topics.join(', ')}`;
+        const embedding = await this.embeddingService.embed(embeddingText, 'document');
+        const vectorLiteral = toVectorLiteral(embedding);
+        const model = this.embeddingService.getModel();
+
+        await this.prisma.$executeRaw`
+          INSERT INTO "embeddings" ("id", "memoryId", "vector", "provider", "model", "inputType", "createdAt")
+          VALUES (
+            ${crypto.randomUUID()},
+            ${memoryId},
+            ${vectorLiteral}::"vector"(1024),
+            'voyage',
+            ${model},
+            'document',
+            CURRENT_TIMESTAMP
+          )
+          ON CONFLICT ("memoryId") DO UPDATE SET
+            "vector" = EXCLUDED."vector",
+            "model" = EXCLUDED."model",
+            "createdAt" = CURRENT_TIMESTAMP
+        `;
+      } catch (embeddingErr) {
+        this.logger.warn(
+          `Embedding generation failed for Memory ${memoryId}: ${(embeddingErr as Error).message}. Memory is still in 'understood' state.`,
+        );
+        // Non-fatal; do not throw or change Memory state.
+      }
     } catch (err) {
       // Provider failure must not destroy the capture (BR-001, spec §9, §17).
       this.logger.error(`AI understanding failed for Memory ${memoryId}: ${(err as Error).message}`);

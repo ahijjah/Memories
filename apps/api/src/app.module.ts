@@ -7,6 +7,7 @@ import { UsersModule } from './modules/users/users.module';
 import { MemoryModule } from './modules/memory/memory.module';
 import { AssetsModule } from './modules/assets/assets.module';
 import { AiModule } from './modules/ai/ai.module';
+import { SearchModule } from './modules/search/search.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { AiModule } from './modules/ai/ai.module';
     MemoryModule,
     AssetsModule,
     AiModule,
+    SearchModule,
   ],
 })
 export class AppModule {}

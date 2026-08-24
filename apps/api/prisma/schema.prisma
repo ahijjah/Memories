@@ -111,6 +111,7 @@ model Memory {
   assets            MemoryAsset[]
   aiInferences      AIInference[]
   userConfirmations UserConfirmation[]
+  embedding         Embedding?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -167,4 +168,23 @@ model UserConfirmation {
 
   @@index([memoryId, field])
   @@map("user_confirmations")
+}
+
+// ---------------------------------------------------------------------
+// Semantic search via embeddings
+// Vector column uses pgvector; reads/writes via $executeRaw with literal syntax
+// Index: USING hnsw (vector vector_cosine_ops) for fast similarity search
+// ---------------------------------------------------------------------
+
+model Embedding {
+  id        String   @id @default(uuid())
+  memoryId  String   @unique
+  memory    Memory   @relation(fields: [memoryId], references: [id], onDelete: Cascade)
+  vector    Unsupported("vector(1024)")
+  provider  String   // e.g. "voyage"
+  model     String   // e.g. "voyage-4"
+  inputType String   // always "document" for stored Memory embeddings
+  createdAt DateTime @default(now())
+
+  @@map("embeddings")
 }
