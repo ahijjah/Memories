@@ -11,6 +11,8 @@ import { SearchModule } from './modules/search/search.module';
 import { AskModule } from './modules/ask/ask.module';
 import { VaultModule } from './modules/vault/vault.module';
 import { CollectionsModule } from './modules/collections/collections.module';
+import { RemindersModule } from './modules/reminders/reminders.module';
+import { EngagementModule } from './modules/engagement/engagement.module';
 
 @Module({
   imports: [
@@ -31,6 +33,8 @@ import { CollectionsModule } from './modules/collections/collections.module';
     AskModule,
     VaultModule,
     CollectionsModule,
+    RemindersModule,
+    EngagementModule,
   ],
 })
 export class AppModule {}

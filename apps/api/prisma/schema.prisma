@@ -34,6 +34,7 @@ model User {
   memories        Memory[]
   userConfirmations UserConfirmation[]
   collections     Collection[]
+  reminders       Reminder[]
 
   @@map("users")
 }
@@ -114,6 +115,7 @@ model Memory {
   userConfirmations UserConfirmation[]
   embedding         Embedding?
   collections       CollectionMemory[]
+  reminders         Reminder[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -222,4 +224,21 @@ model CollectionMemory {
 
   @@unique([collectionId, memoryId])
   @@map("collection_memories")
+}
+
+model Reminder {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  memoryId  String
+  memory    Memory   @relation(fields: [memoryId], references: [id], onDelete: Cascade)
+  note      String?
+  remindAt  DateTime
+  status    String   @default("pending") // pending | due | dismissed | completed
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status, remindAt])
+  @@map("reminders")
 }
