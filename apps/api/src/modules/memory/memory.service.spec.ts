@@ -1,5 +1,5 @@
 import { Test } from '@nestjs/testing';
-import { ForbiddenException } from '@nestjs/common';
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { MemoryService } from './memory.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AiQueueService } from '../ai/ai-queue.service';
@@ -62,5 +62,21 @@ describe('MemoryService', () => {
     await expect(
       service.create('user-1', { sourceType: 'url', idempotencyKey: 'key-1' } as any),
     ).rejects.toThrow(ForbiddenException);
+  });
+
+  it('throws NotFoundException when retrieving a vault-scoped Memory via findOneForUser', async () => {
+    const vaultMemory = {
+      id: 'mem-1',
+      userId: 'user-1',
+      securityScope: 'vault',
+      assets: [],
+      aiInferences: [],
+      userConfirmations: [],
+    };
+    prismaMock.memory.findUnique.mockResolvedValue(vaultMemory);
+
+    await expect(service.findOneForUser('user-1', 'mem-1')).rejects.toThrow(
+      NotFoundException,
+    );
   });
 });

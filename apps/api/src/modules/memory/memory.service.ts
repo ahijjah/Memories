@@ -59,6 +59,9 @@ export class MemoryService {
     });
     if (!memory) throw new NotFoundException('Memory not found');
     this.assertOwnership(memory.userId, userId);
+    if (memory.securityScope === 'vault') {
+      throw new NotFoundException('Memory not found');
+    }
     return memory;
   }
 
