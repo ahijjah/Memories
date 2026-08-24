@@ -8,6 +8,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 @Injectable()
 export class AssetsService {
   private s3Client: S3Client;
+  private s3PublicClient: S3Client;
   private bucket: string;
 
   constructor(
@@ -15,12 +16,20 @@ export class AssetsService {
     private readonly config: ConfigService,
   ) {
     const endpoint = this.config.getOrThrow('OBJECT_STORAGE_ENDPOINT');
+    const publicEndpoint = this.config.getOrThrow('OBJECT_STORAGE_PUBLIC_ENDPOINT');
     const accessKeyId = this.config.getOrThrow('OBJECT_STORAGE_ACCESS_KEY');
     const secretAccessKey = this.config.getOrThrow('OBJECT_STORAGE_SECRET_KEY');
     this.bucket = this.config.getOrThrow('OBJECT_STORAGE_BUCKET');
 
     this.s3Client = new S3Client({
       endpoint,
+      region: 'us-east-1',
+      credentials: { accessKeyId, secretAccessKey },
+      forcePathStyle: true,
+    });
+
+    this.s3PublicClient = new S3Client({
+      endpoint: publicEndpoint,
       region: 'us-east-1',
       credentials: { accessKeyId, secretAccessKey },
       forcePathStyle: true,
@@ -40,7 +49,7 @@ export class AssetsService {
       ContentType: mimeType,
     });
 
-    const uploadUrl = await getSignedUrl(this.s3Client, command, { expiresIn: expiresInSeconds });
+    const uploadUrl = await getSignedUrl(this.s3PublicClient, command, { expiresIn: expiresInSeconds });
 
     return { objectKey, uploadUrl, mimeType, expiresInSeconds };
   }
