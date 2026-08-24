@@ -52,7 +52,7 @@ export class AskService {
         ORDER BY ai."createdAt" DESC
         LIMIT 1
       ) AS summary_inf ON true
-      WHERE m."userId" = ${userId} AND m."lifecycleState" != 'deleted'
+      WHERE m."userId" = ${userId} AND m."lifecycleState" != 'deleted' AND m."securityScope" != 'vault'
       ORDER BY e."vector" <=> ${vectorLiteral}::"vector"(1024) ASC
       LIMIT 5
     `;

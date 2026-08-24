@@ -98,6 +98,7 @@ See the workflow file for the exact commands it runs.
 
 ## Known limitations / follow-ups
 
+- **Vault:** Currently uses the same Clerk session as normal access — there is no additional step-up re-authentication (e.g. re-entering a password or biometric) before viewing Vault content yet, despite the spec calling for a stricter authorization boundary. The data-isolation half of Vault (exclusion from normal search/list/ask) is implemented and enforced; the re-authentication half is not. Needs a follow-up using Clerk's session freshness / reverification features before this should be considered production-ready for actually sensitive documents.
 - `packages/ai` and `packages/domain` are consumed via TS path aliases in
   dev (`ts-node` + `tsconfig-paths`); production builds will need either a
   build step for those packages or a bundler — not yet set up.

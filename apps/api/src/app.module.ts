@@ -9,6 +9,7 @@ import { AssetsModule } from './modules/assets/assets.module';
 import { AiModule } from './modules/ai/ai.module';
 import { SearchModule } from './modules/search/search.module';
 import { AskModule } from './modules/ask/ask.module';
+import { VaultModule } from './modules/vault/vault.module';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { AskModule } from './modules/ask/ask.module';
     AiModule,
     SearchModule,
     AskModule,
+    VaultModule,
   ],
 })
 export class AppModule {}
