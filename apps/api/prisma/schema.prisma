@@ -33,6 +33,7 @@ model User {
   deviceSessions  DeviceSession[]
   memories        Memory[]
   userConfirmations UserConfirmation[]
+  collections     Collection[]
 
   @@map("users")
 }
@@ -112,6 +113,7 @@ model Memory {
   aiInferences      AIInference[]
   userConfirmations UserConfirmation[]
   embedding         Embedding?
+  collections       CollectionMemory[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -187,4 +189,37 @@ model Embedding {
   createdAt DateTime @default(now())
 
   @@map("embeddings")
+}
+
+// ---------------------------------------------------------------------
+// Collections: user-defined groupings of Memories
+// Vault content (securityScope='vault') cannot be added to Collections
+// as Collections don't yet have their own authorization boundary
+// ---------------------------------------------------------------------
+
+model Collection {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  memories CollectionMemory[]
+
+  @@index([userId])
+  @@map("collections")
+}
+
+model CollectionMemory {
+  id           String     @id @default(uuid())
+  collectionId String
+  collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  memoryId     String
+  memory       Memory     @relation(fields: [memoryId], references: [id], onDelete: Cascade)
+  addedAt      DateTime   @default(now())
+
+  @@unique([collectionId, memoryId])
+  @@map("collection_memories")
 }

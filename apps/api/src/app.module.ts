@@ -8,6 +8,9 @@ import { MemoryModule } from './modules/memory/memory.module';
 import { AssetsModule } from './modules/assets/assets.module';
 import { AiModule } from './modules/ai/ai.module';
 import { SearchModule } from './modules/search/search.module';
+import { AskModule } from './modules/ask/ask.module';
+import { VaultModule } from './modules/vault/vault.module';
+import { CollectionsModule } from './modules/collections/collections.module';
 
 @Module({
   imports: [
@@ -25,6 +28,9 @@ import { SearchModule } from './modules/search/search.module';
     AssetsModule,
     AiModule,
     SearchModule,
+    AskModule,
+    VaultModule,
+    CollectionsModule,
   ],
 })
 export class AppModule {}
