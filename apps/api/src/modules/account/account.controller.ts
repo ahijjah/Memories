@@ -1,6 +1,6 @@
 import { Controller, Get, Delete, Body, UseGuards } from '@nestjs/common';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
-import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { CurrentUser, CurrentUserPayload } from '../../common/decorators/current-user.decorator';
 import { AccountService } from './account.service';
 import { DeleteAccountDto } from './dto/delete-account.dto';
 
@@ -10,15 +10,15 @@ export class AccountController {
   constructor(private readonly accountService: AccountService) {}
 
   @Get('export')
-  async export(@CurrentUser() userId: string) {
-    return this.accountService.export(userId);
+  async export(@CurrentUser() user: CurrentUserPayload) {
+    return this.accountService.export(user.sub);
   }
 
   @Delete()
   async deleteAccount(
-    @CurrentUser() userId: string,
+    @CurrentUser() user: CurrentUserPayload,
     @Body() dto: DeleteAccountDto,
   ) {
-    return this.accountService.deleteAccount(userId, dto.confirmEmail);
+    return this.accountService.deleteAccount(user.sub, dto.confirmEmail);
   }
 }
