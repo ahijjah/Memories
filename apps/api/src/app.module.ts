@@ -13,6 +13,7 @@ import { VaultModule } from './modules/vault/vault.module';
 import { CollectionsModule } from './modules/collections/collections.module';
 import { RemindersModule } from './modules/reminders/reminders.module';
 import { EngagementModule } from './modules/engagement/engagement.module';
+import { AccountModule } from './modules/account/account.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { EngagementModule } from './modules/engagement/engagement.module';
     CollectionsModule,
     RemindersModule,
     EngagementModule,
+    AccountModule,
   ],
 })
 export class AppModule {}
