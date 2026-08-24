@@ -1,5 +1,11 @@
 import Anthropic from '@anthropic-ai/sdk';
-import type { AiProvider, MemoryUnderstanding, UnderstandInput } from './provider.interface';
+import type {
+  AiProvider,
+  MemoryUnderstanding,
+  UnderstandInput,
+  ContextMemory,
+  AnswerWithContextResponse,
+} from './provider.interface';
 
 // Model string is configurable — never hardcode a bare assumption about
 // "the current model" outside of one place. Defaults to a capable,
@@ -49,5 +55,67 @@ export class AnthropicAiProvider implements AiProvider {
     }
 
     return { ...parsed, modelVersion: this.model };
+  }
+
+  async answerWithContext(
+    question: string,
+    context: ContextMemory[],
+  ): Promise<AnswerWithContextResponse> {
+    const contextStr = context
+      .map(
+        (mem, idx) =>
+          `${idx + 1}. [${mem.memoryId}] ${mem.title}\n` +
+          `   Summary: ${mem.summary}\n` +
+          (mem.sourceUri ? `   Source: ${mem.sourceUri}\n` : ''),
+      )
+      .join('\n');
+
+    const systemPrompt = `You are a helpful assistant that answers questions based ONLY on the user's saved Memories provided below.
+You MUST:
+- Only use information present in the provided context
+- Say "I don't have enough saved information to answer that" if the context doesn't contain sufficient information
+- NEVER use general knowledge or information not in the Memories
+- Respond in strict JSON: {"answer": string, "citedMemoryIds": string[]}
+- List only the memory IDs (from brackets like [memory-id]) that you actually cited to answer the question`;
+
+    const userMessage = `Here are my saved Memories:\n\n${contextStr}\n\nQuestion: ${question}`;
+
+    const response = await this.client.messages.create({
+      model: this.model,
+      max_tokens: 1500,
+      system: systemPrompt,
+      messages: [
+        {
+          role: 'user',
+          content: userMessage,
+        },
+      ],
+    });
+
+    const textBlock = response.content.find((block) => block.type === 'text');
+    if (!textBlock || textBlock.type !== 'text') {
+      throw new Error('AI provider returned no text content');
+    }
+
+    let parsed: AnswerWithContextResponse;
+    try {
+      parsed = JSON.parse(textBlock.text.trim());
+    } catch (err) {
+      throw new Error(
+        `AI provider returned unparseable JSON: ${(err as Error).message}`,
+      );
+    }
+
+    if (
+      !parsed.answer ||
+      typeof parsed.answer !== 'string' ||
+      !Array.isArray(parsed.citedMemoryIds)
+    ) {
+      throw new Error(
+        'AI provider response missing or malformed answer/citedMemoryIds',
+      );
+    }
+
+    return parsed;
   }
 }
