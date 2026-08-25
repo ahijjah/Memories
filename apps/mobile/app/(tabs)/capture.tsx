@@ -3,7 +3,6 @@ import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { View, TextInput, TouchableOpacity, Text, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import * as Crypto from 'expo-crypto';
 import * as FileSystem from 'expo-file-system';
 import { v4 as uuidv4 } from 'uuid';
 import { createMemory, createUpload, completeUpload } from '@/src/api/client';
@@ -155,17 +154,9 @@ export default function CaptureScreen() {
         throw new Error(`Upload failed with status ${uploadResponse.status}`);
       }
 
-      // 4. Compute SHA256 checksum from file and complete upload
-      const arrayBuffer = await blob.arrayBuffer();
-      const digestArrayBuffer = await Crypto.digest(
-        Crypto.CryptoDigestAlgorithm.SHA256,
-        arrayBuffer,
-      );
-
-      const digestBytes = new Uint8Array(digestArrayBuffer);
-      const checksum = Array.from(digestBytes)
-        .map(b => b.toString(16).padStart(2, '0'))
-        .join('');
+      // 4. Compute MD5 checksum from file and complete upload
+      const fileInfo = await FileSystem.getInfoAsync(asset.uri, { md5: true });
+      const checksum = fileInfo.exists ? fileInfo.md5 : undefined;
 
       await completeUpload(
         token,
