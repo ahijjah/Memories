@@ -10,6 +10,20 @@ export default function TabsLayout() {
           headerShown: true,
         }}
       />
+      <Tabs.Screen
+        name="capture"
+        options={{
+          title: 'Capture',
+          headerShown: true,
+        }}
+      />
+      <Tabs.Screen
+        name="memories"
+        options={{
+          title: 'Memories',
+          headerShown: true,
+        }}
+      />
     </Tabs>
   );
 }
