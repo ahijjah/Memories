@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { View, TextInput, TouchableOpacity, Text, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as Crypto from 'expo-crypto';
+import * as FileSystem from 'expo-file-system';
 import { v4 as uuidv4 } from 'uuid';
 import { createMemory, createUpload, completeUpload } from '@/src/api/client';
 
@@ -82,7 +83,6 @@ export default function CaptureScreen() {
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: false,
         quality: 1,
-        base64: true,
       });
 
       if (!result.canceled && result.assets[0]) {
@@ -105,7 +105,6 @@ export default function CaptureScreen() {
       const result = await ImagePicker.launchCameraAsync({
         allowsEditing: false,
         quality: 1,
-        base64: true,
       });
 
       if (!result.canceled && result.assets[0]) {
@@ -126,7 +125,7 @@ export default function CaptureScreen() {
       // 1. Create memory record
       const memory = await createMemory(
         token,
-        asset.type === 'video' ? 'camera' : 'camera',
+        'camera',
         idempotencyKey,
         undefined,
         title || `Photo ${new Date().toLocaleString()}`,
@@ -136,27 +135,34 @@ export default function CaptureScreen() {
       const mimeType = asset.mimeType || 'image/jpeg';
       const uploadTarget = await createUpload(token, memory.id, mimeType);
 
-      // 3. Upload image bytes directly to presigned URL
-      if (!asset.base64) {
+      // 3. Read binary image data from file URI and upload directly to presigned URL
+      if (!asset.uri) {
         throw new Error('Failed to get image data');
       }
+
+      const fileResponse = await fetch(asset.uri);
+      const blob = await fileResponse.blob();
 
       const uploadResponse = await fetch(uploadTarget.uploadUrl, {
         method: 'PUT',
         headers: {
           'Content-Type': mimeType,
         },
-        body: asset.base64,
+        body: blob,
       });
 
       if (!uploadResponse.ok) {
         throw new Error(`Upload failed with status ${uploadResponse.status}`);
       }
 
-      // 4. Compute SHA256 checksum and complete upload
+      // 4. Compute SHA256 checksum from file and complete upload
+      const base64Data = await FileSystem.readAsStringAsync(asset.uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
       const checksum = await Crypto.digestStringAsync(
         Crypto.CryptoDigestAlgorithm.SHA256,
-        asset.base64,
+        base64Data,
       );
 
       await completeUpload(
