@@ -61,6 +61,19 @@ export interface SearchResult {
   createdAt: string;
 }
 
+export interface AskSource {
+  memoryId: string;
+  title: string;
+  summary: string;
+  sourceUri: string | null;
+}
+
+export interface AskResponse {
+  answer: string;
+  citedMemoryIds: string[];
+  sources: AskSource[];
+}
+
 async function makeRequest(
   endpoint: string,
   method: string,
@@ -175,4 +188,8 @@ export async function search(token: string | null, query: string): Promise<Searc
   }
 
   return response.json();
+}
+
+export async function ask(token: string | null, question: string): Promise<AskResponse> {
+  return makeRequest('/ask', 'POST', token, { question });
 }

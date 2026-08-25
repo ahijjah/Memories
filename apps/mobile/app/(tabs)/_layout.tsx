@@ -31,6 +31,13 @@ export default function TabsLayout() {
           headerShown: true,
         }}
       />
+      <Tabs.Screen
+        name="ask"
+        options={{
+          title: 'Ask',
+          headerShown: true,
+        }}
+      />
     </Tabs>
   );
 }
