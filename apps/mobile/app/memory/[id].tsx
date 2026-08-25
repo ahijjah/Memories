@@ -3,7 +3,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState, useEffect } from 'react';
 import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity, Modal, Alert } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { fetchMemoryDetail, fetchProcessingStatus, Memory, ProcessingStatus, AIInference, listCollections, addMemoryToCollection } from '@/src/api/client';
+import { fetchMemoryDetail, fetchProcessingStatus, Memory, ProcessingStatus, AIInference, listCollections, addMemoryToCollection, lockMemory } from '@/src/api/client';
 
 export default function MemoryDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -42,6 +42,23 @@ export default function MemoryDetailScreen() {
     },
     onError: (err) => {
       const message = err instanceof Error ? err.message : 'Failed to add memory to collection';
+      Alert.alert('Error', message);
+    },
+  });
+
+  const { mutate: moveToVault, isPending: isLocking } = useMutation({
+    mutationFn: async () => {
+      const token = await getToken();
+      if (!id) throw new Error('Memory ID not found');
+      return lockMemory(token, id);
+    },
+    onSuccess: () => {
+      Alert.alert('Success', 'Memory moved to vault');
+      queryClient.invalidateQueries({ queryKey: ['memories'] });
+      router.push('/(tabs)/memories');
+    },
+    onError: (err) => {
+      const message = err instanceof Error ? err.message : 'Failed to move to vault';
       Alert.alert('Error', message);
     },
   });
@@ -205,6 +222,34 @@ export default function MemoryDetailScreen() {
               </View>
             ))}
           </View>
+        ) : null}
+
+        {/* Move to Vault Button */}
+        {memory.securityScope !== 'vault' ? (
+          <TouchableOpacity
+            onPress={() => {
+              Alert.alert(
+                'Move to Vault?',
+                'This memory will be private and hidden from search, list, and ask results.',
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  {
+                    text: 'Move to Vault',
+                    style: 'destructive',
+                    onPress: () => moveToVault(),
+                  },
+                ],
+              );
+            }}
+            disabled={isLocking}
+            className={`rounded-lg py-3 mb-4 ${isLocking ? 'bg-gray-300' : 'bg-amber-600'}`}
+          >
+            {isLocking ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Text className="text-white text-center font-semibold">Move to Vault</Text>
+            )}
+          </TouchableOpacity>
         ) : null}
 
         {/* Add to Collection Button */}

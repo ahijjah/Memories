@@ -45,6 +45,13 @@ export default function TabsLayout() {
           headerShown: true,
         }}
       />
+      <Tabs.Screen
+        name="vault"
+        options={{
+          title: 'Vault',
+          headerShown: true,
+        }}
+      />
     </Tabs>
   );
 }

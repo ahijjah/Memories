@@ -243,3 +243,19 @@ export async function removeMemoryFromCollection(
 ): Promise<{ success: boolean }> {
   return makeRequest(`/collections/${collectionId}/memories/${memoryId}`, 'DELETE', token);
 }
+
+export async function listVaultMemories(token: string | null): Promise<Memory[]> {
+  return makeRequest('/vault', 'GET', token);
+}
+
+export async function getVaultMemoryDetail(token: string | null, id: string): Promise<Memory> {
+  return makeRequest(`/vault/${id}`, 'GET', token);
+}
+
+export async function lockMemory(token: string | null, memoryId: string): Promise<Memory> {
+  return makeRequest(`/vault/${memoryId}/lock`, 'POST', token);
+}
+
+export async function unlockMemory(token: string | null, memoryId: string): Promise<Memory> {
+  return makeRequest(`/vault/${memoryId}/unlock`, 'POST', token);
+}
