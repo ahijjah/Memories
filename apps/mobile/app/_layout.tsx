@@ -1,6 +1,6 @@
 import { ClerkProvider, useAuth } from "@clerk/clerk-expo";
 import * as SecureStore from 'expo-secure-store';
-import { useSegments, useRouter } from 'expo-router';
+import { useSegments, useRouter, Slot } from 'expo-router';
 import { useEffect } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
@@ -67,7 +67,5 @@ function RootLayoutNav() {
     }
   }, [isSignedIn, segments, isLoaded]);
 
-  // Expo Router uses Error Boundaries to catch unmatched routes and show error UI
-  // We want to do the default behavior when this
-  return null;
+  return <Slot />;
 }
