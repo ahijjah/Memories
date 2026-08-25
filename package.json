@@ -21,8 +21,5 @@
   },
   "engines": {
     "node": ">=20.0.0"
-  },
-  "dependencies": {
-    "react-native-get-random-values": "^2.0.0"
   }
 }
