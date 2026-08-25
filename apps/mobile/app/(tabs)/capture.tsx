@@ -156,14 +156,16 @@ export default function CaptureScreen() {
       }
 
       // 4. Compute SHA256 checksum from file and complete upload
-      const base64Data = await FileSystem.readAsStringAsync(asset.uri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-
-      const checksum = await Crypto.digestStringAsync(
+      const arrayBuffer = await blob.arrayBuffer();
+      const digestArrayBuffer = await Crypto.digest(
         Crypto.CryptoDigestAlgorithm.SHA256,
-        base64Data,
+        arrayBuffer,
       );
+
+      const digestBytes = new Uint8Array(digestArrayBuffer);
+      const checksum = Array.from(digestBytes)
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
 
       await completeUpload(
         token,
