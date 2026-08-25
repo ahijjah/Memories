@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { CurrentUserPayload } from '../../common/decorators/current-user.decorator';
@@ -14,6 +15,7 @@ export class MemoryController {
   constructor(private readonly memoryService: MemoryService) {}
 
   @Post()
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
   async create(@CurrentUser() user: CurrentUserPayload, @Body() dto: CreateMemoryDto) {
     return this.memoryService.create(user.sub, dto);
   }

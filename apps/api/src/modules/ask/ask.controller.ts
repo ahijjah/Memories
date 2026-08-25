@@ -1,4 +1,5 @@
 import { Controller, Post, Body, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { AskService, AskResponse } from './ask.service';
 import { AskQueryDto } from './dto/ask-query.dto';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
@@ -10,6 +11,7 @@ export class AskController {
   constructor(private readonly askService: AskService) {}
 
   @Post()
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   async ask(
     @CurrentUser() user: CurrentUserPayload,
     @Body() dto: AskQueryDto,
