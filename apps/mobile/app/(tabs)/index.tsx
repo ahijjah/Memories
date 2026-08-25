@@ -1,4 +1,4 @@
-import { useAuth, useClerk } from "@clerk/expo";
+import { useAuth, useClerk } from "@clerk/clerk-expo";
 import { useQuery } from '@tanstack/react-query';
 import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
 import { fetchHealth } from '@/src/api/client';

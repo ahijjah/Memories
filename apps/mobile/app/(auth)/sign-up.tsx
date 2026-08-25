@@ -1,4 +1,4 @@
-import { useSignUp } from "@clerk/expo/legacy";
+import { useSignUp } from "@clerk/clerk-expo";
 import { Link, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { View, TextInput, TouchableOpacity, Text, ScrollView, Alert } from 'react-native';
