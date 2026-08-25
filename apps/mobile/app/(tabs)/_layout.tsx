@@ -38,6 +38,13 @@ export default function TabsLayout() {
           headerShown: true,
         }}
       />
+      <Tabs.Screen
+        name="collections"
+        options={{
+          title: 'Collections',
+          headerShown: true,
+        }}
+      />
     </Tabs>
   );
 }

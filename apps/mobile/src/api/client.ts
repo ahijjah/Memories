@@ -193,3 +193,53 @@ export async function search(token: string | null, query: string): Promise<Searc
 export async function ask(token: string | null, question: string): Promise<AskResponse> {
   return makeRequest('/ask', 'POST', token, { question });
 }
+
+export interface Collection {
+  id: string;
+  userId: string;
+  name: string;
+  description?: string;
+  createdAt: string;
+  updatedAt: string;
+  memories?: Array<{ memory: Memory; addedAt: string }>;
+}
+
+export interface CreateCollectionRequest {
+  name: string;
+  description?: string;
+}
+
+export async function listCollections(token: string | null): Promise<Collection[]> {
+  return makeRequest('/collections', 'GET', token);
+}
+
+export async function createCollection(
+  token: string | null,
+  data: CreateCollectionRequest,
+): Promise<Collection> {
+  return makeRequest('/collections', 'POST', token, data);
+}
+
+export async function getCollectionDetail(token: string | null, id: string): Promise<Collection> {
+  return makeRequest(`/collections/${id}`, 'GET', token);
+}
+
+export async function deleteCollection(token: string | null, id: string): Promise<void> {
+  return makeRequest(`/collections/${id}`, 'DELETE', token);
+}
+
+export async function addMemoryToCollection(
+  token: string | null,
+  collectionId: string,
+  memoryId: string,
+): Promise<any> {
+  return makeRequest(`/collections/${collectionId}/memories/${memoryId}`, 'POST', token);
+}
+
+export async function removeMemoryFromCollection(
+  token: string | null,
+  collectionId: string,
+  memoryId: string,
+): Promise<{ success: boolean }> {
+  return makeRequest(`/collections/${collectionId}/memories/${memoryId}`, 'DELETE', token);
+}

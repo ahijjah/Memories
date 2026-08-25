@@ -1,14 +1,16 @@
 import { useAuth } from "@clerk/clerk-expo";
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState, useEffect } from 'react';
-import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity } from 'react-native';
-import { useQuery } from '@tanstack/react-query';
-import { fetchMemoryDetail, fetchProcessingStatus, Memory, ProcessingStatus, AIInference } from '@/src/api/client';
+import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity, Modal, Alert } from 'react-native';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { fetchMemoryDetail, fetchProcessingStatus, Memory, ProcessingStatus, AIInference, listCollections, addMemoryToCollection } from '@/src/api/client';
 
 export default function MemoryDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { getToken } = useAuth();
   const router = useRouter();
+  const queryClient = useQueryClient();
+  const [showCollectionPicker, setShowCollectionPicker] = useState(false);
 
   const { data: memory, isLoading, error, refetch } = useQuery({
     queryKey: ['memory', id],
@@ -16,6 +18,31 @@ export default function MemoryDetailScreen() {
       const token = await getToken();
       if (!id) throw new Error('Memory ID not found');
       return fetchMemoryDetail(token, id);
+    },
+  });
+
+  const { data: collections = [] } = useQuery({
+    queryKey: ['collections'],
+    queryFn: async () => {
+      const token = await getToken();
+      return listCollections(token);
+    },
+  });
+
+  const { mutate: addToCollection, isPending: isAdding } = useMutation({
+    mutationFn: async (collectionId: string) => {
+      const token = await getToken();
+      if (!id) throw new Error('Memory ID not found');
+      return addMemoryToCollection(token, collectionId, id);
+    },
+    onSuccess: () => {
+      Alert.alert('Success', 'Memory added to collection');
+      setShowCollectionPicker(false);
+      queryClient.invalidateQueries({ queryKey: ['collections'] });
+    },
+    onError: (err) => {
+      const message = err instanceof Error ? err.message : 'Failed to add memory to collection';
+      Alert.alert('Error', message);
     },
   });
 
@@ -88,8 +115,9 @@ export default function MemoryDetailScreen() {
   const aiTopics = getFieldValue('topics');
 
   return (
-    <ScrollView className="flex-1 bg-white">
-      <View className="px-6 py-8">
+    <>
+      <ScrollView className="flex-1 bg-white">
+        <View className="px-6 py-8">
         {/* Processing Status */}
         <View className="mb-6 p-4 rounded-lg bg-blue-50">
           <View className="flex-row items-center gap-3">
@@ -179,6 +207,22 @@ export default function MemoryDetailScreen() {
           </View>
         ) : null}
 
+        {/* Add to Collection Button */}
+        {memory.securityScope !== 'vault' ? (
+          <TouchableOpacity
+            onPress={() => setShowCollectionPicker(true)}
+            className="bg-purple-600 rounded-lg py-3 mb-4"
+          >
+            <Text className="text-white text-center font-semibold">Add to Collection</Text>
+          </TouchableOpacity>
+        ) : (
+          <View className="bg-amber-50 rounded-lg py-3 px-4 mb-4">
+            <Text className="text-amber-900 text-center text-sm font-semibold">
+              Vault content cannot be added to collections
+            </Text>
+          </View>
+        )}
+
         {/* Refresh Button */}
         <TouchableOpacity
           onPress={() => {
@@ -197,7 +241,50 @@ export default function MemoryDetailScreen() {
         >
           <Text className="text-gray-900 text-center font-semibold">Back</Text>
         </TouchableOpacity>
-      </View>
-    </ScrollView>
+        </View>
+      </ScrollView>
+
+      {/* Collection Picker Modal */}
+      <Modal visible={showCollectionPicker} animationType="slide" transparent={true}>
+        <View className="flex-1 bg-black/50 justify-end">
+          <View className="bg-white rounded-t-lg max-h-96">
+            <View className="border-b border-gray-200 px-6 py-4">
+              <Text className="text-lg font-semibold text-gray-900">Add to Collection</Text>
+            </View>
+
+            <ScrollView className="px-6 py-4">
+              {collections.length === 0 ? (
+                <Text className="text-gray-600 text-center py-8">
+                  No collections yet. Create one from the Collections tab.
+                </Text>
+              ) : (
+                collections.map((collection) => (
+                  <TouchableOpacity
+                    key={collection.id}
+                    onPress={() => addToCollection(collection.id)}
+                    disabled={isAdding}
+                    className="border border-gray-200 rounded-lg p-4 mb-3"
+                  >
+                    <Text className="text-base font-semibold text-gray-900">
+                      {collection.name}
+                    </Text>
+                  </TouchableOpacity>
+                ))
+              )}
+            </ScrollView>
+
+            <View className="border-t border-gray-200 px-6 py-4">
+              <TouchableOpacity
+                onPress={() => setShowCollectionPicker(false)}
+                disabled={isAdding}
+                className="bg-gray-200 rounded-lg py-3"
+              >
+                <Text className="text-gray-900 text-center font-semibold">Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </>
   );
 }
