@@ -167,3 +167,11 @@ on that VPS — always prefix with `memory-app-`.
 - **VPS SSH:** Allows password login (fail2ban mitigates but doesn't eliminate risk).
 - **Voyage AI rate limit:** Account may be on a restrictive trial-tier limit; worth
   checking before real traffic volume.
+
+## Monorepo dependency hygiene
+This repo shares one root `node_modules` across `apps/api`, `apps/mobile`, `packages/ai`,
+and `packages/domain`. Any root-level `npm install` or `rm -rf node_modules` — even one done
+purely for mobile app reasons — can invalidate `packages/ai`/`packages/domain`'s compiled
+output and the generated Prisma client. After any such install, before trusting `apps/api`'s
+build state, run:
+  npm run prisma:generate && npm run build --workspace=packages/ai && npm run build --workspace=packages/domain
