@@ -1,3 +1,4 @@
+import '../global.css';
 import { ClerkProvider, useAuth } from "@clerk/clerk-expo";
 import * as SecureStore from 'expo-secure-store';
 import { useSegments, useRouter, Slot } from 'expo-router';
