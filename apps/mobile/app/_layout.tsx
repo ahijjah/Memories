@@ -1,8 +1,8 @@
-import { ClerkProvider } from '@clerk/clerk-expo';
+import { ClerkProvider } from "@clerk/expo";
 import * as SecureStore from 'expo-secure-store';
 import { useSegments, useRouter } from 'expo-router';
 import { useEffect } from 'react';
-import { useAuth } from '@clerk/clerk-expo';
+import { useAuth } from "@clerk/expo";
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 const tokenCache = {

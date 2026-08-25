@@ -1,136 +1,7 @@
-import { useAuth, useClerk } from '@clerk/clerk-expo';
+import { useAuth, useClerk } from "@clerk/expo";
 import { useQuery } from '@tanstack/react-query';
-import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
 import { fetchHealth } from '@/src/api/client';
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-  },
-  content: {
-    flex: 1,
-    paddingHorizontal: 24,
-    paddingVertical: 32,
-  },
-  header: {
-    marginBottom: 32,
-  },
-  title: {
-    fontSize: 30,
-    fontWeight: 'bold',
-    color: '#111827',
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#4b5563',
-    marginTop: 8,
-  },
-  statusCard: {
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    borderRadius: 8,
-    padding: 24,
-    marginBottom: 24,
-  },
-  cardTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#111827',
-    marginBottom: 16,
-  },
-  loadingContainer: {
-    alignItems: 'center',
-    paddingVertical: 32,
-  },
-  loadingText: {
-    color: '#4b5563',
-    marginTop: 16,
-  },
-  errorBox: {
-    backgroundColor: '#fef2f2',
-    borderRadius: 8,
-    padding: 16,
-  },
-  errorTitle: {
-    color: '#7f1d1d',
-    fontWeight: '600',
-    marginBottom: 8,
-  },
-  errorText: {
-    color: '#991b1b',
-    fontSize: 14,
-  },
-  successContainer: {
-    gap: 12,
-  },
-  statusRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  statusDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: '#22c55e',
-    marginRight: 12,
-  },
-  statusText: {
-    color: '#111827',
-    fontWeight: '500',
-  },
-  jsonBox: {
-    backgroundColor: '#f3f4f6',
-    borderRadius: 8,
-    padding: 16,
-    marginTop: 16,
-  },
-  jsonText: {
-    fontSize: 12,
-    color: '#4b5563',
-    fontFamily: 'Courier New',
-  },
-  buttonGroup: {
-    gap: 12,
-  },
-  primaryButton: {
-    backgroundColor: '#2563eb',
-    borderRadius: 8,
-    paddingVertical: 12,
-  },
-  secondaryButton: {
-    backgroundColor: '#e5e7eb',
-    borderRadius: 8,
-    paddingVertical: 12,
-  },
-  buttonText: {
-    textAlign: 'center',
-    fontWeight: '600',
-  },
-  primaryButtonText: {
-    color: '#fff',
-  },
-  secondaryButtonText: {
-    color: '#111827',
-  },
-  footer: {
-    marginTop: 32,
-    paddingTop: 32,
-    borderTopWidth: 1,
-    borderTopColor: '#e5e7eb',
-  },
-  footerLabel: {
-    fontSize: 12,
-    color: '#9ca3af',
-    marginBottom: 8,
-  },
-  footerText: {
-    fontSize: 12,
-    color: '#4b5563',
-    fontFamily: 'Courier New',
-    marginBottom: 4,
-  },
-});
 
 export default function HomeScreen() {
   const { getToken } = useAuth();
@@ -153,37 +24,37 @@ export default function HomeScreen() {
   };
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.content}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Welcome to Memories</Text>
-          <Text style={styles.subtitle}>API Connectivity Check</Text>
+    <ScrollView className="flex-1 bg-white">
+      <View className="flex-1 px-6 py-8">
+        <View className="mb-8">
+          <Text className="text-3xl font-bold text-gray-900">Welcome to Memories</Text>
+          <Text className="text-base text-gray-600 mt-2">API Connectivity Check</Text>
         </View>
 
-        <View style={styles.statusCard}>
-          <Text style={styles.cardTitle}>Health Check Status</Text>
+        <View className="rounded-lg border border-gray-200 p-6 mb-6">
+          <Text className="text-lg font-semibold text-gray-900 mb-4">Health Check Status</Text>
 
           {isLoading ? (
-            <View style={styles.loadingContainer}>
+            <View className="items-center py-8">
               <ActivityIndicator size="large" color="#3b82f6" />
-              <Text style={styles.loadingText}>Checking API health...</Text>
+              <Text className="text-gray-600 mt-4">Checking API health...</Text>
             </View>
           ) : error ? (
-            <View style={styles.errorBox}>
-              <Text style={styles.errorTitle}>Error</Text>
-              <Text style={styles.errorText}>
+            <View className="bg-red-50 rounded-lg p-4">
+              <Text className="text-red-900 font-semibold mb-2">Error</Text>
+              <Text className="text-red-700 text-sm">
                 {error instanceof Error ? error.message : 'Failed to check health'}
               </Text>
             </View>
           ) : data ? (
-            <View style={styles.successContainer}>
-              <View style={styles.statusRow}>
-                <View style={styles.statusDot} />
-                <Text style={styles.statusText}>API is reachable</Text>
+            <View className="gap-3">
+              <View className="flex-row items-center">
+                <View className="w-3 h-3 rounded-full bg-green-500 mr-3" />
+                <Text className="text-gray-900 font-medium">API is reachable</Text>
               </View>
 
-              <View style={styles.jsonBox}>
-                <Text style={styles.jsonText}>
+              <View className="bg-gray-50 rounded-lg p-4 mt-4">
+                <Text className="text-xs text-gray-600 font-mono">
                   {JSON.stringify(data, null, 2)}
                 </Text>
               </View>
@@ -191,28 +62,28 @@ export default function HomeScreen() {
           ) : null}
         </View>
 
-        <View style={styles.buttonGroup}>
+        <View className="gap-3">
           <TouchableOpacity
             onPress={handleRefresh}
             disabled={isLoading}
-            style={styles.primaryButton}
+            className="bg-blue-600 rounded-lg py-3"
           >
-            <Text style={[styles.buttonText, styles.primaryButtonText]}>
+            <Text className="text-white text-center font-semibold">
               {isLoading ? 'Checking...' : 'Refresh Health Check'}
             </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             onPress={handleSignOut}
-            style={styles.secondaryButton}
+            className="bg-gray-200 rounded-lg py-3"
           >
-            <Text style={[styles.buttonText, styles.secondaryButtonText]}>Sign Out</Text>
+            <Text className="text-gray-900 text-center font-semibold">Sign Out</Text>
           </TouchableOpacity>
         </View>
 
-        <View style={styles.footer}>
-          <Text style={styles.footerLabel}>Environment Info:</Text>
-          <Text style={styles.footerText}>
+        <View className="mt-8 pt-8 border-t border-gray-200">
+          <Text className="text-xs text-gray-500 mb-2">Environment Info:</Text>
+          <Text className="text-xs text-gray-600 font-mono mb-1">
             API URL: {process.env.EXPO_PUBLIC_API_URL || 'Not set'}
           </Text>
         </View>

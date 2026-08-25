@@ -1,75 +1,7 @@
-import { useSignUp } from '@clerk/clerk-expo';
+import { useSignUp } from "@clerk/expo/legacy";
 import { Link, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { View, TextInput, TouchableOpacity, Text, ScrollView, Alert, StyleSheet } from 'react-native';
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-  },
-  content: {
-    flex: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 48,
-  },
-  header: {
-    marginBottom: 32,
-  },
-  title: {
-    fontSize: 30,
-    fontWeight: 'bold',
-    color: '#111827',
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#4b5563',
-  },
-  inputGroup: {
-    marginBottom: 16,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#374151',
-    marginBottom: 4,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: '#d1d5db',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 16,
-  },
-  button: {
-    marginTop: 32,
-    backgroundColor: '#2563eb',
-    borderRadius: 8,
-    paddingVertical: 12,
-  },
-  buttonText: {
-    color: '#fff',
-    textAlign: 'center',
-    fontWeight: '600',
-    fontSize: 16,
-  },
-  footer: {
-    marginTop: 24,
-    flexDirection: 'row',
-    justifyContent: 'center',
-  },
-  footerText: {
-    color: '#4b5563',
-    marginRight: 8,
-  },
-  link: {
-    color: '#2563eb',
-    fontWeight: '600',
-  },
-});
+import { View, TextInput, TouchableOpacity, Text, ScrollView, Alert } from 'react-native';
 
 export default function SignUp() {
   const { signUp, setActive, isLoaded } = useSignUp();
@@ -104,35 +36,35 @@ export default function SignUp() {
   };
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.content}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Create Account</Text>
-          <Text style={styles.subtitle}>Join Memories today</Text>
+    <ScrollView className="flex-1 bg-white">
+      <View className="flex-1 justify-center px-6 py-12">
+        <View className="mb-8">
+          <Text className="text-3xl font-bold text-gray-900 mb-2">Create Account</Text>
+          <Text className="text-base text-gray-600">Join Memories today</Text>
         </View>
 
         <View>
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Email</Text>
+          <View className="mb-4">
+            <Text className="text-sm font-medium text-gray-700 mb-1">Email</Text>
             <TextInput
               autoCapitalize="none"
               value={emailAddress}
               placeholder="Enter your email"
               onChangeText={setEmailAddress}
-              style={styles.input}
+              className="border border-gray-300 rounded-lg px-4 py-3 text-base"
               editable={!loading}
               placeholderTextColor="#999"
             />
           </View>
 
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Password</Text>
+          <View className="mb-4">
+            <Text className="text-sm font-medium text-gray-700 mb-1">Password</Text>
             <TextInput
               value={password}
               placeholder="Create a password"
               onChangeText={setPassword}
               secureTextEntry
-              style={styles.input}
+              className="border border-gray-300 rounded-lg px-4 py-3 text-base"
               editable={!loading}
               placeholderTextColor="#999"
             />
@@ -142,18 +74,18 @@ export default function SignUp() {
         <TouchableOpacity
           onPress={onSignUpPress}
           disabled={loading}
-          style={styles.button}
+          className="mt-8 bg-blue-600 rounded-lg py-3"
         >
-          <Text style={styles.buttonText}>
+          <Text className="text-white text-center font-semibold text-base">
             {loading ? 'Creating Account...' : 'Sign Up'}
           </Text>
         </TouchableOpacity>
 
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>Already have an account? </Text>
+        <View className="mt-6 flex-row justify-center">
+          <Text className="text-gray-600 mr-2">Already have an account? </Text>
           <Link href="/(auth)/sign-in" asChild>
             <TouchableOpacity>
-              <Text style={styles.link}>Sign In</Text>
+              <Text className="text-blue-600 font-semibold">Sign In</Text>
             </TouchableOpacity>
           </Link>
         </View>

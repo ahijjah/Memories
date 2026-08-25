@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "index.ts",
   "dependencies": {
-    "@clerk/clerk-expo": "^2.20.0",
+    "@clerk/expo": "^3.7.8",
     "@tanstack/react-query": "^5.102.3",
     "expo": "~57.0.16",
     "expo-router": "^57.0.16",
