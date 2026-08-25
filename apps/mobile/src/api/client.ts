@@ -52,6 +52,15 @@ export interface ProcessingStatus {
   securityScope: string;
 }
 
+export interface SearchResult {
+  id: string;
+  title: string;
+  summary: string;
+  sourceUri: string | null;
+  distance: number;
+  createdAt: string;
+}
+
 async function makeRequest(
   endpoint: string,
   method: string,
@@ -140,4 +149,30 @@ export async function completeUpload(
     mimeType,
     checksum,
   });
+}
+
+export async function search(token: string | null, query: string): Promise<SearchResult[]> {
+  const apiUrl = process.env.EXPO_PUBLIC_API_URL;
+  if (!apiUrl) {
+    throw new Error('Missing EXPO_PUBLIC_API_URL environment variable');
+  }
+
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+  };
+
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const response = await fetch(`${apiUrl}/search?query=${encodeURIComponent(query)}`, {
+    method: 'GET',
+    headers,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Search failed with status ${response.status}`);
+  }
+
+  return response.json();
 }
