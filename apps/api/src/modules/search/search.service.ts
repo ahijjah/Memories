@@ -12,6 +12,8 @@ export interface SearchResult {
   createdAt: Date;
 }
 
+const MAX_DISTANCE_THRESHOLD = 0.5;
+
 @Injectable()
 export class SearchService {
   constructor(
@@ -50,7 +52,7 @@ export class SearchService {
         ORDER BY ai."createdAt" DESC
         LIMIT 1
       ) AS summary_inf ON true
-      WHERE m."userId" = ${userId} AND m."lifecycleState" != 'deleted' AND m."securityScope" != 'vault'
+      WHERE m."userId" = ${userId} AND m."lifecycleState" != 'deleted' AND m."securityScope" != 'vault' AND e."vector" <=> ${vectorLiteral}::"vector"(1024) < ${MAX_DISTANCE_THRESHOLD}
       ORDER BY "distance" ASC
       LIMIT ${limit}
     `;
