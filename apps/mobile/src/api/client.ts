@@ -259,3 +259,45 @@ export async function lockMemory(token: string | null, memoryId: string): Promis
 export async function unlockMemory(token: string | null, memoryId: string): Promise<Memory> {
   return makeRequest(`/vault/${memoryId}/unlock`, 'POST', token);
 }
+
+export interface Reminder {
+  id: string;
+  userId: string;
+  memoryId: string;
+  note?: string;
+  remindAt: string;
+  status: 'pending' | 'due' | 'dismissed' | 'completed';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateReminderRequest {
+  memoryId: string;
+  remindAt: string;
+  note?: string;
+}
+
+export async function listReminders(token: string | null, status?: string): Promise<Reminder[]> {
+  const params = status ? `?status=${encodeURIComponent(status)}` : '';
+  return makeRequest(`/reminders${params}`, 'GET', token);
+}
+
+export async function createReminder(token: string | null, data: CreateReminderRequest): Promise<Reminder> {
+  return makeRequest('/reminders', 'POST', token, data);
+}
+
+export async function updateReminderStatus(
+  token: string | null,
+  reminderId: string,
+  status: string,
+): Promise<Reminder> {
+  return makeRequest(`/reminders/${reminderId}`, 'PATCH', token, { status });
+}
+
+export async function deleteReminder(token: string | null, reminderId: string): Promise<void> {
+  return makeRequest(`/reminders/${reminderId}`, 'DELETE', token);
+}
+
+export async function getRediscoveryMemories(token: string | null): Promise<Memory[]> {
+  return makeRequest('/engagement/rediscover', 'GET', token);
+}

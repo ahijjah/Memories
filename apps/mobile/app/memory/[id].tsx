@@ -1,9 +1,10 @@
 import { useAuth } from "@clerk/clerk-expo";
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState, useEffect } from 'react';
-import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity, Modal, Alert } from 'react-native';
+import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity, Modal, Alert, TextInput } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { fetchMemoryDetail, fetchProcessingStatus, Memory, ProcessingStatus, AIInference, listCollections, addMemoryToCollection, lockMemory } from '@/src/api/client';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { fetchMemoryDetail, fetchProcessingStatus, Memory, ProcessingStatus, AIInference, listCollections, addMemoryToCollection, lockMemory, createReminder } from '@/src/api/client';
 
 export default function MemoryDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -11,6 +12,11 @@ export default function MemoryDetailScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [showCollectionPicker, setShowCollectionPicker] = useState(false);
+  const [showReminderModal, setShowReminderModal] = useState(false);
+  const [reminderDate, setReminderDate] = useState(new Date());
+  const [reminderNote, setReminderNote] = useState('');
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showTimePicker, setShowTimePicker] = useState(false);
 
   const { data: memory, isLoading, error, refetch } = useQuery({
     queryKey: ['memory', id],
@@ -59,6 +65,29 @@ export default function MemoryDetailScreen() {
     },
     onError: (err) => {
       const message = err instanceof Error ? err.message : 'Failed to move to vault';
+      Alert.alert('Error', message);
+    },
+  });
+
+  const { mutate: setReminder, isPending: isSettingReminder } = useMutation({
+    mutationFn: async () => {
+      const token = await getToken();
+      if (!id) throw new Error('Memory ID not found');
+      return createReminder(token, {
+        memoryId: id,
+        remindAt: reminderDate.toISOString(),
+        note: reminderNote.trim() || undefined,
+      });
+    },
+    onSuccess: () => {
+      Alert.alert('Success', 'Reminder set');
+      setShowReminderModal(false);
+      setReminderNote('');
+      setReminderDate(new Date());
+      queryClient.invalidateQueries({ queryKey: ['reminders'] });
+    },
+    onError: (err) => {
+      const message = err instanceof Error ? err.message : 'Failed to set reminder';
       Alert.alert('Error', message);
     },
   });
@@ -224,6 +253,16 @@ export default function MemoryDetailScreen() {
           </View>
         ) : null}
 
+        {/* Set Reminder Button */}
+        {memory.securityScope !== 'vault' ? (
+          <TouchableOpacity
+            onPress={() => setShowReminderModal(true)}
+            className="bg-orange-600 rounded-lg py-3 mb-4"
+          >
+            <Text className="text-white text-center font-semibold">Set Reminder</Text>
+          </TouchableOpacity>
+        ) : null}
+
         {/* Move to Vault Button */}
         {memory.securityScope !== 'vault' ? (
           <TouchableOpacity
@@ -289,7 +328,119 @@ export default function MemoryDetailScreen() {
         </View>
       </ScrollView>
 
-      {/* Collection Picker Modal */}
+      {/* Reminder Modal */}
+      <Modal visible={showReminderModal} animationType="slide" transparent={true}>
+        <View className="flex-1 bg-black/50 justify-end">
+          <View className="bg-white rounded-t-lg px-6 py-6">
+            <Text className="text-xl font-semibold text-gray-900 mb-4">Set Reminder</Text>
+
+            {/* Date Picker */}
+            <View className="mb-4">
+              <Text className="text-sm font-medium text-gray-700 mb-2">Date</Text>
+              <TouchableOpacity
+                onPress={() => setShowDatePicker(true)}
+                className="border border-gray-300 rounded-lg px-4 py-3"
+              >
+                <Text className="text-base text-gray-900">
+                  {reminderDate.toLocaleDateString()}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Time Picker */}
+            <View className="mb-4">
+              <Text className="text-sm font-medium text-gray-700 mb-2">Time</Text>
+              <TouchableOpacity
+                onPress={() => setShowTimePicker(true)}
+                className="border border-gray-300 rounded-lg px-4 py-3"
+              >
+                <Text className="text-base text-gray-900">
+                  {reminderDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Note Input */}
+            <View className="mb-6">
+              <Text className="text-sm font-medium text-gray-700 mb-2">Note (optional)</Text>
+              <TextInput
+                value={reminderNote}
+                placeholder="Add a note for this reminder"
+                onChangeText={setReminderNote}
+                multiline
+                numberOfLines={2}
+                editable={!isSettingReminder}
+                className="border border-gray-300 rounded-lg px-4 py-3 text-base"
+                placeholderTextColor="#999"
+              />
+            </View>
+
+            <View className="flex-row gap-3">
+              <TouchableOpacity
+                onPress={() => {
+                  setShowReminderModal(false);
+                  setReminderNote('');
+                  setReminderDate(new Date());
+                }}
+                disabled={isSettingReminder}
+                className="flex-1 bg-gray-200 rounded-lg py-3"
+              >
+                <Text className="text-gray-900 text-center font-semibold">Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => setReminder()}
+                disabled={isSettingReminder}
+                className={`flex-1 rounded-lg py-3 ${isSettingReminder ? 'bg-gray-300' : 'bg-orange-600'}`}
+              >
+                {isSettingReminder ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text className="text-white text-center font-semibold">Set Reminder</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Date Time Pickers */}
+      {showDatePicker && (
+        <DateTimePicker
+          value={reminderDate}
+          mode="date"
+          display="default"
+          onChange={(event, selectedDate) => {
+            if (selectedDate) {
+              const newDate = new Date(reminderDate);
+              newDate.setFullYear(selectedDate.getFullYear());
+              newDate.setMonth(selectedDate.getMonth());
+              newDate.setDate(selectedDate.getDate());
+              setReminderDate(newDate);
+            }
+            setShowDatePicker(false);
+          }}
+        />
+      )}
+
+      {showTimePicker && (
+        <DateTimePicker
+          value={reminderDate}
+          mode="time"
+          display="default"
+          onChange={(event, selectedDate) => {
+            if (selectedDate) {
+              const newDate = new Date(reminderDate);
+              newDate.setHours(selectedDate.getHours());
+              newDate.setMinutes(selectedDate.getMinutes());
+              setReminderDate(newDate);
+            }
+            setShowTimePicker(false);
+          }}
+        />
+      )}
+
+    {/* Collection Picker Modal */}
       <Modal visible={showCollectionPicker} animationType="slide" transparent={true}>
         <View className="flex-1 bg-black/50 justify-end">
           <View className="bg-white rounded-t-lg max-h-96">

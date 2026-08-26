@@ -52,6 +52,13 @@ export default function TabsLayout() {
           headerShown: true,
         }}
       />
+      <Tabs.Screen
+        name="reminders"
+        options={{
+          title: 'Reminders',
+          headerShown: true,
+        }}
+      />
     </Tabs>
   );
 }
