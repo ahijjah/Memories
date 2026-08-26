@@ -175,3 +175,11 @@ purely for mobile app reasons — can invalidate `packages/ai`/`packages/domain`
 output and the generated Prisma client. After any such install, before trusting `apps/api`'s
 build state, run:
   npm run prisma:generate && npm run build --workspace=packages/ai && npm run build --workspace=packages/domain
+
+## RECURRING FAILURE MODE: broken package-lock.json (happened 3x)
+Every dependency change in this repo MUST be followed by, in this exact order:
+  1. npm install   (from repo root, never scoped to a single workspace)
+  2. rm -rf node_modules && npm ci   (the strict check — this is what CI actually runs)
+Do NOT consider any commit that touches a package.json complete until step 2 passes clean.
+`npm install` succeeding is NOT sufficient proof — it is lenient and has silently produced a
+broken lockfile multiple times in this repo's history. Only `npm ci` passing is real proof.
