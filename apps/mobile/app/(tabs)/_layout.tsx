@@ -11,20 +11,6 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="capture"
-        options={{
-          title: 'Capture',
-          headerShown: true,
-        }}
-      />
-      <Tabs.Screen
-        name="memories"
-        options={{
-          title: 'Memories',
-          headerShown: true,
-        }}
-      />
-      <Tabs.Screen
         name="search"
         options={{
           title: 'Search',
@@ -39,20 +25,6 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="collections"
-        options={{
-          title: 'Collections',
-          headerShown: true,
-        }}
-      />
-      <Tabs.Screen
-        name="vault"
-        options={{
-          title: 'Vault',
-          headerShown: true,
-        }}
-      />
-      <Tabs.Screen
         name="reminders"
         options={{
           title: 'Reminders',
@@ -60,9 +32,9 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="account"
+        name="more"
         options={{
-          title: 'Account',
+          title: 'More',
           headerShown: true,
         }}
       />

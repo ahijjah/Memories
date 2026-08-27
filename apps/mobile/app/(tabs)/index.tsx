@@ -1,9 +1,11 @@
 import { useAuth, useClerk } from "@clerk/clerk-expo";
+import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
 import { fetchHealth } from '@/src/api/client';
 
 export default function HomeScreen() {
+  const router = useRouter();
   const { getToken } = useAuth();
   const { signOut } = useClerk();
 
@@ -24,8 +26,9 @@ export default function HomeScreen() {
   };
 
   return (
-    <ScrollView className="flex-1 bg-white">
-      <View className="flex-1 px-6 py-8">
+    <View className="flex-1 bg-white relative">
+      <ScrollView className="flex-1">
+        <View className="px-6 py-8">
         <View className="mb-8">
           <Text className="text-3xl font-bold text-gray-900">Welcome to Memories</Text>
           <Text className="text-base text-gray-600 mt-2">API Connectivity Check</Text>
@@ -88,6 +91,15 @@ export default function HomeScreen() {
           </Text>
         </View>
       </View>
-    </ScrollView>
+      </ScrollView>
+
+      <TouchableOpacity
+        onPress={() => router.push('/(tabs)/capture')}
+        className="absolute bottom-6 right-6 w-16 h-16 rounded-full bg-blue-600 items-center justify-center shadow-lg"
+        style={{ elevation: 5 }}
+      >
+        <Text className="text-white text-3xl font-bold">+</Text>
+      </TouchableOpacity>
+    </View>
   );
 }
