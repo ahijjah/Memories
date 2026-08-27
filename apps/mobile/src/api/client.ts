@@ -301,3 +301,27 @@ export async function deleteReminder(token: string | null, reminderId: string): 
 export async function getRediscoveryMemories(token: string | null): Promise<Memory[]> {
   return makeRequest('/engagement/rediscover', 'GET', token);
 }
+
+export interface AccountExportData {
+  user: {
+    id: string;
+    email: string;
+    displayName?: string;
+    locale?: string;
+    plan?: string;
+    preferences?: any;
+    createdAt: string;
+    updatedAt: string;
+  };
+  memories: Memory[];
+  collections: Collection[];
+  reminders: Reminder[];
+}
+
+export async function exportAccountData(token: string | null): Promise<AccountExportData> {
+  return makeRequest('/account/export', 'GET', token);
+}
+
+export async function deleteAccount(token: string | null, confirmEmail: string): Promise<{ deleted: boolean; assetCleanupFailures: number }> {
+  return makeRequest('/account', 'DELETE', token, { confirmEmail });
+}

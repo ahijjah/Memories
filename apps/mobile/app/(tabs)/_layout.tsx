@@ -59,6 +59,13 @@ export default function TabsLayout() {
           headerShown: true,
         }}
       />
+      <Tabs.Screen
+        name="account"
+        options={{
+          title: 'Account',
+          headerShown: true,
+        }}
+      />
     </Tabs>
   );
 }
