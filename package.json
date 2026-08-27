@@ -22,8 +22,7 @@
   "engines": {
     "node": ">=20.0.0"
   },
-  "dependencies": {
-    "@react-native-community/datetimepicker": "^9.1.0",
-    "expo-sharing": "^57.0.16"
+  "overrides": {
+    "typescript": "^5.9.3"
   }
 }
