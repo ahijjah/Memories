@@ -38,6 +38,46 @@ export default function TabsLayout() {
           headerShown: true,
         }}
       />
+      <Tabs.Screen
+        name="capture"
+        options={{
+          href: null,
+          title: 'Capture',
+          headerShown: true,
+        }}
+      />
+      <Tabs.Screen
+        name="memories"
+        options={{
+          href: null,
+          title: 'Memories',
+          headerShown: true,
+        }}
+      />
+      <Tabs.Screen
+        name="collections"
+        options={{
+          href: null,
+          title: 'Collections',
+          headerShown: true,
+        }}
+      />
+      <Tabs.Screen
+        name="vault"
+        options={{
+          href: null,
+          title: 'Vault',
+          headerShown: true,
+        }}
+      />
+      <Tabs.Screen
+        name="account"
+        options={{
+          href: null,
+          title: 'Account',
+          headerShown: true,
+        }}
+      />
     </Tabs>
   );
 }
