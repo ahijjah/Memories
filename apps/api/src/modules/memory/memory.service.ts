@@ -36,7 +36,13 @@ export class MemoryService {
 
     // Capture success is independent of AI success (BR-001, FR-CAP-003):
     // enqueue is fire-and-forget from the caller's perspective.
-    await this.aiQueue.enqueueUnderstanding(memory.id);
+    // For image/camera/screenshot sourceTypes, defer enqueue until asset is uploaded
+    // (assets.service.ts's completeUpload will trigger it). For text/url sources,
+    // enqueue immediately since no asset upload is required.
+    const requiresAsset = ['image', 'camera', 'screenshot'].includes(memory.sourceType);
+    if (!requiresAsset) {
+      await this.aiQueue.enqueueUnderstanding(memory.id);
+    }
 
     return memory;
   }
