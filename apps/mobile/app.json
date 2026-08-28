@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Memories",
-    "slug": "memories-mobile",
+    "slug": "memories",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -24,6 +24,12 @@
     "plugins": [
       "expo-sharing",
       "@react-native-community/datetimepicker"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "64040033-e81b-4c4f-ae54-8d54e785bae5"
+      }
+    },
+    "owner": "ahijjahs-team"
   }
 }
