@@ -3,9 +3,9 @@ import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { View, TextInput, TouchableOpacity, Text, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system/legacy';
 import { v4 as uuidv4 } from 'uuid';
-import { createMemory, createUpload, completeUpload } from '@/src/api/client';
+import { createMemory } from '@/src/api/client';
+import { uploadPhotoToMemory } from '@/src/utils/photo-upload';
 
 type CaptureMode = 'text' | 'url' | 'photo';
 
@@ -119,50 +119,19 @@ export default function CaptureScreen() {
     setError('');
     try {
       const token = await getToken();
-      const idempotencyKey = uuidv4();
+      if (!token || !asset.uri) {
+        throw new Error('Authentication or image data missing');
+      }
 
-      // 1. Create memory record
-      const memory = await createMemory(
+      const mimeType = asset.mimeType || 'image/jpeg';
+      const memoryId = await uploadPhotoToMemory(
         token,
-        'camera',
-        idempotencyKey,
-        undefined,
+        asset.uri,
+        mimeType,
         title || `Photo ${new Date().toLocaleString()}`,
       );
 
-      // 2. Get upload target
-      const mimeType = asset.mimeType || 'image/jpeg';
-      const uploadTarget = await createUpload(token, memory.id, mimeType);
-
-      // 3. Read binary image data from file URI and upload directly to presigned URL
-      if (!asset.uri) {
-        throw new Error('Failed to get image data');
-      }
-
-      const uploadResult = await FileSystem.uploadAsync(uploadTarget.uploadUrl, asset.uri, {
-        httpMethod: 'PUT',
-        headers: {
-          'Content-Type': mimeType,
-        },
-      });
-
-      if (uploadResult.status !== 200) {
-        throw new Error(`Upload failed with status ${uploadResult.status}`);
-      }
-
-      // 4. Compute MD5 checksum from file and complete upload
-      const fileInfo = await FileSystem.getInfoAsync(asset.uri, { md5: true });
-      const checksum = fileInfo.exists ? fileInfo.md5 : undefined;
-
-      await completeUpload(
-        token,
-        memory.id,
-        uploadTarget.objectKey,
-        uploadTarget.mimeType,
-        checksum,
-      );
-
-      router.push(`/memory/${memory.id}`);
+      router.push(`/memory/${memoryId}`);
     } catch (err: any) {
       setError(err.message || 'Failed to upload photo');
     } finally {
