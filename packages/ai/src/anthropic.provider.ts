@@ -28,6 +28,32 @@ export class AnthropicAiProvider implements AiProvider {
   }
 
   async understand(input: UnderstandInput): Promise<MemoryUnderstanding> {
+    // Build multimodal content when image is present
+    let content: string | any[];
+    if (input.imageBase64 && input.imageMediaType) {
+      content = [
+        {
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: input.imageMediaType,
+            data: input.imageBase64,
+          },
+        },
+        {
+          type: 'text',
+          text: input.sourceUri
+            ? `Source: ${input.sourceUri}\n\nCaption/Context:\n${input.text}`
+            : `Content:\n${input.text}`,
+        },
+      ];
+    } else {
+      // Text-only content
+      content = input.sourceUri
+        ? `Source: ${input.sourceUri}\n\nContent:\n${input.text}`
+        : input.text;
+    }
+
     const response = await this.client.messages.create({
       model: this.model,
       max_tokens: 1000,
@@ -35,9 +61,7 @@ export class AnthropicAiProvider implements AiProvider {
       messages: [
         {
           role: 'user',
-          content: input.sourceUri
-            ? `Source: ${input.sourceUri}\n\nContent:\n${input.text}`
-            : input.text,
+          content,
         },
       ],
     });

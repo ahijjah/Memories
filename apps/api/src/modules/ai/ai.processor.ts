@@ -1,5 +1,7 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import type { Job } from 'bullmq';
 import { AnthropicAiProvider } from '@memory-app/ai';
 import { PrismaService } from '../../common/prisma/prisma.service';
@@ -10,12 +12,77 @@ import { AI_PROCESSING_QUEUE, AiProcessingJobData } from './ai-queue.service';
 @Processor(AI_PROCESSING_QUEUE)
 export class AiProcessor extends WorkerHost {
   private readonly logger = new Logger(AiProcessor.name);
+  private s3Client: S3Client;
+  private bucket: string;
+  private readonly MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10 MB
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly embeddingService: EmbeddingService,
+    private readonly config: ConfigService,
   ) {
     super();
+    const endpoint = this.config.getOrThrow('OBJECT_STORAGE_ENDPOINT');
+    const accessKeyId = this.config.getOrThrow('OBJECT_STORAGE_ACCESS_KEY');
+    const secretAccessKey = this.config.getOrThrow('OBJECT_STORAGE_SECRET_KEY');
+    this.bucket = this.config.getOrThrow('OBJECT_STORAGE_BUCKET');
+
+    this.s3Client = new S3Client({
+      endpoint,
+      region: 'us-east-1',
+      credentials: { accessKeyId, secretAccessKey },
+      forcePathStyle: true,
+    });
+  }
+
+  private async fetchImageAsBase64(
+    objectKey: string,
+  ): Promise<{ base64: string; mediaType: string } | null> {
+    try {
+      const command = new GetObjectCommand({
+        Bucket: this.bucket,
+        Key: objectKey,
+      });
+
+      const response = await this.s3Client.send(command);
+
+      if (!response.Body) {
+        this.logger.warn(`No body in S3 response for ${objectKey}`);
+        return null;
+      }
+
+      // Check size before processing
+      if (response.ContentLength && response.ContentLength > this.MAX_IMAGE_SIZE) {
+        this.logger.warn(
+          `Image size ${response.ContentLength} exceeds limit of ${this.MAX_IMAGE_SIZE} for ${objectKey}`,
+        );
+        return null;
+      }
+
+      // Read stream into buffer
+      const chunks: Buffer[] = [];
+      return new Promise((resolve, reject) => {
+        const stream = response.Body as any; // Body is a Node.js Readable stream
+        stream.on('data', (chunk: Buffer) => {
+          chunks.push(chunk);
+        });
+        stream.on('end', () => {
+          const buffer = Buffer.concat(chunks);
+          const base64 = buffer.toString('base64');
+          const mediaType = response.ContentType || 'application/octet-stream';
+          resolve({ base64, mediaType });
+        });
+        stream.on('error', (err: Error) => {
+          this.logger.warn(`Stream error reading ${objectKey}: ${err.message}`);
+          reject(err);
+        });
+      });
+    } catch (err) {
+      this.logger.warn(
+        `Failed to fetch image from S3 (${objectKey}): ${(err as Error).message}`,
+      );
+      return null;
+    }
   }
 
   async process(job: Job<AiProcessingJobData>): Promise<void> {
@@ -40,9 +107,40 @@ export class AiProcessor extends WorkerHost {
 
       const provider = new AnthropicAiProvider(apiKey);
       const inputText = memory.title ?? memory.sourceUri ?? '(no text content captured)';
+
+      // Check if this is an image/camera capture with assets
+      let imageBase64: string | undefined;
+      let imageMediaType: string | undefined;
+      const isImageSource = ['image', 'camera', 'screenshot'].includes(memory.sourceType);
+
+      if (isImageSource) {
+        // Fetch associated asset(s) for vision analysis
+        const assets = await this.prisma.memoryAsset.findMany({
+          where: { memoryId },
+        });
+
+        if (assets.length > 0) {
+          // Use the first (primary) asset
+          const imageData = await this.fetchImageAsBase64(assets[0].objectKey);
+          if (imageData) {
+            imageBase64 = imageData.base64;
+            imageMediaType = imageData.mediaType;
+            this.logger.debug(
+              `Vision analysis enabled for Memory ${memoryId} (${imageData.mediaType}, ${Buffer.byteLength(imageData.base64, 'utf8')} bytes base64)`,
+            );
+          } else {
+            this.logger.warn(
+              `Failed to fetch image for Memory ${memoryId}, falling back to text-only analysis`,
+            );
+          }
+        }
+      }
+
       const result = await provider.understand({
         text: inputText,
         sourceUri: memory.sourceUri ?? undefined,
+        imageBase64,
+        imageMediaType,
       });
 
       // Store as AIInference records, never overwriting the original capture
