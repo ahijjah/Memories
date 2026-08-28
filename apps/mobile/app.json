@@ -22,7 +22,26 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-sharing",
+      [
+        "expo-sharing",
+        {
+          "ios": {
+            "enabled": true,
+            "activationRule": {
+              "supportsText": true,
+              "supportsWebUrlWithMaxCount": 1,
+              "supportsImageWithMaxCount": 1
+            }
+          },
+          "android": {
+            "enabled": true,
+            "singleShareMimeTypes": [
+              "text/plain",
+              "image/*"
+            ]
+          }
+        }
+      ],
       "@react-native-community/datetimepicker"
     ],
     "extra": {
