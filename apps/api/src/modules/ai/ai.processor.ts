@@ -37,6 +37,7 @@ export class AiProcessor extends WorkerHost {
 
   private async fetchImageAsBase64(
     objectKey: string,
+    mimeType: string,
   ): Promise<{ base64: string; mediaType: string } | null> {
     try {
       const command = new GetObjectCommand({
@@ -69,8 +70,7 @@ export class AiProcessor extends WorkerHost {
         stream.on('end', () => {
           const buffer = Buffer.concat(chunks);
           const base64 = buffer.toString('base64');
-          const mediaType = response.ContentType || 'application/octet-stream';
-          resolve({ base64, mediaType });
+          resolve({ base64, mediaType: mimeType });
         });
         stream.on('error', (err: Error) => {
           this.logger.warn(`Stream error reading ${objectKey}: ${err.message}`);
@@ -121,7 +121,7 @@ export class AiProcessor extends WorkerHost {
 
         if (assets.length > 0) {
           // Use the first (primary) asset
-          const imageData = await this.fetchImageAsBase64(assets[0].objectKey);
+          const imageData = await this.fetchImageAsBase64(assets[0].objectKey, assets[0].mimeType);
           if (imageData) {
             imageBase64 = imageData.base64;
             imageMediaType = imageData.mediaType;

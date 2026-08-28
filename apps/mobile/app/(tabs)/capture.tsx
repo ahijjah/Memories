@@ -139,19 +139,15 @@ export default function CaptureScreen() {
         throw new Error('Failed to get image data');
       }
 
-      const fileResponse = await fetch(asset.uri);
-      const blob = await fileResponse.blob();
-
-      const uploadResponse = await fetch(uploadTarget.uploadUrl, {
-        method: 'PUT',
+      const uploadResult = await FileSystem.uploadAsync(uploadTarget.uploadUrl, asset.uri, {
+        httpMethod: 'PUT',
         headers: {
           'Content-Type': mimeType,
         },
-        body: blob,
       });
 
-      if (!uploadResponse.ok) {
-        throw new Error(`Upload failed with status ${uploadResponse.status}`);
+      if (uploadResult.status !== 200) {
+        throw new Error(`Upload failed with status ${uploadResult.status}`);
       }
 
       // 4. Compute MD5 checksum from file and complete upload
