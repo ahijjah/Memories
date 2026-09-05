@@ -104,6 +104,7 @@ model Memory {
   sourceUri       String?
   memoryType      MemoryType?
   title           String?
+  ogImageUrl      String?          // Open Graph image URL for url-sourced Memories
   capturedAt      DateTime         @default(now())
   processingState ProcessingState  @default(queued)
   lifecycleState  LifecycleState   @default(active)

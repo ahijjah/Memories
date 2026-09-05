@@ -7,6 +7,7 @@ import { AnthropicAiProvider } from '@memory-app/ai';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { toVectorLiteral } from '../../common/pgvector.util';
 import { EmbeddingService } from './embedding.service';
+import { UrlMetadataService } from './url-metadata.service';
 import { AI_PROCESSING_QUEUE, AiProcessingJobData } from './ai-queue.service';
 
 @Processor(AI_PROCESSING_QUEUE)
@@ -19,6 +20,7 @@ export class AiProcessor extends WorkerHost {
   constructor(
     private readonly prisma: PrismaService,
     private readonly embeddingService: EmbeddingService,
+    private readonly urlMetadataService: UrlMetadataService,
     private readonly config: ConfigService,
   ) {
     super();
@@ -106,7 +108,32 @@ export class AiProcessor extends WorkerHost {
       }
 
       const provider = new AnthropicAiProvider(apiKey);
-      const inputText = memory.title ?? memory.sourceUri ?? '(no text content captured)';
+      let inputText = memory.title ?? memory.sourceUri ?? '(no text content captured)';
+      let ogImageUrl: string | undefined;
+
+      // Fetch URL metadata for url-sourced Memories to provide richer content to AI
+      if (memory.sourceType === 'url' && memory.sourceUri) {
+        const urlMetadata = await this.urlMetadataService.fetchMetadata(
+          memory.sourceUri,
+        );
+        if (urlMetadata) {
+          // Use extracted metadata if available, falling back to title/sourceUri
+          if (urlMetadata.title) {
+            inputText = urlMetadata.title;
+          }
+          if (urlMetadata.description) {
+            inputText = `${inputText}\n\n${urlMetadata.description}`;
+          }
+          ogImageUrl = urlMetadata.imageUrl;
+          this.logger.debug(
+            `URL metadata extracted for Memory ${memoryId}: title="${urlMetadata.title}", hasImage=${!!urlMetadata.imageUrl}`,
+          );
+        } else {
+          this.logger.debug(
+            `No URL metadata extracted for Memory ${memoryId}, using fallback text`,
+          );
+        }
+      }
 
       // Check if this is an image/camera capture with assets
       let imageBase64: string | undefined;
@@ -181,6 +208,7 @@ export class AiProcessor extends WorkerHost {
           data: {
             processingState: 'understood',
             memoryType: result.type as any,
+            ogImageUrl,
           },
         }),
       ]);
