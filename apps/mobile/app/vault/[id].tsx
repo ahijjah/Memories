@@ -1,7 +1,7 @@
 import { useAuth } from "@clerk/clerk-expo";
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState, useEffect } from 'react';
-import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity, Alert, Linking, Share } from 'react-native';
+import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity, Alert, Linking, Share, Platform } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import * as Calendar from 'expo-calendar/legacy';
 import { getVaultMemoryDetail, unlockMemory, AIInference } from '@/src/api/client';
@@ -74,14 +74,24 @@ export default function VaultDetailScreen() {
       let calendarId = calendars[0]?.id;
 
       if (!calendarId && calendars.length === 0) {
+        // Get platform-appropriate source for calendar creation
+        let defaultSource;
+        if (Platform.OS === 'ios') {
+          const defaultCalendar = await Calendar.getDefaultCalendarAsync();
+          defaultSource = defaultCalendar.source;
+        } else {
+          defaultSource = { type: Calendar.SourceType.LOCAL, name: 'Expo Calendar', isLocalAccount: true };
+        }
+
         const newCalendarId = await Calendar.createCalendarAsync({
           title: 'Memories',
           color: '#3b82f6',
           entityType: Calendar.EntityTypes.EVENT,
-          sourceId: 'local',
-          source: { name: 'Local', type: 'local' } as any,
+          sourceId: defaultSource?.id,
+          source: defaultSource,
           name: 'Memories',
-          ownerAccount: 'local',
+          ownerAccount: defaultSource?.name ?? 'personal',
+          accessLevel: Calendar.CalendarAccessLevel.OWNER,
         });
         calendarId = newCalendarId;
       }
