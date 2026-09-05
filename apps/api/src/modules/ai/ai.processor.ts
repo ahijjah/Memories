@@ -111,30 +111,6 @@ export class AiProcessor extends WorkerHost {
       let inputText = memory.title ?? memory.sourceUri ?? '(no text content captured)';
       let ogImageUrl: string | undefined;
 
-      // Fetch URL metadata for url-sourced Memories to provide richer content to AI
-      if (memory.sourceType === 'url' && memory.sourceUri) {
-        const urlMetadata = await this.urlMetadataService.fetchMetadata(
-          memory.sourceUri,
-        );
-        if (urlMetadata) {
-          // Use extracted metadata if available, falling back to title/sourceUri
-          if (urlMetadata.title) {
-            inputText = urlMetadata.title;
-          }
-          if (urlMetadata.description) {
-            inputText = `${inputText}\n\n${urlMetadata.description}`;
-          }
-          ogImageUrl = urlMetadata.imageUrl;
-          this.logger.debug(
-            `URL metadata extracted for Memory ${memoryId}: title="${urlMetadata.title}", hasImage=${!!urlMetadata.imageUrl}`,
-          );
-        } else {
-          this.logger.debug(
-            `No URL metadata extracted for Memory ${memoryId}, using fallback text`,
-          );
-        }
-      }
-
       // Check if this is an image/camera capture with assets
       let imageBase64: string | undefined;
       let imageMediaType: string | undefined;
@@ -160,6 +136,48 @@ export class AiProcessor extends WorkerHost {
               `Failed to fetch image for Memory ${memoryId}, falling back to text-only analysis`,
             );
           }
+        }
+      }
+
+      // Fetch URL metadata for url-sourced Memories to provide richer content to AI
+      if (memory.sourceType === 'url' && memory.sourceUri) {
+        const urlMetadata = await this.urlMetadataService.fetchMetadata(
+          memory.sourceUri,
+        );
+        if (urlMetadata) {
+          // Use extracted metadata if available, falling back to title/sourceUri
+          if (urlMetadata.title) {
+            inputText = urlMetadata.title;
+          }
+          if (urlMetadata.description) {
+            inputText = `${inputText}\n\n${urlMetadata.description}`;
+          }
+          ogImageUrl = urlMetadata.imageUrl;
+          this.logger.debug(
+            `URL metadata extracted for Memory ${memoryId}: title="${urlMetadata.title}", hasImage=${!!urlMetadata.imageUrl}`,
+          );
+
+          // Attempt to fetch and include the og:image for vision analysis
+          if (urlMetadata.imageUrl && !imageBase64) {
+            const imageBytes = await this.urlMetadataService.fetchImageBytes(
+              urlMetadata.imageUrl,
+            );
+            if (imageBytes) {
+              imageBase64 = imageBytes.data.toString('base64');
+              imageMediaType = imageBytes.mimeType;
+              this.logger.debug(
+                `Vision analysis enabled for URL-sourced Memory ${memoryId} (${imageBytes.mimeType}, ${imageBytes.data.length} bytes)`,
+              );
+            } else {
+              this.logger.debug(
+                `Could not fetch image for Memory ${memoryId} from ${urlMetadata.imageUrl}, falling back to text-only analysis`,
+              );
+            }
+          }
+        } else {
+          this.logger.debug(
+            `No URL metadata extracted for Memory ${memoryId}, using fallback text`,
+          );
         }
       }
 

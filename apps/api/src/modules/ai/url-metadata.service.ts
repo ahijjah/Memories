@@ -189,7 +189,71 @@ export class UrlMetadataService {
     return false;
   }
 
+  async fetchImageBytes(
+    urlString: string,
+  ): Promise<{ data: Buffer; mimeType: string } | null> {
+    try {
+      const parsedUrl = this.validateUrl(urlString);
+      if (!parsedUrl) {
+        return null;
+      }
+
+      // SSRF protection: validate hostname before making request
+      if (!(await this.isValidHostname(parsedUrl.hostname))) {
+        this.logger.warn(`Invalid hostname for image fetch: ${parsedUrl.hostname}`);
+        return null;
+      }
+
+      const result = await this.fetchWithValidation(urlString);
+      if (!result || !result.buffer || !result.mimeType) {
+        return null;
+      }
+
+      // Only accept image MIME types that Claude's vision API supports
+      const supportedMimeTypes = [
+        'image/jpeg',
+        'image/png',
+        'image/gif',
+        'image/webp',
+      ];
+      if (!supportedMimeTypes.includes(result.mimeType)) {
+        this.logger.warn(
+          `Unsupported image MIME type for vision analysis: ${result.mimeType}`,
+        );
+        return null;
+      }
+
+      return { data: result.buffer, mimeType: result.mimeType };
+    } catch (err) {
+      this.logger.warn(
+        `Failed to fetch image bytes from ${urlString}: ${(err as Error).message}`,
+      );
+      return null;
+    }
+  }
+
   private async fetchHtml(urlString: string): Promise<string | null> {
+    try {
+      const result = await this.fetchWithValidation(urlString);
+      if (!result || !result.text) {
+        return null;
+      }
+      return result.text;
+    } catch (err) {
+      this.logger.warn(
+        `Failed to fetch HTML from ${urlString}: ${(err as Error).message}`,
+      );
+      return null;
+    }
+  }
+
+  private async fetchWithValidation(
+    urlString: string,
+  ): Promise<
+    | { text: string; buffer?: never; mimeType?: never }
+    | { buffer: Buffer; mimeType: string; text?: never }
+    | null
+  > {
     let currentUrl = urlString;
     let redirectCount = 0;
 
@@ -268,19 +332,28 @@ export class UrlMetadataService {
           return null;
         }
 
+        // Determine response type based on Content-Type header
+        const contentType = response.headers.get('content-type') || '';
+        const isTextContent =
+          contentType.includes('text/') ||
+          contentType.includes('application/json') ||
+          contentType.includes('application/xml');
+
         // Buffer the response with size limit
-        let html = '';
+        const chunks: Buffer[] = [];
         const reader = response.body.getReader();
-        const decoder = new TextDecoder();
 
         // eslint-disable-next-line no-constant-condition
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
 
-          html += decoder.decode(value, { stream: true });
+          if (value) {
+            chunks.push(Buffer.from(value));
+          }
 
-          if (html.length > this.MAX_RESPONSE_SIZE) {
+          const totalSize = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+          if (totalSize > this.MAX_RESPONSE_SIZE) {
             this.logger.warn(
               `Response exceeded size limit for ${currentUrl}`,
             );
@@ -288,13 +361,24 @@ export class UrlMetadataService {
           }
         }
 
-        return html;
+        const buffer = Buffer.concat(chunks);
+
+        // Return text or binary based on content type
+        if (isTextContent) {
+          const decoder = new TextDecoder();
+          const text = decoder.decode(buffer);
+          return { text };
+        } else {
+          // Extract MIME type from Content-Type header
+          const mimeType = contentType.split(';')[0].trim();
+          return { buffer, mimeType };
+        }
       } catch (err) {
         if ((err as Error).name === 'AbortError') {
           this.logger.warn(`URL fetch timeout for ${currentUrl}`);
         } else {
           this.logger.warn(
-            `Failed to fetch HTML from ${currentUrl}: ${(err as Error).message}`,
+            `Failed to fetch from ${currentUrl}: ${(err as Error).message}`,
           );
         }
         return null;
