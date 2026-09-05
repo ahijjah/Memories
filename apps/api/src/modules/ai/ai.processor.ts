@@ -172,7 +172,7 @@ export class AiProcessor extends WorkerHost {
 
       // Store as AIInference records, never overwriting the original capture
       // (spec §6 precedence rule: confirmed > AI inference > raw fallback).
-      await this.prisma.$transaction([
+      const inferencesToCreate: any[] = [
         this.prisma.aIInference.create({
           data: {
             memoryId,
@@ -203,6 +203,70 @@ export class AiProcessor extends WorkerHost {
             provenance: 'llm_extraction',
           },
         }),
+      ];
+
+      // P0.1: Structured AI Understanding — store optional fields only when present
+      if (result.intent) {
+        inferencesToCreate.push(
+          this.prisma.aIInference.create({
+            data: {
+              memoryId,
+              field: 'intent',
+              valueJson: result.intent,
+              confidence: result.confidence,
+              modelVersion: result.modelVersion,
+              provenance: 'llm_extraction',
+            },
+          }),
+        );
+      }
+
+      if (result.entities && result.entities.length > 0) {
+        inferencesToCreate.push(
+          this.prisma.aIInference.create({
+            data: {
+              memoryId,
+              field: 'entities',
+              valueJson: result.entities,
+              confidence: result.confidence,
+              modelVersion: result.modelVersion,
+              provenance: 'llm_extraction',
+            },
+          }),
+        );
+      }
+
+      if (result.location) {
+        inferencesToCreate.push(
+          this.prisma.aIInference.create({
+            data: {
+              memoryId,
+              field: 'location',
+              valueJson: result.location,
+              confidence: result.confidence,
+              modelVersion: result.modelVersion,
+              provenance: 'llm_extraction',
+            },
+          }),
+        );
+      }
+
+      if (result.date) {
+        inferencesToCreate.push(
+          this.prisma.aIInference.create({
+            data: {
+              memoryId,
+              field: 'date',
+              valueJson: result.date,
+              confidence: result.confidence,
+              modelVersion: result.modelVersion,
+              provenance: 'llm_extraction',
+            },
+          }),
+        );
+      }
+
+      inferencesToCreate.push(
         this.prisma.memory.update({
           where: { id: memoryId },
           data: {
@@ -211,7 +275,9 @@ export class AiProcessor extends WorkerHost {
             ogImageUrl,
           },
         }),
-      ]);
+      );
+
+      await this.prisma.$transaction(inferencesToCreate);
 
       // Generate embedding for semantic search (non-fatal; Memory already understood).
       try {

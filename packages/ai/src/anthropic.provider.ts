@@ -14,9 +14,18 @@ import type {
 const DEFAULT_MODEL = process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-5';
 
 const SYSTEM_PROMPT = `You extract structured metadata from a saved "Memory" for a personal knowledge app.
-Respond with ONLY a JSON object, no prose, no markdown fences, matching exactly:
+Respond with ONLY a JSON object, no prose, no markdown fences, with these required fields:
 {"title": string, "summary": string, "type": "article"|"video"|"post"|"image"|"note"|"document"|"event"|"place"|"product"|"tutorial"|"other", "topics": string[], "confidence": number between 0 and 1}
-Keep the title short and meaningful. Keep the summary short and faithful to the source — do not invent facts not present in the input.`;
+
+OPTIONAL fields (only include if genuinely present/inferable, NEVER hallucinate):
+- "intent": "visit"|"buy"|"read"|"attend"|"reference" — user's likely action with this memory
+- "entities": string[] — people, brands, organizations mentioned (empty array if none)
+- "location": string — geographic location if applicable (omit if not present)
+- "date": string — ISO date string if an event date, publication date, or expiry date is mentioned (omit if not present)
+
+Guidelines: Keep title short and meaningful. Keep summary short and faithful to source.
+DO NOT invent facts, locations, dates, or intentions not clearly present in input.
+Only populate optional fields when you are confident they apply.`;
 
 export class AnthropicAiProvider implements AiProvider {
   private client: Anthropic;

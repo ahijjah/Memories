@@ -91,6 +91,10 @@ export default function VaultDetailScreen() {
   const aiTitle = getFieldValue('title');
   const aiSummary = getFieldValue('summary');
   const aiTopics = getFieldValue('topics');
+  const aiIntent = getFieldValue('intent');
+  const aiEntities = getFieldValue('entities');
+  const aiLocation = getFieldValue('location');
+  const aiDate = getFieldValue('date');
 
   return (
     <ScrollView className="flex-1 bg-white">
@@ -149,6 +153,50 @@ export default function VaultDetailScreen() {
                 </View>
               ))}
             </View>
+          </View>
+        ) : null}
+
+        {/* Structured Understanding — Intent, Entities, Location, Date */}
+        {(aiIntent || (aiEntities && Array.isArray(aiEntities) && aiEntities.length > 0) || aiLocation || aiDate) ? (
+          <View className="mb-6 p-4 bg-indigo-50 rounded-lg">
+            <Text className="text-lg font-semibold text-gray-900 mb-3">Details</Text>
+
+            {aiIntent && (
+              <View className="mb-3">
+                <Text className="text-sm text-gray-600">
+                  <Text className="font-semibold">Intent:</Text> <Text className="text-indigo-600 font-medium">{aiIntent}</Text>
+                </Text>
+              </View>
+            )}
+
+            {aiLocation && (
+              <View className="mb-3">
+                <Text className="text-sm text-gray-600">
+                  <Text className="font-semibold">Location:</Text> {aiLocation}
+                </Text>
+              </View>
+            )}
+
+            {aiDate && (
+              <View className="mb-3">
+                <Text className="text-sm text-gray-600">
+                  <Text className="font-semibold">Date:</Text> {new Date(aiDate).toLocaleDateString()}
+                </Text>
+              </View>
+            )}
+
+            {aiEntities && Array.isArray(aiEntities) && aiEntities.length > 0 && (
+              <View>
+                <Text className="text-sm text-gray-600 font-semibold mb-2">Entities:</Text>
+                <View className="flex-row flex-wrap gap-2">
+                  {aiEntities.map((entity: string, idx: number) => (
+                    <View key={idx} className="bg-indigo-100 rounded-full px-3 py-1">
+                      <Text className="text-indigo-800 text-xs font-medium">{entity}</Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            )}
           </View>
         ) : null}
 

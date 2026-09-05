@@ -19,6 +19,12 @@ export interface MemoryUnderstanding {
   topics: string[];
   confidence: number; // 0..1, overall — per-field confidence is layered on by the caller
   modelVersion: string;
+
+  // P0.1: Structured AI Understanding — optional fields, only populated if genuinely present
+  intent?: 'visit' | 'buy' | 'read' | 'attend' | 'reference';
+  entities?: string[]; // people/brands/orgs mentioned
+  location?: string; // free-text location if applicable
+  date?: string; // ISO date string — event date, expiry, publication date, etc.
 }
 
 export interface UnderstandInput {
