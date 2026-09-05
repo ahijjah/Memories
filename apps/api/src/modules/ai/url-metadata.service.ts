@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { load } from 'cheerio';
 import { URL } from 'node:url';
+import { promises as dns } from 'node:dns';
 
 interface UrlMetadata {
   title?: string;
@@ -22,9 +23,9 @@ export class UrlMetadataService {
         return null;
       }
 
-      // SSRF protection: validate IP address before making request
+      // SSRF protection: resolve hostname and validate before making request
       const hostname = parsedUrl.hostname;
-      if (!this.isValidHostname(hostname)) {
+      if (!(await this.isValidHostname(hostname))) {
         this.logger.warn(`Invalid hostname for metadata fetch: ${hostname}`);
         return null;
       }
@@ -56,7 +57,7 @@ export class UrlMetadataService {
     }
   }
 
-  private isValidHostname(hostname: string): boolean {
+  private async isValidHostname(hostname: string): Promise<boolean> {
     // Reject obviously invalid hostnames
     if (!hostname || hostname.length === 0) {
       return false;
@@ -80,27 +81,56 @@ export class UrlMetadataService {
       return false;
     }
 
-    // Check for private IP ranges using DNS resolution
-    // This is intentionally synchronous for SSRF prevention
+    // DNS rebinding protection: resolve hostname to actual IP addresses
+    // and validate each one against private/internal ranges
     try {
-      // For IPv4 private ranges: 10.x, 172.16-31.x, 192.168.x
-      if (this.isPrivateIpRange(hostname)) {
-        return false;
-      }
-    } catch {
-      // If we can't determine, reject to be safe
+      return await this.validateResolvedIps(hostname);
+    } catch (err) {
+      this.logger.warn(`DNS resolution failed for ${hostname}: ${(err as Error).message}`);
+      // Reject on resolution failure to be safe
       return false;
     }
-
-    return true;
   }
 
-  private isPrivateIpRange(hostname: string): boolean {
-    // Simple check for IPv4 dotted notation
-    const parts = hostname.split('.');
+  private async validateResolvedIps(hostname: string): Promise<boolean> {
+    try {
+      // Resolve to both IPv4 and IPv6 addresses
+      const addresses = await dns.resolve4(hostname, { ttl: true }).catch(() => []);
+      const addressesIpv6 = await dns.resolve6(hostname, { ttl: true }).catch(() => []);
+
+      // If no addresses resolved, reject
+      if (addresses.length === 0 && addressesIpv6.length === 0) {
+        return false;
+      }
+
+      // Check all IPv4 addresses
+      for (const addr of addresses) {
+        const address = typeof addr === 'string' ? addr : addr.address;
+        if (this.isPrivateIpv4(address)) {
+          this.logger.warn(`${hostname} resolves to private IPv4: ${address}`);
+          return false;
+        }
+      }
+
+      // Check all IPv6 addresses
+      for (const addr of addressesIpv6) {
+        const address = typeof addr === 'string' ? addr : addr.address;
+        if (this.isPrivateIpv6(address)) {
+          this.logger.warn(`${hostname} resolves to private IPv6: ${address}`);
+          return false;
+        }
+      }
+
+      return true;
+    } catch (err) {
+      this.logger.warn(`Failed to resolve ${hostname}: ${(err as Error).message}`);
+      return false;
+    }
+  }
+
+  private isPrivateIpv4(ip: string): boolean {
+    const parts = ip.split('.');
     if (parts.length !== 4) {
-      // Not IPv4 format, assume it's a domain name (which we can't validate easily)
-      // Return false to allow (DNS will eventually fail if invalid)
       return false;
     }
 
@@ -124,8 +154,35 @@ export class UrlMetadataService {
       return true;
     }
 
-    // 169.254.0.0 - 169.254.255.255 (link-local)
+    // 169.254.0.0 - 169.254.255.255 (link-local/APIPA)
     if (octets[0] === 169 && octets[1] === 254) {
+      return true;
+    }
+
+    // 127.0.0.0 - 127.255.255.255 (loopback)
+    if (octets[0] === 127) {
+      return true;
+    }
+
+    return false;
+  }
+
+  private isPrivateIpv6(ip: string): boolean {
+    const normalized = ip.toLowerCase();
+
+    // ::1 (loopback)
+    if (normalized === '::1' || normalized === '0:0:0:0:0:0:0:1') {
+      return true;
+    }
+
+    // fc00::/7 (unique local)
+    if (normalized.startsWith('fc') || normalized.startsWith('fd')) {
+      return true;
+    }
+
+    // fe80::/10 (link-local)
+    if (normalized.startsWith('fe8') || normalized.startsWith('fe9') ||
+        normalized.startsWith('fea') || normalized.startsWith('feb')) {
       return true;
     }
 
@@ -133,67 +190,115 @@ export class UrlMetadataService {
   }
 
   private async fetchHtml(urlString: string): Promise<string | null> {
-    try {
-      const controller = new AbortController();
-      const timeoutHandle = setTimeout(
-        () => controller.abort(),
-        this.REQUEST_TIMEOUT_MS,
-      );
+    let currentUrl = urlString;
+    let redirectCount = 0;
 
-      const response = await fetch(urlString, {
-        signal: controller.signal,
-        headers: {
-          'User-Agent':
-            'Mozilla/5.0 (compatible; MemoriesBot/1.0; +http://memories.ai970.cloud)',
-        },
-        redirect: 'follow',
-      });
-
-      clearTimeout(timeoutHandle);
-
-      if (!response.ok || !response.body) {
-        return null;
-      }
-
-      // Check content-length header to avoid buffering huge responses
-      const contentLength = response.headers.get('content-length');
-      if (contentLength && parseInt(contentLength, 10) > this.MAX_RESPONSE_SIZE) {
-        this.logger.warn(
-          `Response too large (${contentLength} bytes) for ${urlString}`,
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      try {
+        const controller = new AbortController();
+        const timeoutHandle = setTimeout(
+          () => controller.abort(),
+          this.REQUEST_TIMEOUT_MS,
         );
-        return null;
-      }
 
-      // Buffer the response with size limit
-      let html = '';
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
+        const response = await fetch(currentUrl, {
+          signal: controller.signal,
+          headers: {
+            'User-Agent':
+              'Mozilla/5.0 (compatible; MemoriesBot/1.0; +http://memories.ai970.cloud)',
+          },
+          redirect: 'manual', // Don't follow redirects automatically
+        });
 
-      // eslint-disable-next-line no-constant-condition
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+        clearTimeout(timeoutHandle);
 
-        html += decoder.decode(value, { stream: true });
+        // Handle redirects manually with re-validation
+        if (response.status >= 300 && response.status < 400) {
+          const location = response.headers.get('location');
+          if (!location) {
+            this.logger.warn(`Redirect without Location header from ${currentUrl}`);
+            return null;
+          }
 
-        if (html.length > this.MAX_RESPONSE_SIZE) {
+          redirectCount++;
+          if (redirectCount > this.MAX_REDIRECTS) {
+            this.logger.warn(
+              `Too many redirects (>${this.MAX_REDIRECTS}) starting from ${urlString}`,
+            );
+            return null;
+          }
+
+          // Resolve Location header relative to current URL
+          let redirectUrl: URL;
+          try {
+            redirectUrl = new URL(location, currentUrl);
+          } catch {
+            this.logger.warn(`Invalid redirect URL: ${location}`);
+            return null;
+          }
+
+          // Re-validate the redirect target before following
+          if (redirectUrl.protocol !== 'http:' && redirectUrl.protocol !== 'https:') {
+            this.logger.warn(`Redirect to non-http(s) scheme: ${redirectUrl.protocol}`);
+            return null;
+          }
+
+          if (!(await this.isValidHostname(redirectUrl.hostname))) {
+            this.logger.warn(
+              `Redirect target failed validation: ${redirectUrl.hostname}`,
+            );
+            return null;
+          }
+
+          currentUrl = redirectUrl.toString();
+          continue; // Follow the validated redirect
+        }
+
+        if (!response.ok || !response.body) {
+          return null;
+        }
+
+        // Check content-length header to avoid buffering huge responses
+        const contentLength = response.headers.get('content-length');
+        if (contentLength && parseInt(contentLength, 10) > this.MAX_RESPONSE_SIZE) {
           this.logger.warn(
-            `Response exceeded size limit for ${urlString}`,
+            `Response too large (${contentLength} bytes) for ${currentUrl}`,
           );
           return null;
         }
-      }
 
-      return html;
-    } catch (err) {
-      if ((err as Error).name === 'AbortError') {
-        this.logger.warn(`URL fetch timeout for ${urlString}`);
-      } else {
-        this.logger.warn(
-          `Failed to fetch HTML from ${urlString}: ${(err as Error).message}`,
-        );
+        // Buffer the response with size limit
+        let html = '';
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          html += decoder.decode(value, { stream: true });
+
+          if (html.length > this.MAX_RESPONSE_SIZE) {
+            this.logger.warn(
+              `Response exceeded size limit for ${currentUrl}`,
+            );
+            return null;
+          }
+        }
+
+        return html;
+      } catch (err) {
+        if ((err as Error).name === 'AbortError') {
+          this.logger.warn(`URL fetch timeout for ${currentUrl}`);
+        } else {
+          this.logger.warn(
+            `Failed to fetch HTML from ${currentUrl}: ${(err as Error).message}`,
+          );
+        }
+        return null;
       }
-      return null;
     }
   }
 
