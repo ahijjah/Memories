@@ -83,6 +83,7 @@ export default function VaultDetailScreen() {
           defaultSource = { type: Calendar.SourceType.LOCAL, name: 'Expo Calendar', isLocalAccount: true };
         }
 
+        console.log('Creating calendar with defaultSource:', defaultSource);
         const newCalendarId = await Calendar.createCalendarAsync({
           title: 'Memories',
           color: '#3b82f6',
@@ -111,7 +112,8 @@ export default function VaultDetailScreen() {
 
       Alert.alert('Success', 'Event added to calendar');
     } catch (err) {
-      Alert.alert('Error', 'Failed to add event to calendar');
+      console.error('Calendar error:', err);
+      Alert.alert('Error', `Failed to add event to calendar: ${(err as Error).message}`);
     }
   };
 
