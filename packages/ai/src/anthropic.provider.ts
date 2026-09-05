@@ -27,6 +27,15 @@ Guidelines: Keep title short and meaningful. Keep summary short and faithful to 
 DO NOT invent facts, locations, dates, or intentions not clearly present in input.
 Only populate optional fields when you are confident they apply.`;
 
+function stripMarkdownCodeFences(text: string): string {
+  let result = text.trim();
+  // Strip leading markdown code fence (e.g. ```json or ```)
+  result = result.replace(/^```(?:json)?\s*\n?/, '');
+  // Strip trailing markdown code fence
+  result = result.replace(/\n?```\s*$/, '');
+  return result.trim();
+}
+
 export class AnthropicAiProvider implements AiProvider {
   private client: Anthropic;
   private model: string;
@@ -82,7 +91,8 @@ export class AnthropicAiProvider implements AiProvider {
 
     let parsed: Omit<MemoryUnderstanding, 'modelVersion'>;
     try {
-      parsed = JSON.parse(textBlock.text.trim());
+      const cleanText = stripMarkdownCodeFences(textBlock.text);
+      parsed = JSON.parse(cleanText);
     } catch (err) {
       throw new Error(`AI provider returned unparseable JSON: ${(err as Error).message}`);
     }
@@ -132,7 +142,8 @@ You MUST:
 
     let parsed: AnswerWithContextResponse;
     try {
-      parsed = JSON.parse(textBlock.text.trim());
+      const cleanText = stripMarkdownCodeFences(textBlock.text);
+      parsed = JSON.parse(cleanText);
     } catch (err) {
       throw new Error(
         `AI provider returned unparseable JSON: ${(err as Error).message}`,
