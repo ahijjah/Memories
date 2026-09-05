@@ -1,7 +1,7 @@
 import { useAuth } from "@clerk/clerk-expo";
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState, useEffect } from 'react';
-import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity, Alert, Linking } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getVaultMemoryDetail, unlockMemory, AIInference } from '@/src/api/client';
 
@@ -45,6 +45,19 @@ export default function VaultDetailScreen() {
     const inferences = getAIInferencesByField(field);
     if (inferences.length === 0) return null;
     return inferences[0].valueJson;
+  };
+
+  const handleOpenURL = async (url: string) => {
+    try {
+      const canOpen = await Linking.canOpenURL(url);
+      if (canOpen) {
+        await Linking.openURL(url);
+      } else {
+        Alert.alert('Cannot Open', `Cannot open this URL: ${url}`);
+      }
+    } catch {
+      Alert.alert('Error', 'Failed to open URL');
+    }
   };
 
   if (isLoading) {
@@ -106,9 +119,14 @@ export default function VaultDetailScreen() {
             <Text className="font-semibold">Captured:</Text> {new Date(memory.capturedAt).toLocaleString()}
           </Text>
           {memory.sourceUri && (
-            <Text className="text-sm text-gray-600 mt-1">
-              <Text className="font-semibold">URL:</Text> {memory.sourceUri}
-            </Text>
+            <View className="flex-row mt-1 flex-wrap items-center">
+              <Text className="text-sm text-gray-600 font-semibold">URL:</Text>
+              <TouchableOpacity onPress={() => handleOpenURL(memory.sourceUri!)} className="ml-1">
+                <Text className="text-sm text-blue-600 underline" numberOfLines={1}>
+                  {memory.sourceUri}
+                </Text>
+              </TouchableOpacity>
+            </View>
           )}
         </View>
 
