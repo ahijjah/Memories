@@ -26,34 +26,35 @@ export function getActionsForMemory(
   const location = getFieldValue('location');
   const date = getFieldValue('date');
 
+  // Field-based actions: these apply across all types based on field presence
+  // For date: add "Add to Calendar" unless it's a document (which gets "Expiry Reminder" instead)
+  if (date && memoryType !== 'document') {
+    actions.push({
+      label: 'Add to Calendar',
+      kind: 'calendar',
+      payload: { date, title: memory.title },
+    });
+  }
+
+  // For location: offer "Open Map" for any type that has a location
+  // (events call it "Open Location", places call it "Open Map", but the action is the same)
+  if (location) {
+    actions.push({
+      label: memoryType === 'event' ? 'Open Location' : 'Open Map',
+      kind: 'maps',
+      payload: { location },
+    });
+  }
+
   // Type-specific actions
   switch (memoryType) {
     case 'event':
-      if (date) {
-        actions.push({
-          label: 'Add to Calendar',
-          kind: 'calendar',
-          payload: { date, title: memory.title },
-        });
-      }
-      if (location) {
-        actions.push({
-          label: 'Open Location',
-          kind: 'maps',
-          payload: { location },
-        });
-      }
+      // Calendar and location actions already added above
       actions.push({ label: 'Share Event', kind: 'share' });
       break;
 
     case 'place':
-      if (location) {
-        actions.push({
-          label: 'Open Map',
-          kind: 'maps',
-          payload: { location },
-        });
-      }
+      // Map action already added above
       actions.push({
         label: 'Save for Trip',
         kind: 'comingSoon',
@@ -110,6 +111,7 @@ export function getActionsForMemory(
 
     case 'document':
       actions.push({ label: 'Share Copy', kind: 'share' });
+      // For documents with date, add "Expiry Reminder" instead of "Add to Calendar"
       if (date) {
         actions.push({
           label: 'Expiry Reminder',
@@ -120,7 +122,7 @@ export function getActionsForMemory(
       break;
 
     default:
-      // No type-specific actions for other types
+      // No additional type-specific actions for other types
       break;
   }
 
