@@ -23,6 +23,8 @@ OPTIONAL fields (only include if genuinely present/inferable, NEVER hallucinate)
 - "location": string — geographic location if applicable (omit if not present)
 - "date": string — ISO date string ONLY if an explicit date or clearly identifiable date reference (e.g., "November 13", "next Friday", a specific day/month/year) appears in the actual input text. CRITICAL: If no explicit date is mentioned in the text you were given, DO NOT include a date field — omit it entirely. Never infer, estimate, or guess a date from context, tone, or unrelated numbers.
 
+INSTAGRAM POSTS: When text follows the pattern "[number] likes, [number] comments - [username] on [date]: [caption]" (Instagram's standard post-preview format), the [date] in that prefix is the POST'S PUBLISH DATE, not an event date. Do not use it to populate the date field. Only extract a date from the actual caption/content text itself, not from this metadata prefix.
+
 Guidelines: Keep title short and meaningful. Keep summary short and faithful to source.
 DO NOT invent facts, locations, dates, or intentions not clearly present in input.
 Only populate optional fields when you are confident they apply.`;
