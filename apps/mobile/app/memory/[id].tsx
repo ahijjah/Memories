@@ -1,10 +1,12 @@
 import { useAuth } from "@clerk/clerk-expo";
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState, useEffect } from 'react';
-import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity, Modal, Alert, TextInput, Linking } from 'react-native';
+import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity, Modal, Alert, TextInput, Linking, Share } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import * as Calendar from 'expo-calendar';
 import { fetchMemoryDetail, fetchProcessingStatus, Memory, ProcessingStatus, AIInference, listCollections, addMemoryToCollection, lockMemory, createReminder } from '@/src/api/client';
+import { getActionsForMemory, MemoryAction } from '@/src/utils/memory-actions';
 
 export default function MemoryDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -137,6 +139,113 @@ export default function MemoryDetailScreen() {
       }
     } catch {
       Alert.alert('Error', 'Failed to open URL');
+    }
+  };
+
+  const handleAddToCalendar = async (action: MemoryAction) => {
+    try {
+      const { status } = await Calendar.requestCalendarPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Denied', 'Calendar access is required to add events');
+        return;
+      }
+
+      const calendars = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
+      let calendarId = calendars[0]?.id;
+
+      if (!calendarId && calendars.length === 0) {
+        const newCalendarId = await Calendar.createCalendarAsync({
+          title: 'Memories',
+          color: '#3b82f6',
+          entityType: Calendar.EntityTypes.EVENT,
+          sourceId: 'local',
+          source: { name: 'Local', type: 'local' } as any,
+          name: 'Memories',
+          ownerAccount: 'local',
+        });
+        calendarId = newCalendarId;
+      }
+
+      if (!calendarId) return;
+
+      const date = action.payload?.date ? new Date(action.payload.date) : new Date();
+      const endDate = new Date(date);
+      endDate.setHours(endDate.getHours() + 1);
+
+      await Calendar.createEventAsync(calendarId, {
+        title: action.payload?.title || memory?.title || 'Memory Event',
+        startDate: date,
+        endDate,
+        timeZone: 'UTC',
+      });
+
+      Alert.alert('Success', 'Event added to calendar');
+    } catch (err) {
+      Alert.alert('Error', 'Failed to add event to calendar');
+    }
+  };
+
+  const handleOpenMaps = async (action: MemoryAction) => {
+    try {
+      const location = action.payload?.location;
+      if (!location) return;
+
+      const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location)}`;
+      const canOpen = await Linking.canOpenURL(mapsUrl);
+      if (canOpen) {
+        await Linking.openURL(mapsUrl);
+      } else {
+        Alert.alert('Cannot Open', 'Maps is not available on this device');
+      }
+    } catch {
+      Alert.alert('Error', 'Failed to open maps');
+    }
+  };
+
+  const handleShareMemory = async () => {
+    try {
+      await Share.share({
+        message: memory?.title || 'Check this out!',
+        url: memory?.sourceUri || undefined,
+        title: memory?.title || 'Memory',
+      });
+    } catch (err) {
+      if ((err as any).code !== 'E_SHARE_CANCELLED') {
+        Alert.alert('Error', 'Failed to share');
+      }
+    }
+  };
+
+  const handleAskAbout = (action: MemoryAction) => {
+    router.push({
+      pathname: '/(tabs)/ask',
+      params: { prefill: action.payload?.prefill || '' },
+    });
+  };
+
+  const handleActionPress = (action: MemoryAction) => {
+    switch (action.kind) {
+      case 'calendar':
+        handleAddToCalendar(action);
+        break;
+      case 'maps':
+        handleOpenMaps(action);
+        break;
+      case 'share':
+        handleShareMemory();
+        break;
+      case 'openUrl':
+        handleOpenURL(action.payload?.url);
+        break;
+      case 'ask':
+        handleAskAbout(action);
+        break;
+      case 'collection':
+        setShowCollectionPicker(true);
+        break;
+      case 'comingSoon':
+        Alert.alert('Coming Soon', action.payload?.message || 'This feature is coming soon');
+        break;
     }
   };
 
@@ -319,57 +428,84 @@ export default function MemoryDetailScreen() {
           </View>
         ) : null}
 
-        {/* Set Reminder Button */}
-        {memory.securityScope !== 'vault' ? (
-          <TouchableOpacity
-            onPress={() => setShowReminderModal(true)}
-            className="bg-orange-600 rounded-lg py-3 mb-4"
-          >
-            <Text className="text-white text-center font-semibold">Set Reminder</Text>
-          </TouchableOpacity>
-        ) : null}
-
-        {/* Move to Vault Button */}
-        {memory.securityScope !== 'vault' ? (
-          <TouchableOpacity
-            onPress={() => {
-              Alert.alert(
-                'Move to Vault?',
-                'This memory will be private and hidden from search, list, and ask results.',
-                [
-                  { text: 'Cancel', style: 'cancel' },
-                  {
-                    text: 'Move to Vault',
-                    style: 'destructive',
-                    onPress: () => moveToVault(),
-                  },
-                ],
-              );
-            }}
-            disabled={isLocking}
-            className={`rounded-lg py-3 mb-4 ${isLocking ? 'bg-gray-300' : 'bg-amber-600'}`}
-          >
-            {isLocking ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <Text className="text-white text-center font-semibold">Move to Vault</Text>
+        {/* Memory Actions */}
+        {memory && (
+          <View className="mb-6">
+            {getActionsForMemory(memory, memory.aiInferences).length > 0 && (
+              <View className="mb-4">
+                {getActionsForMemory(memory, memory.aiInferences).map((action, idx) => (
+                  <TouchableOpacity
+                    key={idx}
+                    onPress={() => handleActionPress(action)}
+                    className={`rounded-lg py-3 mb-2 ${
+                      action.kind === 'comingSoon'
+                        ? 'bg-gray-200'
+                        : action.kind === 'ask'
+                          ? 'bg-green-600'
+                          : 'bg-blue-600'
+                    }`}
+                  >
+                    <Text
+                      className={`text-center font-semibold ${
+                        action.kind === 'comingSoon' ? 'text-gray-600' : 'text-white'
+                      }`}
+                    >
+                      {action.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
             )}
-          </TouchableOpacity>
-        ) : null}
 
-        {/* Add to Collection Button */}
-        {memory.securityScope !== 'vault' ? (
-          <TouchableOpacity
-            onPress={() => setShowCollectionPicker(true)}
-            className="bg-purple-600 rounded-lg py-3 mb-4"
-          >
-            <Text className="text-white text-center font-semibold">Add to Collection</Text>
-          </TouchableOpacity>
-        ) : (
-          <View className="bg-amber-50 rounded-lg py-3 px-4 mb-4">
-            <Text className="text-amber-900 text-center text-sm font-semibold">
-              Vault content cannot be added to collections
-            </Text>
+            {/* Generic Actions */}
+            <TouchableOpacity
+              onPress={() => setShowReminderModal(true)}
+              className="bg-orange-600 rounded-lg py-3 mb-2"
+            >
+              <Text className="text-white text-center font-semibold">Set Reminder</Text>
+            </TouchableOpacity>
+
+            {memory.securityScope !== 'vault' ? (
+              <TouchableOpacity
+                onPress={() => {
+                  Alert.alert(
+                    'Move to Vault?',
+                    'This memory will be private and hidden from search, list, and ask results.',
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      {
+                        text: 'Move to Vault',
+                        style: 'destructive',
+                        onPress: () => moveToVault(),
+                      },
+                    ],
+                  );
+                }}
+                disabled={isLocking}
+                className={`rounded-lg py-3 mb-2 ${isLocking ? 'bg-gray-300' : 'bg-amber-600'}`}
+              >
+                {isLocking ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text className="text-white text-center font-semibold">Move to Vault</Text>
+                )}
+              </TouchableOpacity>
+            ) : null}
+
+            {memory.securityScope !== 'vault' ? (
+              <TouchableOpacity
+                onPress={() => setShowCollectionPicker(true)}
+                className="bg-purple-600 rounded-lg py-3 mb-4"
+              >
+                <Text className="text-white text-center font-semibold">Add to Collection</Text>
+              </TouchableOpacity>
+            ) : (
+              <View className="bg-amber-50 rounded-lg py-3 px-4 mb-4">
+                <Text className="text-amber-900 text-center text-sm font-semibold">
+                  Vault content cannot be added to collections
+                </Text>
+              </View>
+            )}
           </View>
         )}
 

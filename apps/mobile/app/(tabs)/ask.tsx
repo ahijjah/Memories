@@ -1,6 +1,6 @@
 import { useAuth } from "@clerk/clerk-expo";
-import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useState, useEffect } from 'react';
 import { View, Text, TextInput, ScrollView, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { useMutation } from '@tanstack/react-query';
 import { ask } from '@/src/api/client';
@@ -8,7 +8,14 @@ import { ask } from '@/src/api/client';
 export default function AskScreen() {
   const { getToken } = useAuth();
   const router = useRouter();
+  const { prefill } = useLocalSearchParams<{ prefill?: string }>();
   const [question, setQuestion] = useState('');
+
+  useEffect(() => {
+    if (prefill) {
+      setQuestion(prefill);
+    }
+  }, [prefill]);
 
   const { mutate: submitQuestion, isPending, data: result, error } = useMutation({
     mutationFn: async (q: string) => {
