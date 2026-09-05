@@ -320,6 +320,9 @@ export class UrlMetadataService {
         }
 
         if (!response.ok || !response.body) {
+          if (!response.ok) {
+            this.logger.warn(`Non-OK response (status ${response.status}) fetching ${currentUrl}`);
+          }
           return null;
         }
 
