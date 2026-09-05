@@ -21,7 +21,7 @@ OPTIONAL fields (only include if genuinely present/inferable, NEVER hallucinate)
 - "intent": "visit"|"buy"|"read"|"attend"|"reference" — user's likely action with this memory
 - "entities": string[] — people, brands, organizations mentioned (empty array if none)
 - "location": string — geographic location if applicable (omit if not present)
-- "date": string — ISO date string if an event date, publication date, or expiry date is mentioned (omit if not present)
+- "date": string — ISO date string ONLY if an explicit date or clearly identifiable date reference (e.g., "November 13", "next Friday", a specific day/month/year) appears in the actual input text. CRITICAL: If no explicit date is mentioned in the text you were given, DO NOT include a date field — omit it entirely. Never infer, estimate, or guess a date from context, tone, or unrelated numbers.
 
 Guidelines: Keep title short and meaningful. Keep summary short and faithful to source.
 DO NOT invent facts, locations, dates, or intentions not clearly present in input.
