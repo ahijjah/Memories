@@ -68,6 +68,7 @@ enum MemorySourceType {
 }
 
 enum MemoryType {
+  // Legacy lowercase values (existing data)
   article
   video
   post
@@ -79,6 +80,15 @@ enum MemoryType {
   product
   tutorial
   other
+  // New Smart Memory Card Framework uppercase values (for new captures going forward)
+  GENERIC
+  EVENT
+  PLACE
+  PRODUCT
+  ARTICLE_LEARNING
+  VIDEO_SOCIAL
+  OFFER
+  DOCUMENT
 }
 
 enum ProcessingState {

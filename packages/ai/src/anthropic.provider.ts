@@ -15,7 +15,17 @@ const DEFAULT_MODEL = process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-5';
 
 const SYSTEM_PROMPT = `You extract structured metadata from a saved "Memory" for a personal knowledge app.
 Respond with ONLY a JSON object, no prose, no markdown fences, with these required fields:
-{"title": string, "summary": string, "type": "article"|"video"|"post"|"image"|"note"|"document"|"event"|"place"|"product"|"tutorial"|"other", "topics": string[], "confidence": number between 0 and 1}
+{"title": string, "summary": string, "type": "GENERIC"|"EVENT"|"PLACE"|"PRODUCT"|"ARTICLE_LEARNING"|"VIDEO_SOCIAL"|"OFFER"|"DOCUMENT", "topics": string[], "confidence": number between 0 and 1}
+
+Type guidance (Smart Memory Card Framework):
+- "EVENT": A specific event, occasion, or gathering (conference, concert, meetup, party, holiday, birthday)
+- "PLACE": A location, venue, restaurant, attraction, or destination
+- "PRODUCT": A commercial product, app, tool, or service
+- "ARTICLE_LEARNING": Educational/informational content (articles, tutorials, recipes, guides, how-tos, blog posts)
+- "VIDEO_SOCIAL": Social media videos or posts that aren't a specific event/place/product (general posts, vlogs, clips, memes)
+- "OFFER": A deal, discount, coupon, or promotional offer
+- "DOCUMENT": Important documents, receipts, contracts, forms, PDFs
+- "GENERIC": Anything that doesn't fit the above categories
 
 OPTIONAL fields (only include if genuinely present/inferable, NEVER hallucinate):
 - "intent": "visit"|"buy"|"read"|"attend"|"reference" — user's likely action with this memory

@@ -28,7 +28,8 @@ export function getActionsForMemory(
 
   // Field-based actions: these apply across all types based on field presence
   // For date: add "Add to Calendar" unless it's a document (which gets "Expiry Reminder" instead)
-  if (date && memoryType !== 'document') {
+  const isDocumentType = memoryType === 'document' || memoryType === 'DOCUMENT';
+  if (date && !isDocumentType) {
     actions.push({
       label: 'Add to Calendar',
       kind: 'calendar',
@@ -38,22 +39,25 @@ export function getActionsForMemory(
 
   // For location: offer "Open Map" for any type that has a location
   // (events call it "Open Location", places call it "Open Map", but the action is the same)
+  const isEventType = memoryType === 'event' || memoryType === 'EVENT';
   if (location) {
     actions.push({
-      label: memoryType === 'event' ? 'Open Location' : 'Open Map',
+      label: isEventType ? 'Open Location' : 'Open Map',
       kind: 'maps',
       payload: { location },
     });
   }
 
-  // Type-specific actions
+  // Type-specific actions (handles both legacy lowercase and new uppercase taxonomy)
   switch (memoryType) {
     case 'event':
+    case 'EVENT':
       // Calendar and location actions already added above
       actions.push({ label: 'Share Event', kind: 'share' });
       break;
 
     case 'place':
+    case 'PLACE':
       // Map action already added above
       actions.push({
         label: 'Save for Trip',
@@ -64,6 +68,7 @@ export function getActionsForMemory(
       break;
 
     case 'product':
+    case 'PRODUCT':
       if (memory.sourceUri) {
         actions.push({
           label: 'Open Product',
@@ -85,6 +90,7 @@ export function getActionsForMemory(
 
     case 'tutorial':
     case 'article':
+    case 'ARTICLE_LEARNING':
       actions.push({
         label: 'Ask About This',
         kind: 'ask',
@@ -100,7 +106,7 @@ export function getActionsForMemory(
         kind: 'comingSoon',
         payload: { message: 'Find similar content you saved' },
       });
-      if (memoryType === 'article') {
+      if (memoryType === 'article' || memoryType === 'ARTICLE_LEARNING') {
         actions.push({
           label: 'Key Points',
           kind: 'comingSoon',
@@ -110,6 +116,7 @@ export function getActionsForMemory(
       break;
 
     case 'document':
+    case 'DOCUMENT':
       actions.push({ label: 'Share Copy', kind: 'share' });
       // For documents with date, add "Expiry Reminder" instead of "Add to Calendar"
       if (date) {
@@ -119,6 +126,13 @@ export function getActionsForMemory(
           payload: { date, title: `Expiry: ${memory.title}` },
         });
       }
+      break;
+
+    // New uppercase taxonomy types without dedicated card work yet (SC-P1)
+    case 'GENERIC':
+    case 'VIDEO_SOCIAL':
+    case 'OFFER':
+      // Fall through to default — no type-specific actions for now
       break;
 
     default:

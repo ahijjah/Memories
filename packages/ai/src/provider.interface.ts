@@ -5,6 +5,7 @@ export interface MemoryUnderstanding {
   title: string;
   summary: string;
   type:
+    // Legacy lowercase values (existing data)
     | 'article'
     | 'video'
     | 'post'
@@ -15,7 +16,16 @@ export interface MemoryUnderstanding {
     | 'place'
     | 'product'
     | 'tutorial'
-    | 'other';
+    | 'other'
+    // New Smart Memory Card Framework uppercase values (for new captures going forward)
+    | 'GENERIC'
+    | 'EVENT'
+    | 'PLACE'
+    | 'PRODUCT'
+    | 'ARTICLE_LEARNING'
+    | 'VIDEO_SOCIAL'
+    | 'OFFER'
+    | 'DOCUMENT';
   topics: string[];
   confidence: number; // 0..1, overall — per-field confidence is layered on by the caller
   modelVersion: string;
