@@ -121,8 +121,9 @@ export default function MemoryDetailScreen() {
         // Trigger reprocessing
         await reprocessMemory(token, id);
 
-        // Refetch the memory to show updated data
+        // Refetch both memory detail and processing status to resume polling
         await refetch();
+        await refetchStatus();
 
         Alert.alert('Success', 'Photo added! Analyzing details...');
       }

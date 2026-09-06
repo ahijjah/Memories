@@ -253,12 +253,13 @@ export default function VaultDetailScreen() {
   const aiLocation = getFieldValue('location');
   const aiDate = getFieldValue('date');
 
-  // Check if banner should show: URL-sourced event with no date and no existing assets
+  // Check if banner should show: URL-sourced event with no date and no existing assets (vault memories are excluded since reprocessing is blocked for vault content)
   const shouldShowPhotoPrompt = memory
     && memory.sourceType === 'url'
     && memory.memoryType === 'event'
     && !aiDate
-    && (!memory.assets || memory.assets.length === 0);
+    && (!memory.assets || memory.assets.length === 0)
+    && memory.securityScope !== 'vault';
 
   return (
     <ScrollView className="flex-1 bg-white">
