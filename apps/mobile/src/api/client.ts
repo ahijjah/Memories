@@ -260,6 +260,10 @@ export async function unlockMemory(token: string | null, memoryId: string): Prom
   return makeRequest(`/vault/${memoryId}/unlock`, 'POST', token);
 }
 
+export async function reprocessMemory(token: string | null, memoryId: string): Promise<{ id: string; processingState: string }> {
+  return makeRequest(`/memories/${memoryId}/reprocess`, 'POST', token);
+}
+
 export interface Reminder {
   id: string;
   userId: string;

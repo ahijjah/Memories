@@ -84,6 +84,21 @@ export class MemoryService {
     return memory;
   }
 
+  async reprocessMemory(userId: string, id: string) {
+    const memory = await this.prisma.memory.findUnique({
+      where: { id },
+      select: { id: true, userId: true, securityScope: true },
+    });
+    if (!memory) throw new NotFoundException('Memory not found');
+    this.assertOwnership(memory.userId, userId);
+    if (memory.securityScope === 'vault') {
+      throw new NotFoundException('Memory not found');
+    }
+
+    await this.aiQueue.enqueueUnderstanding(memory.id);
+    return { id: memory.id, processingState: 'queued' };
+  }
+
   private assertOwnership(ownerId: string, requestingUserId: string) {
     // Server-side authorization on every access (spec §18, FR-SEC-001) —
     // never rely on the client to only ask for its own data.

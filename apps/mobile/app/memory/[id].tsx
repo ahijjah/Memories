@@ -3,10 +3,12 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState, useEffect } from 'react';
 import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity, Modal, Alert, TextInput, Linking, Share, Platform } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import * as ImagePicker from 'expo-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as Calendar from 'expo-calendar/legacy';
-import { fetchMemoryDetail, fetchProcessingStatus, Memory, ProcessingStatus, AIInference, listCollections, addMemoryToCollection, lockMemory, createReminder } from '@/src/api/client';
+import { fetchMemoryDetail, fetchProcessingStatus, Memory, ProcessingStatus, AIInference, listCollections, addMemoryToCollection, lockMemory, createReminder, reprocessMemory } from '@/src/api/client';
 import { getActionsForMemory, MemoryAction } from '@/src/utils/memory-actions';
+import { uploadPhotoToExistingMemory } from '@/src/utils/photo-upload';
 
 export default function MemoryDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -19,6 +21,7 @@ export default function MemoryDetailScreen() {
   const [reminderNote, setReminderNote] = useState('');
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
+  const [isAddingPhoto, setIsAddingPhoto] = useState(false);
 
   const { data: memory, isLoading, error, refetch } = useQuery({
     queryKey: ['memory', id],
@@ -93,6 +96,42 @@ export default function MemoryDetailScreen() {
       Alert.alert('Error', message);
     },
   });
+
+  const handleAddPhoto = async () => {
+    try {
+      setIsAddingPhoto(true);
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: false,
+        quality: 1,
+      });
+
+      if (!result.canceled && result.assets[0] && id) {
+        const asset = result.assets[0];
+        const mimeType = asset.mimeType || 'image/jpeg';
+        const token = await getToken();
+
+        if (!token || !asset.uri) {
+          throw new Error('Authentication or image data missing');
+        }
+
+        // Upload photo to existing memory
+        await uploadPhotoToExistingMemory(token, id, asset.uri, mimeType);
+
+        // Trigger reprocessing
+        await reprocessMemory(token, id);
+
+        // Refetch the memory to show updated data
+        await refetch();
+
+        Alert.alert('Success', 'Photo added! Analyzing details...');
+      }
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'Failed to add photo');
+    } finally {
+      setIsAddingPhoto(false);
+    }
+  };
 
   const [shouldPoll, setShouldPoll] = useState(true);
 
@@ -298,6 +337,13 @@ export default function MemoryDetailScreen() {
   const aiLocation = getFieldValue('location');
   const aiDate = getFieldValue('date');
 
+  // Check if banner should show: URL-sourced event with no date and no existing assets
+  const shouldShowPhotoPrompt = memory
+    && memory.sourceType === 'url'
+    && memory.memoryType === 'event'
+    && !aiDate
+    && (!memory.assets || memory.assets.length === 0);
+
   return (
     <>
       <ScrollView className="flex-1 bg-white">
@@ -319,6 +365,28 @@ export default function MemoryDetailScreen() {
             </Text>
           </View>
         </View>
+
+        {/* Add Photo Prompt */}
+        {shouldShowPhotoPrompt && (
+          <View className="mb-6 p-4 rounded-lg bg-amber-50 border border-amber-200">
+            <View className="flex-row items-center justify-between gap-3">
+              <View className="flex-1">
+                <Text className="text-amber-900 font-semibold text-sm">Want a photo of this for better details?</Text>
+              </View>
+              <TouchableOpacity
+                onPress={handleAddPhoto}
+                disabled={isAddingPhoto}
+                className={`rounded-lg py-2 px-4 ${isAddingPhoto ? 'bg-amber-200' : 'bg-amber-600'}`}
+              >
+                {isAddingPhoto ? (
+                  <ActivityIndicator size="small" color="#78350f" />
+                ) : (
+                  <Text className="text-white font-semibold text-sm">Add Photo</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
 
         {/* Title */}
         <View className="mb-6">

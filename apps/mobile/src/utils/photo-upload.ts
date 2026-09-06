@@ -44,3 +44,34 @@ export async function uploadPhotoToMemory(
 
   return memory.id;
 }
+
+export async function uploadPhotoToExistingMemory(
+  token: string,
+  memoryId: string,
+  fileUri: string,
+  mimeType: string,
+): Promise<void> {
+  const uploadTarget = await createUpload(token, memoryId, mimeType);
+
+  const uploadResult = await FileSystem.uploadAsync(uploadTarget.uploadUrl, fileUri, {
+    httpMethod: 'PUT',
+    headers: {
+      'Content-Type': mimeType,
+    },
+  });
+
+  if (uploadResult.status !== 200) {
+    throw new Error(`Upload failed with status ${uploadResult.status}`);
+  }
+
+  const fileInfo = await FileSystem.getInfoAsync(fileUri, { md5: true });
+  const checksum = fileInfo.exists ? fileInfo.md5 : undefined;
+
+  await completeUpload(
+    token,
+    memoryId,
+    uploadTarget.objectKey,
+    uploadTarget.mimeType,
+    checksum,
+  );
+}

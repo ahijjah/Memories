@@ -111,31 +111,26 @@ export class AiProcessor extends WorkerHost {
       let inputText = memory.title ?? memory.sourceUri ?? '(no text content captured)';
       let ogImageUrl: string | undefined;
 
-      // Check if this is an image/camera capture with assets
+      // Check for user-uploaded assets first (higher priority than og:image)
       let imageBase64: string | undefined;
       let imageMediaType: string | undefined;
-      const isImageSource = ['image', 'camera', 'screenshot'].includes(memory.sourceType);
+      const assets = await this.prisma.memoryAsset.findMany({
+        where: { memoryId },
+      });
 
-      if (isImageSource) {
-        // Fetch associated asset(s) for vision analysis
-        const assets = await this.prisma.memoryAsset.findMany({
-          where: { memoryId },
-        });
-
-        if (assets.length > 0) {
-          // Use the first (primary) asset
-          const imageData = await this.fetchImageAsBase64(assets[0].objectKey, assets[0].mimeType);
-          if (imageData) {
-            imageBase64 = imageData.base64;
-            imageMediaType = imageData.mediaType;
-            this.logger.debug(
-              `Vision analysis enabled for Memory ${memoryId} (${imageData.mediaType}, ${Buffer.byteLength(imageData.base64, 'utf8')} bytes base64)`,
-            );
-          } else {
-            this.logger.warn(
-              `Failed to fetch image for Memory ${memoryId}, falling back to text-only analysis`,
-            );
-          }
+      if (assets.length > 0) {
+        // Use the first (primary) asset for vision analysis
+        const imageData = await this.fetchImageAsBase64(assets[0].objectKey, assets[0].mimeType);
+        if (imageData) {
+          imageBase64 = imageData.base64;
+          imageMediaType = imageData.mediaType;
+          this.logger.debug(
+            `Vision analysis enabled for Memory ${memoryId} (user-uploaded asset, ${imageData.mediaType})`,
+          );
+        } else {
+          this.logger.warn(
+            `Failed to fetch user-uploaded image for Memory ${memoryId}, falling back to text-only or og:image`,
+          );
         }
       }
 
@@ -157,7 +152,7 @@ export class AiProcessor extends WorkerHost {
             `URL metadata extracted for Memory ${memoryId}: title="${urlMetadata.title}", hasImage=${!!urlMetadata.imageUrl}`,
           );
 
-          // Attempt to fetch and include the og:image for vision analysis
+          // Attempt to fetch and include the og:image for vision analysis (only if no user-uploaded image)
           if (urlMetadata.imageUrl && !imageBase64) {
             const imageBytes = await this.urlMetadataService.fetchImageBytes(
               urlMetadata.imageUrl,
@@ -166,11 +161,11 @@ export class AiProcessor extends WorkerHost {
               imageBase64 = imageBytes.data.toString('base64');
               imageMediaType = imageBytes.mimeType;
               this.logger.debug(
-                `Vision analysis enabled for URL-sourced Memory ${memoryId} (${imageBytes.mimeType}, ${imageBytes.data.length} bytes)`,
+                `Vision analysis enabled for URL-sourced Memory ${memoryId} (og:image, ${imageBytes.mimeType}, ${imageBytes.data.length} bytes)`,
               );
             } else {
               this.logger.debug(
-                `Could not fetch image for Memory ${memoryId} from ${urlMetadata.imageUrl}, falling back to text-only analysis`,
+                `Could not fetch og:image for Memory ${memoryId} from ${urlMetadata.imageUrl}, falling back to text-only analysis`,
               );
             }
           }

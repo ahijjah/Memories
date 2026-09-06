@@ -34,4 +34,9 @@ export class MemoryController {
   async processingStatus(@CurrentUser() user: CurrentUserPayload, @Param('id') id: string) {
     return this.memoryService.getProcessingStatus(user.sub, id);
   }
+
+  @Post(':id/reprocess')
+  async reprocess(@CurrentUser() user: CurrentUserPayload, @Param('id') id: string) {
+    return this.memoryService.reprocessMemory(user.sub, id);
+  }
 }
