@@ -1,6 +1,6 @@
 import { Memory } from '@/src/api/client';
 
-export type CardType = 'event' | 'generic';
+export type CardType = 'event' | 'place' | 'product' | 'offer' | 'article_learning' | 'video_social' | 'document' | 'generic';
 
 export function resolveCardType(memory: Memory | undefined): CardType {
   if (!memory) return 'generic';
@@ -8,12 +8,17 @@ export function resolveCardType(memory: Memory | undefined): CardType {
   const memoryType = memory.memoryType || 'generic';
   const normalizedType = memoryType.toLowerCase();
 
-  // Event-specific card
-  if (normalizedType === 'event' || normalizedType === 'EVENT') {
-    return 'event';
-  }
+  // Map both legacy lowercase and new uppercase values
+  if (normalizedType === 'event') return 'event';
+  if (normalizedType === 'place') return 'place';
+  if (normalizedType === 'product') return 'product';
+  if (normalizedType === 'offer') return 'offer';
+  if (normalizedType === 'article' || normalizedType === 'article_learning') return 'article_learning';
+  if (normalizedType === 'tutorial') return 'article_learning';
+  if (normalizedType === 'video' || normalizedType === 'video_social') return 'video_social';
+  if (normalizedType === 'post') return 'video_social';
+  if (normalizedType === 'document') return 'document';
 
-  // All other types use generic card (for now)
-  // SC-P1 will add PLACE, PRODUCT, ARTICLE_LEARNING, etc.
+  // All others fall back to generic
   return 'generic';
 }
