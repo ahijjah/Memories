@@ -13,6 +13,12 @@ import { CardHeader } from '@/src/components/memory-cards/CardHeader';
 import { CardIdentity } from '@/src/components/memory-cards/CardIdentity';
 import { GenericCard } from '@/src/components/memory-cards/GenericCard';
 import { EventCard } from '@/src/components/memory-cards/EventCard';
+import { PlaceCard } from '@/src/components/memory-cards/PlaceCard';
+import { ProductCard } from '@/src/components/memory-cards/ProductCard';
+import { OfferCard } from '@/src/components/memory-cards/OfferCard';
+import { ArticleLearningCard } from '@/src/components/memory-cards/ArticleLearningCard';
+import { VideoSocialCard } from '@/src/components/memory-cards/VideoSocialCard';
+import { DocumentCard } from '@/src/components/memory-cards/DocumentCard';
 import { resolveCardType } from '@/src/components/memory-cards/cardTypeResolver';
 
 export default function MemoryDetailScreen() {
@@ -342,6 +348,15 @@ export default function MemoryDetailScreen() {
   const aiEntities = getFieldValue('entities');
   const aiLocation = getFieldValue('location');
   const aiDate = getFieldValue('date');
+  const aiBrand = getFieldValue('brand');
+  const aiModel = getFieldValue('model');
+  const aiPrice = getFieldValue('price');
+  const aiCategory = getFieldValue('category');
+  const aiMerchant = getFieldValue('merchant');
+  const aiOriginalPrice = getFieldValue('originalPrice');
+  const aiOfferPrice = getFieldValue('offerPrice');
+  const aiDiscount = getFieldValue('discount');
+  const aiPromoCode = getFieldValue('promoCode');
 
   // Check if banner should show: URL-sourced event with no date and no existing assets
   const shouldShowPhotoPrompt = memory
@@ -399,25 +414,102 @@ export default function MemoryDetailScreen() {
         {/* Card Display — type-specific layout */}
         <CardIdentity memory={memory} onOpenURL={handleOpenURL} />
 
-        {resolveCardType(memory) === 'event' ? (
-          <EventCard
-            aiSummary={aiSummary}
-            aiTopics={aiTopics}
-            aiIntent={aiIntent}
-            aiEntities={aiEntities}
-            aiLocation={aiLocation}
-            aiDate={aiDate}
-          />
-        ) : (
-          <GenericCard
-            aiSummary={aiSummary}
-            aiTopics={aiTopics}
-            aiIntent={aiIntent}
-            aiEntities={aiEntities}
-            aiLocation={aiLocation}
-            aiDate={aiDate}
-          />
-        )}
+        {(() => {
+          const cardType = resolveCardType(memory);
+          switch (cardType) {
+            case 'event':
+              return (
+                <EventCard
+                  aiSummary={aiSummary}
+                  aiTopics={aiTopics}
+                  aiIntent={aiIntent}
+                  aiEntities={aiEntities}
+                  aiLocation={aiLocation}
+                  aiDate={aiDate}
+                />
+              );
+            case 'place':
+              return (
+                <PlaceCard
+                  aiSummary={aiSummary}
+                  aiTopics={aiTopics}
+                  aiIntent={aiIntent}
+                  aiEntities={aiEntities}
+                  aiLocation={aiLocation}
+                  aiCategory={aiCategory}
+                />
+              );
+            case 'product':
+              return (
+                <ProductCard
+                  aiSummary={aiSummary}
+                  aiTopics={aiTopics}
+                  aiIntent={aiIntent}
+                  aiEntities={aiEntities}
+                  aiBrand={aiBrand}
+                  aiModel={aiModel}
+                  aiPrice={aiPrice}
+                  aiCategory={aiCategory}
+                />
+              );
+            case 'offer':
+              return (
+                <OfferCard
+                  aiSummary={aiSummary}
+                  aiTopics={aiTopics}
+                  aiIntent={aiIntent}
+                  aiEntities={aiEntities}
+                  aiMerchant={aiMerchant}
+                  aiOriginalPrice={aiOriginalPrice}
+                  aiOfferPrice={aiOfferPrice}
+                  aiDiscount={aiDiscount}
+                  aiPromoCode={aiPromoCode}
+                  aiDate={aiDate}
+                />
+              );
+            case 'article_learning':
+              return (
+                <ArticleLearningCard
+                  aiSummary={aiSummary}
+                  aiTopics={aiTopics}
+                  aiIntent={aiIntent}
+                  aiEntities={aiEntities}
+                />
+              );
+            case 'video_social':
+              return (
+                <VideoSocialCard
+                  aiSummary={aiSummary}
+                  aiTopics={aiTopics}
+                  aiIntent={aiIntent}
+                  aiEntities={aiEntities}
+                  sourceUri={memory.sourceUri}
+                />
+              );
+            case 'document':
+              return (
+                <DocumentCard
+                  aiSummary={aiSummary}
+                  aiTopics={aiTopics}
+                  aiIntent={aiIntent}
+                  aiEntities={aiEntities}
+                  aiDate={aiDate}
+                />
+              );
+            case 'generic':
+            default:
+              return (
+                <GenericCard
+                  aiSummary={aiSummary}
+                  aiTopics={aiTopics}
+                  aiIntent={aiIntent}
+                  aiEntities={aiEntities}
+                  aiLocation={aiLocation}
+                  aiDate={aiDate}
+                />
+              );
+          }
+        })()}
 
         {/* Raw AI Inferences (for debugging) */}
         {memory.aiInferences && memory.aiInferences.length > 0 && !aiTitle && !aiSummary ? (
