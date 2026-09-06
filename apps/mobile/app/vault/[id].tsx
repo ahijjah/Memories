@@ -8,6 +8,11 @@ import * as Calendar from 'expo-calendar/legacy';
 import { getVaultMemoryDetail, unlockMemory, AIInference, reprocessMemory } from '@/src/api/client';
 import { getActionsForMemory, MemoryAction } from '@/src/utils/memory-actions';
 import { uploadPhotoToExistingMemory } from '@/src/utils/photo-upload';
+import { CardHeader } from '@/src/components/memory-cards/CardHeader';
+import { CardIdentity } from '@/src/components/memory-cards/CardIdentity';
+import { GenericCard } from '@/src/components/memory-cards/GenericCard';
+import { EventCard } from '@/src/components/memory-cards/EventCard';
+import { resolveCardType } from '@/src/components/memory-cards/cardTypeResolver';
 
 export default function VaultDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -301,91 +306,28 @@ export default function VaultDetailScreen() {
           </Text>
         </View>
 
-        {/* Source Info */}
-        <View className="mb-6 p-4 bg-gray-50 rounded-lg">
-          <Text className="text-sm text-gray-600 mb-1">
-            <Text className="font-semibold">Source:</Text> {memory.sourceType}
-          </Text>
-          <Text className="text-sm text-gray-600">
-            <Text className="font-semibold">Captured:</Text> {new Date(memory.capturedAt).toLocaleString()}
-          </Text>
-          {memory.sourceUri && (
-            <View className="flex-row mt-1 flex-wrap items-center">
-              <Text className="text-sm text-gray-600 font-semibold">URL:</Text>
-              <TouchableOpacity onPress={() => handleOpenURL(memory.sourceUri!)} className="ml-1">
-                <Text className="text-sm text-blue-600 underline" numberOfLines={1}>
-                  {memory.sourceUri}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          )}
-        </View>
+        {/* Card Display — type-specific layout */}
+        <CardIdentity memory={memory} onOpenURL={handleOpenURL} />
 
-        {/* Summary */}
-        {aiSummary ? (
-          <View className="mb-6">
-            <Text className="text-lg font-semibold text-gray-900 mb-2">Summary</Text>
-            <Text className="text-base text-gray-700 leading-6">{aiSummary}</Text>
-          </View>
-        ) : null}
-
-        {/* Topics */}
-        {aiTopics && Array.isArray(aiTopics) && aiTopics.length > 0 ? (
-          <View className="mb-6">
-            <Text className="text-lg font-semibold text-gray-900 mb-3">Topics</Text>
-            <View className="flex-row flex-wrap gap-2">
-              {aiTopics.map((topic: string, idx: number) => (
-                <View key={idx} className="bg-blue-100 rounded-full px-4 py-2">
-                  <Text className="text-blue-900 text-sm font-medium">{topic}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-        ) : null}
-
-        {/* Structured Understanding — Intent, Entities, Location, Date */}
-        {(aiIntent || (aiEntities && Array.isArray(aiEntities) && aiEntities.length > 0) || aiLocation || aiDate) ? (
-          <View className="mb-6 p-4 bg-indigo-50 rounded-lg">
-            <Text className="text-lg font-semibold text-gray-900 mb-3">Details</Text>
-
-            {aiIntent && (
-              <View className="mb-3">
-                <Text className="text-sm text-gray-600">
-                  <Text className="font-semibold">Intent:</Text> <Text className="text-indigo-600 font-medium">{aiIntent}</Text>
-                </Text>
-              </View>
-            )}
-
-            {aiLocation && (
-              <View className="mb-3">
-                <Text className="text-sm text-gray-600">
-                  <Text className="font-semibold">Location:</Text> {aiLocation}
-                </Text>
-              </View>
-            )}
-
-            {aiDate && (
-              <View className="mb-3">
-                <Text className="text-sm text-gray-600">
-                  <Text className="font-semibold">Date:</Text> {new Date(aiDate).toLocaleDateString()}
-                </Text>
-              </View>
-            )}
-
-            {aiEntities && Array.isArray(aiEntities) && aiEntities.length > 0 && (
-              <View>
-                <Text className="text-sm text-gray-600 font-semibold mb-2">Entities:</Text>
-                <View className="flex-row flex-wrap gap-2">
-                  {aiEntities.map((entity: string, idx: number) => (
-                    <View key={idx} className="bg-indigo-100 rounded-full px-3 py-1">
-                      <Text className="text-indigo-800 text-xs font-medium">{entity}</Text>
-                    </View>
-                  ))}
-                </View>
-              </View>
-            )}
-          </View>
-        ) : null}
+        {resolveCardType(memory) === 'event' ? (
+          <EventCard
+            aiSummary={aiSummary}
+            aiTopics={aiTopics}
+            aiIntent={aiIntent}
+            aiEntities={aiEntities}
+            aiLocation={aiLocation}
+            aiDate={aiDate}
+          />
+        ) : (
+          <GenericCard
+            aiSummary={aiSummary}
+            aiTopics={aiTopics}
+            aiIntent={aiIntent}
+            aiEntities={aiEntities}
+            aiLocation={aiLocation}
+            aiDate={aiDate}
+          />
+        )}
 
         {/* Assets */}
         {memory.assets && memory.assets.length > 0 ? (
