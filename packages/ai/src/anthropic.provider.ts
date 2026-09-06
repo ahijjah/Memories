@@ -19,9 +19,9 @@ Respond with ONLY a JSON object, no prose, no markdown fences, with these requir
 
 OPTIONAL fields (only include if genuinely present/inferable, NEVER hallucinate):
 - "intent": "visit"|"buy"|"read"|"attend"|"reference" — user's likely action with this memory
-- "entities": string[] — people, brands, organizations mentioned (empty array if none)
-- "location": string — geographic location if applicable (omit if not present)
-- "date": string — ISO date string ONLY if an explicit date or clearly identifiable date reference (e.g., "November 13", "next Friday", a specific day/month/year) appears in the actual input text. CRITICAL: If no explicit date is mentioned in the text you were given, DO NOT include a date field — omit it entirely. Never infer, estimate, or guess a date from context, tone, or unrelated numbers.
+- "entities": string[] — people, brands, organizations mentioned in text or visibly displayed in images (empty array if none). Read any visible text within attached images (e.g., names on a poster, credits on a document) carefully, just as you would read caption text.
+- "location": string — geographic location if mentioned in text or visibly labeled in images (e.g., text on a map, location name printed on an event flyer). Only extract locations that are explicitly stated or displayed, never infer from context. Omit if not present.
+- "date": string — ISO date string ONLY if an explicit date or clearly identifiable date reference (e.g., "November 13", "next Friday", a specific day/month/year) appears in the text OR is visibly printed/displayed within an attached image (e.g., a date on an event flyer, poster, ticket, or document). CRITICAL: If no explicit date is visible in either text or images, DO NOT include a date field — omit it entirely. Never infer, estimate, or guess a date from context, tone, or unrelated numbers.
 
 INSTAGRAM POSTS: When text follows the pattern "[number] likes, [number] comments - [username] on [date]: [caption]" (Instagram's standard post-preview format), the [date] in that prefix is the POST'S PUBLISH DATE, not an event date. Do not use it to populate the date field. Only extract a date from the actual caption/content text itself, not from this metadata prefix.
 
