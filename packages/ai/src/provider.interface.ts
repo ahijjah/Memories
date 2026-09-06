@@ -36,12 +36,32 @@ export interface MemoryUnderstanding {
   location?: string; // free-text location if applicable
   date?: string; // ISO date string — event date, expiry, publication date, etc.
 
+  // P0.3: Product/Offer/Place fields — SC-P1 card types
+  brand?: string; // product brand (e.g. "Apple", "Nike")
+  model?: string; // product model (e.g. "iPhone 15", "Air Max 90")
+  price?: string; // display-ready price string, e.g. "$299" or "45 JOD" — formatted single string
+  category?: string; // product or place category, e.g. "Laptop", "Italian restaurant"
+  merchant?: string; // offer/deal merchant or seller name
+  originalPrice?: string; // original price before discount
+  offerPrice?: string; // discounted offer price
+  discount?: string; // e.g. "20% off" or "$50 off"
+  promoCode?: string; // promotional code if visible
+
   // P0.2a: Per-field confidence — separate confidence for each optional field (only for fields included)
   fieldConfidence?: {
     intent?: number; // 0..1, confidence specifically for the intent field
     entities?: number; // 0..1, confidence specifically for entities extraction
     location?: number; // 0..1, confidence specifically for location extraction
     date?: number; // 0..1, confidence specifically for date extraction
+    brand?: number; // 0..1, confidence specifically for brand extraction
+    model?: number; // 0..1, confidence specifically for model extraction
+    price?: number; // 0..1, confidence specifically for price extraction
+    category?: number; // 0..1, confidence specifically for category extraction
+    merchant?: number; // 0..1, confidence specifically for merchant extraction
+    originalPrice?: number; // 0..1, confidence specifically for originalPrice extraction
+    offerPrice?: number; // 0..1, confidence specifically for offerPrice extraction
+    discount?: number; // 0..1, confidence specifically for discount extraction
+    promoCode?: number; // 0..1, confidence specifically for promoCode extraction
   };
 }
 

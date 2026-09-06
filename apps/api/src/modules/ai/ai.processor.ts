@@ -279,6 +279,142 @@ export class AiProcessor extends WorkerHost {
         );
       }
 
+      // P0.3: Product/Offer/Place fields — store only when present
+      if (result.brand) {
+        inferencesToCreate.push(
+          this.prisma.aIInference.create({
+            data: {
+              memoryId,
+              field: 'brand',
+              valueJson: result.brand,
+              confidence: result.fieldConfidence?.brand ?? result.confidence,
+              modelVersion: result.modelVersion,
+              provenance: 'llm_extraction',
+            },
+          }),
+        );
+      }
+
+      if (result.model) {
+        inferencesToCreate.push(
+          this.prisma.aIInference.create({
+            data: {
+              memoryId,
+              field: 'model',
+              valueJson: result.model,
+              confidence: result.fieldConfidence?.model ?? result.confidence,
+              modelVersion: result.modelVersion,
+              provenance: 'llm_extraction',
+            },
+          }),
+        );
+      }
+
+      if (result.price) {
+        inferencesToCreate.push(
+          this.prisma.aIInference.create({
+            data: {
+              memoryId,
+              field: 'price',
+              valueJson: result.price,
+              confidence: result.fieldConfidence?.price ?? result.confidence,
+              modelVersion: result.modelVersion,
+              provenance: 'llm_extraction',
+            },
+          }),
+        );
+      }
+
+      if (result.category) {
+        inferencesToCreate.push(
+          this.prisma.aIInference.create({
+            data: {
+              memoryId,
+              field: 'category',
+              valueJson: result.category,
+              confidence: result.fieldConfidence?.category ?? result.confidence,
+              modelVersion: result.modelVersion,
+              provenance: 'llm_extraction',
+            },
+          }),
+        );
+      }
+
+      if (result.merchant) {
+        inferencesToCreate.push(
+          this.prisma.aIInference.create({
+            data: {
+              memoryId,
+              field: 'merchant',
+              valueJson: result.merchant,
+              confidence: result.fieldConfidence?.merchant ?? result.confidence,
+              modelVersion: result.modelVersion,
+              provenance: 'llm_extraction',
+            },
+          }),
+        );
+      }
+
+      if (result.originalPrice) {
+        inferencesToCreate.push(
+          this.prisma.aIInference.create({
+            data: {
+              memoryId,
+              field: 'originalPrice',
+              valueJson: result.originalPrice,
+              confidence: result.fieldConfidence?.originalPrice ?? result.confidence,
+              modelVersion: result.modelVersion,
+              provenance: 'llm_extraction',
+            },
+          }),
+        );
+      }
+
+      if (result.offerPrice) {
+        inferencesToCreate.push(
+          this.prisma.aIInference.create({
+            data: {
+              memoryId,
+              field: 'offerPrice',
+              valueJson: result.offerPrice,
+              confidence: result.fieldConfidence?.offerPrice ?? result.confidence,
+              modelVersion: result.modelVersion,
+              provenance: 'llm_extraction',
+            },
+          }),
+        );
+      }
+
+      if (result.discount) {
+        inferencesToCreate.push(
+          this.prisma.aIInference.create({
+            data: {
+              memoryId,
+              field: 'discount',
+              valueJson: result.discount,
+              confidence: result.fieldConfidence?.discount ?? result.confidence,
+              modelVersion: result.modelVersion,
+              provenance: 'llm_extraction',
+            },
+          }),
+        );
+      }
+
+      if (result.promoCode) {
+        inferencesToCreate.push(
+          this.prisma.aIInference.create({
+            data: {
+              memoryId,
+              field: 'promoCode',
+              valueJson: result.promoCode,
+              confidence: result.fieldConfidence?.promoCode ?? result.confidence,
+              modelVersion: result.modelVersion,
+              provenance: 'llm_extraction',
+            },
+          }),
+        );
+      }
+
       inferencesToCreate.push(
         this.prisma.memory.update({
           where: { id: memoryId },

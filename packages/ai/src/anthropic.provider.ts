@@ -33,13 +33,33 @@ OPTIONAL fields (only include if genuinely present/inferable, NEVER hallucinate)
 - "location": string — geographic location if mentioned in text or visibly labeled in images (e.g., text on a map, location name printed on an event flyer). Only extract locations that are explicitly stated or displayed, never infer from context. Omit if not present.
 - "date": string — ISO date string ONLY if an explicit date or clearly identifiable date reference (e.g., "November 13", "next Friday", a specific day/month/year) appears in the text OR is visibly printed/displayed within an attached image (e.g., a date on an event flyer, poster, ticket, or document). CRITICAL: If no explicit date is visible in either text or images, DO NOT include a date field — omit it entirely. Never infer, estimate, or guess a date from context, tone, or unrelated numbers.
 
+Product/Offer/Place fields (only include if explicitly present in text or visibly displayed in images, NEVER infer or estimate):
+- "brand": string — product brand (e.g. "Apple", "Nike"). Only if explicitly mentioned or visibly displayed.
+- "model": string — product model/version (e.g. "iPhone 15 Pro", "Air Max 90"). Only if explicitly stated.
+- "price": string — display-ready price as a single formatted string (e.g. "$299", "45 JOD", "€1299"). Keep as one string, don't split. Only if explicitly shown.
+- "category": string — product or place category (e.g. "Laptop", "Italian restaurant", "Coffee shop"). Only if clearly stated or visibly labeled.
+- "merchant": string — offer/deal merchant or seller name. Only if explicitly mentioned.
+- "originalPrice": string — original price before discount (same format as price field). Only if explicitly shown.
+- "offerPrice": string — discounted offer price (same format as price field). Only if explicitly shown.
+- "discount": string — discount description (e.g. "20% off", "$50 off", "Buy one get one free"). Only if explicitly stated.
+- "promoCode": string — promotional/coupon code if visible in text or images. Only if explicitly shown.
+
 Per-field confidence (only include for fields you actually included above):
 - "fieldConfidence": an object with optional properties — include ONLY for fields you populated:
   - "intent": number between 0 and 1 (how confident are you in the intent you extracted?)
   - "entities": number between 0 and 1 (how confident are you in the entities/people you identified?)
   - "location": number between 0 and 1 (how confident are you in the location you extracted?)
   - "date": number between 0 and 1 (how confident are you in the date you extracted?)
-  Omit any field from fieldConfidence that you didn't include in the optional fields above. For example, if you extracted an intent but no location, only include {"fieldConfidence": {"intent": 0.85}}.
+  - "brand": number between 0 and 1 (how confident are you in the brand?)
+  - "model": number between 0 and 1 (how confident are you in the model?)
+  - "price": number between 0 and 1 (how confident are you in the price?)
+  - "category": number between 0 and 1 (how confident are you in the category?)
+  - "merchant": number between 0 and 1 (how confident are you in the merchant?)
+  - "originalPrice": number between 0 and 1 (how confident are you in the original price?)
+  - "offerPrice": number between 0 and 1 (how confident are you in the offer price?)
+  - "discount": number between 0 and 1 (how confident are you in the discount?)
+  - "promoCode": number between 0 and 1 (how confident are you in the promo code?)
+  Omit any field from fieldConfidence that you didn't include in the optional fields above. For example, if you extracted a brand, price, and discount but no original price, only include {"fieldConfidence": {"brand": 0.95, "price": 0.92, "discount": 0.88}}.
 
 INSTAGRAM POSTS: When text follows the pattern "[number] likes, [number] comments - [username] on [date]: [caption]" (Instagram's standard post-preview format), the [date] in that prefix is the POST'S PUBLISH DATE, not an event date. Do not use it to populate the date field. Only extract a date from the actual caption/content text itself, not from this metadata prefix.
 
