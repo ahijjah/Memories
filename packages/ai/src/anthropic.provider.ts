@@ -33,11 +33,19 @@ OPTIONAL fields (only include if genuinely present/inferable, NEVER hallucinate)
 - "location": string — geographic location if mentioned in text or visibly labeled in images (e.g., text on a map, location name printed on an event flyer). Only extract locations that are explicitly stated or displayed, never infer from context. Omit if not present.
 - "date": string — ISO date string ONLY if an explicit date or clearly identifiable date reference (e.g., "November 13", "next Friday", a specific day/month/year) appears in the text OR is visibly printed/displayed within an attached image (e.g., a date on an event flyer, poster, ticket, or document). CRITICAL: If no explicit date is visible in either text or images, DO NOT include a date field — omit it entirely. Never infer, estimate, or guess a date from context, tone, or unrelated numbers.
 
+Per-field confidence (only include for fields you actually included above):
+- "fieldConfidence": an object with optional properties — include ONLY for fields you populated:
+  - "intent": number between 0 and 1 (how confident are you in the intent you extracted?)
+  - "entities": number between 0 and 1 (how confident are you in the entities/people you identified?)
+  - "location": number between 0 and 1 (how confident are you in the location you extracted?)
+  - "date": number between 0 and 1 (how confident are you in the date you extracted?)
+  Omit any field from fieldConfidence that you didn't include in the optional fields above. For example, if you extracted an intent but no location, only include {"fieldConfidence": {"intent": 0.85}}.
+
 INSTAGRAM POSTS: When text follows the pattern "[number] likes, [number] comments - [username] on [date]: [caption]" (Instagram's standard post-preview format), the [date] in that prefix is the POST'S PUBLISH DATE, not an event date. Do not use it to populate the date field. Only extract a date from the actual caption/content text itself, not from this metadata prefix.
 
 Guidelines: Keep title short and meaningful. Keep summary short and faithful to source.
 DO NOT invent facts, locations, dates, or intentions not clearly present in input.
-Only populate optional fields when you are confident they apply.`;
+Only populate optional fields when you are confident they apply. Confidence values reflect how certain you are about each individual extraction, separate from overall confidence.`;
 
 function stripMarkdownCodeFences(text: string): string {
   let result = text.trim();

@@ -27,7 +27,7 @@ export interface MemoryUnderstanding {
     | 'OFFER'
     | 'DOCUMENT';
   topics: string[];
-  confidence: number; // 0..1, overall — per-field confidence is layered on by the caller
+  confidence: number; // 0..1, overall — type classification and general confidence
   modelVersion: string;
 
   // P0.1: Structured AI Understanding — optional fields, only populated if genuinely present
@@ -35,6 +35,14 @@ export interface MemoryUnderstanding {
   entities?: string[]; // people/brands/orgs mentioned
   location?: string; // free-text location if applicable
   date?: string; // ISO date string — event date, expiry, publication date, etc.
+
+  // P0.2a: Per-field confidence — separate confidence for each optional field (only for fields included)
+  fieldConfidence?: {
+    intent?: number; // 0..1, confidence specifically for the intent field
+    entities?: number; // 0..1, confidence specifically for entities extraction
+    location?: number; // 0..1, confidence specifically for location extraction
+    date?: number; // 0..1, confidence specifically for date extraction
+  };
 }
 
 export interface UnderstandInput {
