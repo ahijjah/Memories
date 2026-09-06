@@ -394,13 +394,7 @@ export default function MemoryDetailScreen() {
           </View>
         )}
 
-        {/* Title */}
-        <View className="mb-6">
-          <Text className="text-xs text-gray-500 uppercase font-semibold mb-2">Title</Text>
-          <Text className="text-3xl font-bold text-gray-900">
-            {aiTitle ? aiTitle : memory.title || 'Untitled'}
-          </Text>
-        </View>
+        <CardHeader title={aiTitle ? aiTitle : memory.title} />
 
         {/* Card Display — type-specific layout */}
         <CardIdentity memory={memory} onOpenURL={handleOpenURL} />
