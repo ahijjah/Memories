@@ -334,6 +334,7 @@ export default function VaultDetailScreen() {
 
         {(() => {
           const cardType = resolveCardType(memory);
+          const isVault = memory.securityScope === 'vault';
           switch (cardType) {
             case 'event':
               return (
@@ -344,10 +345,12 @@ export default function VaultDetailScreen() {
                   aiEntities={aiEntities}
                   aiLocation={aiLocation}
                   aiDate={aiDate}
-                  memoryId={id}
-                  dateConfidence={getFieldConfidence('date')}
-                  isDateConfirmed={isFieldConfirmed('date')}
-                  onConfirmed={() => refetch()}
+                  {...(!isVault && {
+                    memoryId: id,
+                    dateConfidence: getFieldConfidence('date'),
+                    isDateConfirmed: isFieldConfirmed('date'),
+                    onConfirmed: () => refetch(),
+                  })}
                 />
               );
             case 'place':
@@ -359,10 +362,12 @@ export default function VaultDetailScreen() {
                   aiEntities={aiEntities}
                   aiLocation={aiLocation}
                   aiCategory={aiCategory}
-                  memoryId={id}
-                  locationConfidence={getFieldConfidence('location')}
-                  isLocationConfirmed={isFieldConfirmed('location')}
-                  onConfirmed={() => refetch()}
+                  {...(!isVault && {
+                    memoryId: id,
+                    locationConfidence: getFieldConfidence('location'),
+                    isLocationConfirmed: isFieldConfirmed('location'),
+                    onConfirmed: () => refetch(),
+                  })}
                 />
               );
             case 'product':
@@ -376,10 +381,12 @@ export default function VaultDetailScreen() {
                   aiModel={aiModel}
                   aiPrice={aiPrice}
                   aiCategory={aiCategory}
-                  memoryId={id}
-                  priceConfidence={getFieldConfidence('price')}
-                  isPriceConfirmed={isFieldConfirmed('price')}
-                  onConfirmed={() => refetch()}
+                  {...(!isVault && {
+                    memoryId: id,
+                    priceConfidence: getFieldConfidence('price'),
+                    isPriceConfirmed: isFieldConfirmed('price'),
+                    onConfirmed: () => refetch(),
+                  })}
                 />
               );
             case 'offer':
@@ -395,10 +402,12 @@ export default function VaultDetailScreen() {
                   aiDiscount={aiDiscount}
                   aiPromoCode={aiPromoCode}
                   aiDate={aiDate}
-                  memoryId={id}
-                  offerPriceConfidence={getFieldConfidence('offerPrice')}
-                  isOfferPriceConfirmed={isFieldConfirmed('offerPrice')}
-                  onConfirmed={() => refetch()}
+                  {...(!isVault && {
+                    memoryId: id,
+                    offerPriceConfidence: getFieldConfidence('offerPrice'),
+                    isOfferPriceConfirmed: isFieldConfirmed('offerPrice'),
+                    onConfirmed: () => refetch(),
+                  })}
                 />
               );
             case 'article_learning':
