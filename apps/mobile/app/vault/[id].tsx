@@ -406,6 +406,8 @@ export default function VaultDetailScreen() {
                     memoryId: id,
                     offerPriceConfidence: getFieldConfidence('offerPrice'),
                     isOfferPriceConfirmed: isFieldConfirmed('offerPrice'),
+                    dateConfidence: getFieldConfidence('date'),
+                    isDateConfirmed: isFieldConfirmed('date'),
                     onConfirmed: () => refetch(),
                   })}
                 />

@@ -15,6 +15,8 @@ interface OfferCardProps {
   memoryId?: string;
   offerPriceConfidence?: number | null;
   isOfferPriceConfirmed?: boolean;
+  dateConfidence?: number | null;
+  isDateConfirmed?: boolean;
   onConfirmed?: () => void;
 }
 
@@ -32,6 +34,8 @@ export function OfferCard({
   memoryId,
   offerPriceConfidence,
   isOfferPriceConfirmed,
+  dateConfidence,
+  isDateConfirmed,
   onConfirmed,
 }: OfferCardProps) {
   const hasOfferDetails = aiMerchant || aiOriginalPrice || aiOfferPrice || aiDiscount || aiPromoCode || aiDate;
@@ -90,13 +94,26 @@ export function OfferCard({
               </Text>
             </View>
           )}
-          {aiDate && (
+          {memoryId && aiDate ? (
+            <View>
+              <ConfirmableField
+                label="Expires"
+                value={aiDate}
+                confidence={dateConfidence}
+                fieldType="date"
+                memoryId={memoryId}
+                field="date"
+                isConfirmed={isDateConfirmed || false}
+                onConfirmed={onConfirmed || (() => {})}
+              />
+            </View>
+          ) : aiDate ? (
             <View>
               <Text className="text-sm text-gray-600">
                 <Text className="font-semibold">Expires:</Text> {new Date(aiDate).toLocaleDateString()}
               </Text>
             </View>
-          )}
+          ) : null}
         </View>
       )}
 
