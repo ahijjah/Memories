@@ -6,6 +6,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { CurrentUserPayload } from '../../common/decorators/current-user.decorator';
 import { MemoryService } from './memory.service';
 import { CreateMemoryDto } from './dto/create-memory.dto';
+import { ConfirmFieldDto } from './dto/confirm-field.dto';
 
 @ApiTags('memory')
 @ApiBearerAuth()
@@ -38,5 +39,14 @@ export class MemoryController {
   @Post(':id/reprocess')
   async reprocess(@CurrentUser() user: CurrentUserPayload, @Param('id') id: string) {
     return this.memoryService.reprocessMemory(user.sub, id);
+  }
+
+  @Post(':id/confirm')
+  async confirmField(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id') id: string,
+    @Body() dto: ConfirmFieldDto,
+  ) {
+    return this.memoryService.confirmField(user.sub, id, dto.field, dto.confirmedValue);
   }
 }

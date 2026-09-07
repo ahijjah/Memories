@@ -181,7 +181,7 @@ model UserConfirmation {
   confirmedValue Json
   createdAt      DateTime @default(now())
 
-  @@index([memoryId, field])
+  @@unique([memoryId, field])
   @@map("user_confirmations")
 }
 

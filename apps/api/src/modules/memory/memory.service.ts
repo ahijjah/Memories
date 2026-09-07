@@ -106,6 +106,31 @@ export class MemoryService {
     return { id: memory.id, processingState: 'queued' };
   }
 
+  async confirmField(userId: string, memoryId: string, field: string, confirmedValue: any) {
+    const memory = await this.prisma.memory.findUnique({
+      where: { id: memoryId },
+      select: { id: true, userId: true, securityScope: true },
+    });
+    if (!memory) throw new NotFoundException('Memory not found');
+    this.assertOwnership(memory.userId, userId);
+    if (memory.securityScope === 'vault') {
+      throw new NotFoundException('Memory not found');
+    }
+
+    return this.prisma.userConfirmation.upsert({
+      where: { memoryId_field: { memoryId, field } },
+      create: {
+        memoryId,
+        userId,
+        field,
+        confirmedValue,
+      },
+      update: {
+        confirmedValue,
+      },
+    });
+  }
+
   private assertOwnership(ownerId: string, requestingUserId: string) {
     // Server-side authorization on every access (spec §18, FR-SEC-001) —
     // never rely on the client to only ask for its own data.
