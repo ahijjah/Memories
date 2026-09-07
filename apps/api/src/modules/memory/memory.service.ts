@@ -54,6 +54,13 @@ export class MemoryService {
         lifecycleState: { not: 'deleted' },
         securityScope: { not: 'vault' },
       },
+      include: {
+        aiInferences: {
+          where: {
+            field: { in: ['date', 'location', 'price', 'category'] },
+          },
+        },
+      },
       orderBy: { capturedAt: 'desc' },
     });
   }
