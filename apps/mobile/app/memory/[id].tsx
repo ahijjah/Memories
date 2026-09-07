@@ -175,9 +175,23 @@ export default function MemoryDetailScreen() {
   };
 
   const getFieldValue = (field: string): any => {
+    // Check userConfirmations first (spec §6 precedence rule)
+    const confirmation = memory?.userConfirmations?.find((uc) => uc.field === field);
+    if (confirmation) return confirmation.confirmedValue;
+
     const inferences = getAIInferencesByField(field);
     if (inferences.length === 0) return null;
     return inferences[0].valueJson;
+  };
+
+  const getFieldConfidence = (field: string): number | null => {
+    const inferences = getAIInferencesByField(field);
+    if (inferences.length === 0) return null;
+    return inferences[0].confidence;
+  };
+
+  const isFieldConfirmed = (field: string): boolean => {
+    return memory?.userConfirmations?.some((uc) => uc.field === field) || false;
   };
 
   const handleOpenURL = async (url: string) => {
@@ -426,6 +440,10 @@ export default function MemoryDetailScreen() {
                   aiEntities={aiEntities}
                   aiLocation={aiLocation}
                   aiDate={aiDate}
+                  memoryId={id}
+                  dateConfidence={getFieldConfidence('date')}
+                  isDateConfirmed={isFieldConfirmed('date')}
+                  onConfirmed={() => refetch()}
                 />
               );
             case 'place':
@@ -437,6 +455,10 @@ export default function MemoryDetailScreen() {
                   aiEntities={aiEntities}
                   aiLocation={aiLocation}
                   aiCategory={aiCategory}
+                  memoryId={id}
+                  locationConfidence={getFieldConfidence('location')}
+                  isLocationConfirmed={isFieldConfirmed('location')}
+                  onConfirmed={() => refetch()}
                 />
               );
             case 'product':
@@ -450,6 +472,10 @@ export default function MemoryDetailScreen() {
                   aiModel={aiModel}
                   aiPrice={aiPrice}
                   aiCategory={aiCategory}
+                  memoryId={id}
+                  priceConfidence={getFieldConfidence('price')}
+                  isPriceConfirmed={isFieldConfirmed('price')}
+                  onConfirmed={() => refetch()}
                 />
               );
             case 'offer':
@@ -465,6 +491,10 @@ export default function MemoryDetailScreen() {
                   aiDiscount={aiDiscount}
                   aiPromoCode={aiPromoCode}
                   aiDate={aiDate}
+                  memoryId={id}
+                  offerPriceConfidence={getFieldConfidence('offerPrice')}
+                  isOfferPriceConfirmed={isFieldConfirmed('offerPrice')}
+                  onConfirmed={() => refetch()}
                 />
               );
             case 'article_learning':

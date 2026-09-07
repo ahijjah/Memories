@@ -1,4 +1,5 @@
 import { View, Text } from 'react-native';
+import { ConfirmableField } from './ConfirmableField';
 
 interface OfferCardProps {
   aiSummary: any;
@@ -11,6 +12,10 @@ interface OfferCardProps {
   aiDiscount: any;
   aiPromoCode: any;
   aiDate: any;
+  memoryId?: string;
+  offerPriceConfidence?: number | null;
+  isOfferPriceConfirmed?: boolean;
+  onConfirmed?: () => void;
 }
 
 export function OfferCard({
@@ -24,6 +29,10 @@ export function OfferCard({
   aiDiscount,
   aiPromoCode,
   aiDate,
+  memoryId,
+  offerPriceConfidence,
+  isOfferPriceConfirmed,
+  onConfirmed,
 }: OfferCardProps) {
   const hasOfferDetails = aiMerchant || aiOriginalPrice || aiOfferPrice || aiDiscount || aiPromoCode || aiDate;
 
@@ -47,13 +56,26 @@ export function OfferCard({
               </Text>
             </View>
           )}
-          {aiOfferPrice && (
+          {memoryId && aiOfferPrice ? (
+            <View className="mb-2">
+              <ConfirmableField
+                label="Offer Price"
+                value={aiOfferPrice}
+                confidence={offerPriceConfidence}
+                fieldType="text"
+                memoryId={memoryId}
+                field="offerPrice"
+                isConfirmed={isOfferPriceConfirmed || false}
+                onConfirmed={onConfirmed || (() => {})}
+              />
+            </View>
+          ) : aiOfferPrice ? (
             <View className="mb-2">
               <Text className="text-sm text-gray-600">
                 <Text className="font-semibold">Offer Price:</Text> {aiOfferPrice}
               </Text>
             </View>
-          )}
+          ) : null}
           {aiDiscount && (
             <View className="mb-2">
               <Text className="text-sm text-gray-600">

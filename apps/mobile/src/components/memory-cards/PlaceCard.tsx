@@ -1,4 +1,5 @@
 import { View, Text } from 'react-native';
+import { ConfirmableField } from './ConfirmableField';
 
 interface PlaceCardProps {
   aiSummary: any;
@@ -7,6 +8,10 @@ interface PlaceCardProps {
   aiEntities: any;
   aiLocation: any;
   aiCategory: any;
+  memoryId?: string;
+  locationConfidence?: number | null;
+  isLocationConfirmed?: boolean;
+  onConfirmed?: () => void;
 }
 
 export function PlaceCard({
@@ -16,6 +21,10 @@ export function PlaceCard({
   aiEntities,
   aiLocation,
   aiCategory,
+  memoryId,
+  locationConfidence,
+  isLocationConfirmed,
+  onConfirmed,
 }: PlaceCardProps) {
   return (
     <>
@@ -23,13 +32,26 @@ export function PlaceCard({
       {(aiLocation || aiCategory) && (
         <View className="mb-6 p-4 bg-teal-50 rounded-lg border border-teal-200">
           <Text className="text-lg font-semibold text-gray-900 mb-3">Place</Text>
-          {aiLocation && (
+          {memoryId && aiLocation ? (
+            <View className="mb-2">
+              <ConfirmableField
+                label="Location"
+                value={aiLocation}
+                confidence={locationConfidence}
+                fieldType="text"
+                memoryId={memoryId}
+                field="location"
+                isConfirmed={isLocationConfirmed || false}
+                onConfirmed={onConfirmed || (() => {})}
+              />
+            </View>
+          ) : aiLocation ? (
             <View className="mb-2">
               <Text className="text-sm text-gray-600">
                 <Text className="font-semibold">Location:</Text> {aiLocation}
               </Text>
             </View>
-          )}
+          ) : null}
           {aiCategory && (
             <View>
               <Text className="text-sm text-gray-600">

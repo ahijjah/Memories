@@ -1,4 +1,5 @@
 import { View, Text } from 'react-native';
+import { ConfirmableField } from './ConfirmableField';
 
 interface EventCardProps {
   aiSummary: any;
@@ -7,6 +8,10 @@ interface EventCardProps {
   aiEntities: any;
   aiLocation: any;
   aiDate: any;
+  memoryId?: string;
+  dateConfidence?: number | null;
+  isDateConfirmed?: boolean;
+  onConfirmed?: () => void;
 }
 
 export function EventCard({
@@ -16,6 +21,10 @@ export function EventCard({
   aiEntities,
   aiLocation,
   aiDate,
+  memoryId,
+  dateConfidence,
+  isDateConfirmed,
+  onConfirmed,
 }: EventCardProps) {
   return (
     <>
@@ -23,13 +32,24 @@ export function EventCard({
       {(aiDate || aiLocation) && (
         <View className="mb-6 p-4 bg-purple-50 rounded-lg border border-purple-200">
           <Text className="text-lg font-semibold text-gray-900 mb-3">When & Where</Text>
-          {aiDate && (
+          {memoryId && aiDate ? (
+            <ConfirmableField
+              label="Date"
+              value={aiDate}
+              confidence={dateConfidence}
+              fieldType="date"
+              memoryId={memoryId}
+              field="date"
+              isConfirmed={isDateConfirmed || false}
+              onConfirmed={onConfirmed || (() => {})}
+            />
+          ) : aiDate ? (
             <View className="mb-2">
               <Text className="text-sm text-gray-600">
                 <Text className="font-semibold">Date:</Text> {new Date(aiDate).toLocaleDateString()}
               </Text>
             </View>
-          )}
+          ) : null}
           {aiLocation && (
             <View>
               <Text className="text-sm text-gray-600">

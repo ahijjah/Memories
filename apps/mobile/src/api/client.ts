@@ -15,6 +15,15 @@ export interface AIInference {
   createdAt: string;
 }
 
+export interface UserConfirmation {
+  id: string;
+  memoryId: string;
+  userId: string;
+  field: string;
+  confirmedValue: any;
+  createdAt: string;
+}
+
 export interface MemoryAsset {
   id: string;
   memoryId: string;
@@ -40,6 +49,7 @@ export interface Memory {
   idempotencyKey: string;
   assets?: MemoryAsset[];
   aiInferences?: AIInference[];
+  userConfirmations?: UserConfirmation[];
   createdAt: string;
   updatedAt: string;
 }
@@ -262,6 +272,18 @@ export async function unlockMemory(token: string | null, memoryId: string): Prom
 
 export async function reprocessMemory(token: string | null, memoryId: string): Promise<{ id: string; processingState: string }> {
   return makeRequest(`/memories/${memoryId}/reprocess`, 'POST', token);
+}
+
+export async function confirmField(
+  token: string | null,
+  memoryId: string,
+  field: string,
+  confirmedValue: any,
+): Promise<UserConfirmation> {
+  return makeRequest(`/memories/${memoryId}/confirm`, 'POST', token, {
+    field,
+    confirmedValue,
+  });
 }
 
 export interface Reminder {

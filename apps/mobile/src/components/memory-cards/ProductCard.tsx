@@ -1,4 +1,5 @@
 import { View, Text } from 'react-native';
+import { ConfirmableField } from './ConfirmableField';
 
 interface ProductCardProps {
   aiSummary: any;
@@ -9,6 +10,10 @@ interface ProductCardProps {
   aiModel: any;
   aiPrice: any;
   aiCategory: any;
+  memoryId?: string;
+  priceConfidence?: number | null;
+  isPriceConfirmed?: boolean;
+  onConfirmed?: () => void;
 }
 
 export function ProductCard({
@@ -20,6 +25,10 @@ export function ProductCard({
   aiModel,
   aiPrice,
   aiCategory,
+  memoryId,
+  priceConfidence,
+  isPriceConfirmed,
+  onConfirmed,
 }: ProductCardProps) {
   const hasProductDetails = aiBrand || aiModel || aiPrice || aiCategory;
 
@@ -43,13 +52,26 @@ export function ProductCard({
               </Text>
             </View>
           )}
-          {aiPrice && (
+          {memoryId && aiPrice ? (
+            <View className="mb-2">
+              <ConfirmableField
+                label="Price"
+                value={aiPrice}
+                confidence={priceConfidence}
+                fieldType="text"
+                memoryId={memoryId}
+                field="price"
+                isConfirmed={isPriceConfirmed || false}
+                onConfirmed={onConfirmed || (() => {})}
+              />
+            </View>
+          ) : aiPrice ? (
             <View className="mb-2">
               <Text className="text-sm text-gray-600">
                 <Text className="font-semibold">Price:</Text> {aiPrice}
               </Text>
             </View>
-          )}
+          ) : null}
           {aiCategory && (
             <View>
               <Text className="text-sm text-gray-600">
