@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { listVaultMemories, Memory } from '@/src/api/client';
+import { CompactCard } from '@/src/components/memory-cards/CompactCard';
 
 export default function VaultScreen() {
   const { getToken } = useAuth();
@@ -71,14 +72,8 @@ export default function VaultScreen() {
               <TouchableOpacity
                 key={memory.id}
                 onPress={() => handleMemoryPress(memory.id)}
-                className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-3"
               >
-                <Text className="text-base font-semibold text-gray-900 mb-1">
-                  {memory.title || 'Untitled'}
-                </Text>
-                <Text className="text-xs text-gray-500">
-                  {new Date(memory.capturedAt).toLocaleDateString()}
-                </Text>
+                <CompactCard memory={memory} />
               </TouchableOpacity>
             ))}
           </View>

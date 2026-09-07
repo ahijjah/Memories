@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity, Alert } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getCollectionDetail, deleteCollection, removeMemoryFromCollection } from '@/src/api/client';
+import { CompactCard } from '@/src/components/memory-cards/CompactCard';
 
 export default function CollectionDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -149,16 +150,8 @@ export default function CollectionDetailScreen() {
               <View key={item.memory.id} className="mb-3">
                 <TouchableOpacity
                   onPress={() => handleMemoryPress(item.memory.id)}
-                  className="bg-gray-50 border border-gray-200 rounded-lg p-4 flex-row justify-between items-start"
                 >
-                  <View className="flex-1">
-                    <Text className="text-base font-semibold text-gray-900 mb-1">
-                      {item.memory.title || 'Untitled'}
-                    </Text>
-                    <Text className="text-xs text-gray-500">
-                      {new Date(item.memory.capturedAt).toLocaleDateString()}
-                    </Text>
-                  </View>
+                  <CompactCard memory={item.memory} />
                 </TouchableOpacity>
 
                 <TouchableOpacity
