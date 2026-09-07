@@ -69,12 +69,16 @@ export default function VaultScreen() {
         ) : (
           <View>
             {memories.map((memory: Memory) => (
-              <TouchableOpacity
+              <View
                 key={memory.id}
-                onPress={() => handleMemoryPress(memory.id)}
+                className="bg-amber-50 border border-amber-200 rounded-lg mb-3 overflow-hidden"
               >
-                <CompactCard memory={memory} />
-              </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => handleMemoryPress(memory.id)}
+                >
+                  <CompactCard memory={memory} />
+                </TouchableOpacity>
+              </View>
             ))}
           </View>
         )}
