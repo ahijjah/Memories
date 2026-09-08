@@ -718,7 +718,7 @@ export default function MemoryDetailScreen() {
 
       {/* Off-screen Share Card for capture */}
       {memory && (
-        <View style={{ position: 'absolute', opacity: 0, width: 400, height: 600, left: -9999 }}>
+        <View style={{ position: 'absolute', width: 400, height: 600, left: -9999 }}>
           <ViewShot ref={shareCardRef} options={{ format: 'png', quality: 0.9 }}>
             <ShareCardView
               memory={memory}
