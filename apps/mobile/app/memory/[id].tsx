@@ -8,7 +8,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import * as Calendar from 'expo-calendar/legacy';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
-import ViewShot from 'react-native-view-shot';
+import ViewShot, { captureRef } from 'react-native-view-shot';
 import { fetchMemoryDetail, fetchProcessingStatus, Memory, ProcessingStatus, AIInference, listCollections, addMemoryToCollection, lockMemory, createReminder, reprocessMemory } from '@/src/api/client';
 import { getActionsForMemory, MemoryAction } from '@/src/utils/memory-actions';
 import { uploadPhotoToExistingMemory } from '@/src/utils/photo-upload';
@@ -38,7 +38,7 @@ export default function MemoryDetailScreen() {
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [isAddingPhoto, setIsAddingPhoto] = useState(false);
   const [isCapturingCard, setIsCapturingCard] = useState(false);
-  const shareCardRef = useRef<ViewShot>(null);
+  const shareCardRef = useRef<InstanceType<typeof ViewShot>>(null);
 
   const { data: memory, isLoading, error, refetch } = useQuery({
     queryKey: ['memory', id],
@@ -303,7 +303,7 @@ export default function MemoryDetailScreen() {
     if (!shareCardRef.current || !memory) return;
     try {
       setIsCapturingCard(true);
-      const imageUri = await shareCardRef.current.capture?.();
+      const imageUri = await captureRef(shareCardRef, { format: 'png', quality: 0.9 });
       if (!imageUri) throw new Error('Failed to capture card');
 
       const fileName = `memory-card-${Date.now()}.png`;
