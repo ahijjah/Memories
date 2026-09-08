@@ -9,6 +9,9 @@ import * as Calendar from 'expo-calendar/legacy';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import ViewShot, { captureRef } from 'react-native-view-shot';
+
+type ViewShotRef = View & { capture: () => Promise<string> };
+
 import { fetchMemoryDetail, fetchProcessingStatus, Memory, ProcessingStatus, AIInference, listCollections, addMemoryToCollection, lockMemory, createReminder, reprocessMemory } from '@/src/api/client';
 import { getActionsForMemory, MemoryAction } from '@/src/utils/memory-actions';
 import { uploadPhotoToExistingMemory } from '@/src/utils/photo-upload';
@@ -38,7 +41,7 @@ export default function MemoryDetailScreen() {
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [isAddingPhoto, setIsAddingPhoto] = useState(false);
   const [isCapturingCard, setIsCapturingCard] = useState(false);
-  const shareCardRef = useRef<InstanceType<typeof ViewShot>>(null);
+  const shareCardRef = useRef<ViewShotRef>(null);
 
   const { data: memory, isLoading, error, refetch } = useQuery({
     queryKey: ['memory', id],
