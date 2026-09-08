@@ -1,10 +1,13 @@
 import { useAuth } from "@clerk/clerk-expo";
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity, Alert, Linking, Share, Platform } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import * as ImagePicker from 'expo-image-picker';
 import * as Calendar from 'expo-calendar/legacy';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
+import ViewShot from 'react-native-view-shot';
 import { getVaultMemoryDetail, unlockMemory, AIInference, reprocessMemory } from '@/src/api/client';
 import { getActionsForMemory, MemoryAction } from '@/src/utils/memory-actions';
 import { uploadPhotoToExistingMemory } from '@/src/utils/photo-upload';
@@ -19,6 +22,7 @@ import { ArticleLearningCard } from '@/src/components/memory-cards/ArticleLearni
 import { VideoSocialCard } from '@/src/components/memory-cards/VideoSocialCard';
 import { DocumentCard } from '@/src/components/memory-cards/DocumentCard';
 import { resolveCardType } from '@/src/components/memory-cards/cardTypeResolver';
+import { ShareCardView } from '@/src/components/memory-cards/ShareCardView';
 
 export default function VaultDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -26,6 +30,8 @@ export default function VaultDetailScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [isAddingPhoto, setIsAddingPhoto] = useState(false);
+  const [isCapturingCard, setIsCapturingCard] = useState(false);
+  const shareCardRef = useRef<ViewShot>(null);
 
   const { data: memory, isLoading, error, refetch } = useQuery({
     queryKey: ['vaultMemory', id],
@@ -173,6 +179,30 @@ export default function VaultDetailScreen() {
       if ((err as any).code !== 'E_SHARE_CANCELLED') {
         Alert.alert('Error', 'Failed to share');
       }
+    }
+  };
+
+  const handleShareCard = async () => {
+    if (!shareCardRef.current || !memory) return;
+    try {
+      setIsCapturingCard(true);
+      const imageUri = await shareCardRef.current.capture?.();
+      if (!imageUri) throw new Error('Failed to capture card');
+
+      const fileName = `memory-card-${Date.now()}.png`;
+      const filePath = `${FileSystem.cacheDirectory}${fileName}`;
+
+      await FileSystem.copyAsync({
+        from: imageUri,
+        to: filePath,
+      });
+
+      await Sharing.shareAsync(filePath, { mimeType: 'image/png' });
+    } catch (err) {
+      console.error('Share card error:', err);
+      Alert.alert('Error', 'Failed to share card');
+    } finally {
+      setIsCapturingCard(false);
     }
   };
 

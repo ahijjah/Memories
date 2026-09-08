@@ -1,11 +1,14 @@
 import { useAuth } from "@clerk/clerk-expo";
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity, Modal, Alert, TextInput, Linking, Share, Platform } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import * as ImagePicker from 'expo-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as Calendar from 'expo-calendar/legacy';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
+import ViewShot from 'react-native-view-shot';
 import { fetchMemoryDetail, fetchProcessingStatus, Memory, ProcessingStatus, AIInference, listCollections, addMemoryToCollection, lockMemory, createReminder, reprocessMemory } from '@/src/api/client';
 import { getActionsForMemory, MemoryAction } from '@/src/utils/memory-actions';
 import { uploadPhotoToExistingMemory } from '@/src/utils/photo-upload';
@@ -20,6 +23,7 @@ import { ArticleLearningCard } from '@/src/components/memory-cards/ArticleLearni
 import { VideoSocialCard } from '@/src/components/memory-cards/VideoSocialCard';
 import { DocumentCard } from '@/src/components/memory-cards/DocumentCard';
 import { resolveCardType } from '@/src/components/memory-cards/cardTypeResolver';
+import { ShareCardView } from '@/src/components/memory-cards/ShareCardView';
 
 export default function MemoryDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -33,6 +37,8 @@ export default function MemoryDetailScreen() {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [isAddingPhoto, setIsAddingPhoto] = useState(false);
+  const [isCapturingCard, setIsCapturingCard] = useState(false);
+  const shareCardRef = useRef<ViewShot>(null);
 
   const { data: memory, isLoading, error, refetch } = useQuery({
     queryKey: ['memory', id],
@@ -290,6 +296,31 @@ export default function MemoryDetailScreen() {
       if ((err as any).code !== 'E_SHARE_CANCELLED') {
         Alert.alert('Error', 'Failed to share');
       }
+    }
+  };
+
+  const handleShareCard = async () => {
+    if (!shareCardRef.current || !memory) return;
+    try {
+      setIsCapturingCard(true);
+      const imageUri = await shareCardRef.current.capture?.();
+      if (!imageUri) throw new Error('Failed to capture card');
+
+      const fileName = `memory-card-${Date.now()}.png`;
+      const filePath = `${FileSystem.cacheDirectory}${fileName}`;
+
+      // Move or copy the captured file to cache directory
+      await FileSystem.copyAsync({
+        from: imageUri,
+        to: filePath,
+      });
+
+      await Sharing.shareAsync(filePath, { mimeType: 'image/png' });
+    } catch (err) {
+      console.error('Share card error:', err);
+      Alert.alert('Error', 'Failed to share card');
+    } finally {
+      setIsCapturingCard(false);
     }
   };
 
@@ -608,6 +639,20 @@ export default function MemoryDetailScreen() {
 
             {memory.securityScope !== 'vault' ? (
               <TouchableOpacity
+                onPress={handleShareCard}
+                disabled={isCapturingCard}
+                className={`rounded-lg py-3 mb-2 ${isCapturingCard ? 'bg-gray-300' : 'bg-cyan-600'}`}
+              >
+                {isCapturingCard ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text className="text-white text-center font-semibold">Share Card</Text>
+                )}
+              </TouchableOpacity>
+            ) : null}
+
+            {memory.securityScope !== 'vault' ? (
+              <TouchableOpacity
                 onPress={() => {
                   Alert.alert(
                     'Move to Vault?',
@@ -670,6 +715,33 @@ export default function MemoryDetailScreen() {
         </TouchableOpacity>
         </View>
       </ScrollView>
+
+      {/* Off-screen Share Card for capture */}
+      {memory && (
+        <View style={{ position: 'absolute', opacity: 0, width: 400, height: 600, left: -9999 }}>
+          <ViewShot ref={shareCardRef} options={{ format: 'png', quality: 0.9 }}>
+            <ShareCardView
+              memory={memory}
+              aiSummary={getFieldValue('summary')}
+              aiTopics={getFieldValue('topics')}
+              aiIntent={getFieldValue('intent')}
+              aiEntities={getFieldValue('entities')}
+              aiLocation={getFieldValue('location')}
+              aiDate={getFieldValue('date')}
+              aiBrand={getFieldValue('brand')}
+              aiModel={getFieldValue('model')}
+              aiPrice={getFieldValue('price')}
+              aiCategory={getFieldValue('category')}
+              aiMerchant={getFieldValue('merchant')}
+              aiOriginalPrice={getFieldValue('originalPrice')}
+              aiOfferPrice={getFieldValue('offerPrice')}
+              aiDiscount={getFieldValue('discount')}
+              aiPromoCode={getFieldValue('promoCode')}
+              sourceUri={memory.sourceUri}
+            />
+          </ViewShot>
+        </View>
+      )}
 
       {/* Reminder Modal */}
       <Modal visible={showReminderModal} animationType="slide" transparent={true}>
