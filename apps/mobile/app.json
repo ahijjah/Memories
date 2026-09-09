@@ -52,6 +52,12 @@
         {
           "calendarPermission": "Memories needs calendar access to add events for your saved memories."
         }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Allow Memories to use Face ID to secure your Vault."
+        }
       ]
     ],
     "extra": {
