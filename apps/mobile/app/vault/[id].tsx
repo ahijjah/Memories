@@ -591,6 +591,7 @@ export default function VaultDetailScreen() {
                   aiIntent={aiIntent}
                   aiEntities={aiEntities}
                   aiDate={aiDate}
+                  aiCategory={aiCategory}
                 />
               );
             case 'generic':

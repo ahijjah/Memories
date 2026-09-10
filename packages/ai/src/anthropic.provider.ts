@@ -37,7 +37,7 @@ Product/Offer/Place fields (only include if explicitly present in text or visibl
 - "brand": string — product brand (e.g. "Apple", "Nike"). Only if explicitly mentioned or visibly displayed.
 - "model": string — product model/version (e.g. "iPhone 15 Pro", "Air Max 90"). Only if explicitly stated.
 - "price": string — display-ready price as a single formatted string (e.g. "$299", "45 JOD", "€1299"). Keep as one string, don't split. Only if explicitly shown.
-- "category": string — product or place category (e.g. "Laptop", "Italian restaurant", "Coffee shop"). Only if clearly stated or visibly labeled.
+- "category": string — product, place, or document category (e.g. "Laptop", "Italian restaurant", "Coffee shop", "ID card", "Passport", "Contract", "Receipt", "Medical record", "Insurance policy", "Certificate", "Warranty"). Only if clearly stated or visibly labeled.
 - "merchant": string — offer/deal merchant or seller name. Only if explicitly mentioned.
 - "originalPrice": string — original price before discount (same format as price field). Only if explicitly shown.
 - "offerPrice": string — discounted offer price (same format as price field). Only if explicitly shown.

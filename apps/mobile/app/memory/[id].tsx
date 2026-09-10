@@ -560,6 +560,7 @@ export default function MemoryDetailScreen() {
                   aiIntent={aiIntent}
                   aiEntities={aiEntities}
                   aiDate={aiDate}
+                  aiCategory={aiCategory}
                 />
               );
             case 'generic':

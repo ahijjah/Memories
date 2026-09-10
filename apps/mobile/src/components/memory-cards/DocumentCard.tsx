@@ -6,6 +6,7 @@ interface DocumentCardProps {
   aiIntent: any;
   aiEntities: any;
   aiDate: any;
+  aiCategory: any;
 }
 
 export function DocumentCard({
@@ -14,9 +15,20 @@ export function DocumentCard({
   aiIntent,
   aiEntities,
   aiDate,
+  aiCategory,
 }: DocumentCardProps) {
   return (
     <>
+      {/* Document Type / Category */}
+      {aiCategory && (
+        <View className="mb-6 p-4 bg-orange-50 rounded-lg border border-orange-200">
+          <Text className="text-lg font-semibold text-gray-900 mb-3">Document</Text>
+          <Text className="text-sm text-gray-600">
+            <Text className="font-semibold">Type:</Text> {aiCategory}
+          </Text>
+        </View>
+      )}
+
       {/* Expiry Information */}
       {aiDate && (
         <View className="mb-6 p-4 bg-orange-50 rounded-lg border border-orange-200">
