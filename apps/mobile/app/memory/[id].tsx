@@ -561,6 +561,8 @@ export default function MemoryDetailScreen() {
                   aiEntities={aiEntities}
                   aiDate={aiDate}
                   aiCategory={aiCategory}
+                  aiIssuer={getFieldValue('issuer')}
+                  aiOwner={getFieldValue('owner')}
                 />
               );
             case 'generic':

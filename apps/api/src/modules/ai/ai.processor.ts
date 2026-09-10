@@ -415,6 +415,36 @@ export class AiProcessor extends WorkerHost {
         );
       }
 
+      if (result.issuer) {
+        inferencesToCreate.push(
+          this.prisma.aIInference.create({
+            data: {
+              memoryId,
+              field: 'issuer',
+              valueJson: result.issuer,
+              confidence: result.fieldConfidence?.issuer ?? result.confidence,
+              modelVersion: result.modelVersion,
+              provenance: 'llm_extraction',
+            },
+          }),
+        );
+      }
+
+      if (result.owner) {
+        inferencesToCreate.push(
+          this.prisma.aIInference.create({
+            data: {
+              memoryId,
+              field: 'owner',
+              valueJson: result.owner,
+              confidence: result.fieldConfidence?.owner ?? result.confidence,
+              modelVersion: result.modelVersion,
+              provenance: 'llm_extraction',
+            },
+          }),
+        );
+      }
+
       inferencesToCreate.push(
         this.prisma.memory.update({
           where: { id: memoryId },

@@ -592,6 +592,8 @@ export default function VaultDetailScreen() {
                   aiEntities={aiEntities}
                   aiDate={aiDate}
                   aiCategory={aiCategory}
+                  aiIssuer={getFieldValue('issuer')}
+                  aiOwner={getFieldValue('owner')}
                 />
               );
             case 'generic':

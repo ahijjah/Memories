@@ -44,6 +44,10 @@ Product/Offer/Place fields (only include if explicitly present in text or visibl
 - "discount": string — discount description (e.g. "20% off", "$50 off", "Buy one get one free"). Only if explicitly stated.
 - "promoCode": string — promotional/coupon code if visible in text or images. Only if explicitly shown.
 
+Document fields (only include if explicitly present in text or visibly displayed in images, NEVER infer or estimate):
+- "issuer": string — who issued the document (e.g. a government agency name, bank name, insurance company, employer name, school name). Only if explicitly shown. Most relevant when the memory is a document.
+- "owner": string — whose document it is — the named person it belongs to (e.g. the name printed on a passport, ID card, certificate, or diploma). Only if explicitly shown. Most relevant when the memory is a document.
+
 Per-field confidence (only include for fields you actually included above):
 - "fieldConfidence": an object with optional properties — include ONLY for fields you populated:
   - "intent": number between 0 and 1 (how confident are you in the intent you extracted?)
@@ -59,6 +63,8 @@ Per-field confidence (only include for fields you actually included above):
   - "offerPrice": number between 0 and 1 (how confident are you in the offer price?)
   - "discount": number between 0 and 1 (how confident are you in the discount?)
   - "promoCode": number between 0 and 1 (how confident are you in the promo code?)
+  - "issuer": number between 0 and 1 (how confident are you in the issuer?)
+  - "owner": number between 0 and 1 (how confident are you in the owner?)
   Omit any field from fieldConfidence that you didn't include in the optional fields above. For example, if you extracted a brand, price, and discount but no original price, only include {"fieldConfidence": {"brand": 0.95, "price": 0.92, "discount": 0.88}}.
 
 INSTAGRAM POSTS: When text follows the pattern "[number] likes, [number] comments - [username] on [date]: [caption]" (Instagram's standard post-preview format), the [date] in that prefix is the POST'S PUBLISH DATE, not an event date. Do not use it to populate the date field. Only extract a date from the actual caption/content text itself, not from this metadata prefix.

@@ -47,6 +47,10 @@ export interface MemoryUnderstanding {
   discount?: string; // e.g. "20% off" or "$50 off"
   promoCode?: string; // promotional code if visible
 
+  // P0.3c: Document metadata
+  issuer?: string; // who issued the document (e.g. government agency, bank, insurance company, employer, school)
+  owner?: string; // whose document it is — the named person it belongs to (e.g. name printed on passport/ID/certificate)
+
   // P0.2a: Per-field confidence — separate confidence for each optional field (only for fields included)
   fieldConfidence?: {
     intent?: number; // 0..1, confidence specifically for the intent field
@@ -62,6 +66,8 @@ export interface MemoryUnderstanding {
     offerPrice?: number; // 0..1, confidence specifically for offerPrice extraction
     discount?: number; // 0..1, confidence specifically for discount extraction
     promoCode?: number; // 0..1, confidence specifically for promoCode extraction
+    issuer?: number; // 0..1, confidence specifically for issuer extraction
+    owner?: number; // 0..1, confidence specifically for owner extraction
   };
 }
 
