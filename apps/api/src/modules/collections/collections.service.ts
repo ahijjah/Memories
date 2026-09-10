@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { CreateCollectionDto } from './dto/create-collection.dto';
 
@@ -44,7 +45,8 @@ export class CollectionsService {
 
     // Filter out vault-scoped memories as defense-in-depth
     const nonVaultMemories = collection.memories.filter(
-      (cm) => cm.memory.securityScope !== 'vault',
+      (cm: Prisma.CollectionMemoryGetPayload<{ include: { memory: true } }>) =>
+        cm.memory.securityScope !== 'vault',
     );
     return { ...collection, memories: nonVaultMemories };
   }

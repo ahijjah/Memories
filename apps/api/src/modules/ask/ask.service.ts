@@ -73,12 +73,14 @@ export class AskService {
       throw new Error('ANTHROPIC_API_KEY is not configured');
     }
     const provider = new AnthropicAiProvider(apiKey);
-    const contextMemories: ContextMemory[] = retrievedMemories.map((mem) => ({
-      memoryId: mem.memoryId,
-      title: mem.title,
-      summary: mem.summary,
-      sourceUri: mem.sourceUri,
-    }));
+    const contextMemories: ContextMemory[] = retrievedMemories.map(
+      (mem: { memoryId: string; title: string; summary: string; sourceUri: string | null }) => ({
+        memoryId: mem.memoryId,
+        title: mem.title,
+        summary: mem.summary,
+        sourceUri: mem.sourceUri,
+      }),
+    );
 
     const aiResponse = await provider.answerWithContext(
       question,
@@ -86,8 +88,9 @@ export class AskService {
     );
 
     // Filter sources to only those that were cited
-    const citedSources = retrievedMemories.filter((mem) =>
-      aiResponse.citedMemoryIds.includes(mem.memoryId),
+    const citedSources = retrievedMemories.filter(
+      (mem: { memoryId: string; title: string; summary: string; sourceUri: string | null }) =>
+        aiResponse.citedMemoryIds.includes(mem.memoryId),
     );
 
     return {
