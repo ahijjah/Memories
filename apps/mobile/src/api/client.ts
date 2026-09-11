@@ -165,12 +165,14 @@ export async function completeUpload(
   objectKey: string,
   mimeType: string,
   checksum?: string,
+  pageIndex?: number,
 ): Promise<MemoryAsset> {
   return makeRequest('/assets/complete-upload', 'POST', token, {
     memoryId,
     objectKey,
     mimeType,
     checksum,
+    pageIndex,
   });
 }
 

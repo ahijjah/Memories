@@ -169,6 +169,12 @@ export default function VaultScreen() {
     return (
       <ScrollView className="flex-1 bg-white">
         <View className="px-6 py-6">
+          <TouchableOpacity
+            onPress={() => router.push('/document-scanner')}
+            className="bg-blue-600 rounded-lg py-3 px-4 mb-6"
+          >
+            <Text className="text-white text-center font-semibold">📄 Scan Document</Text>
+          </TouchableOpacity>
           {memories.length === 0 ? (
             <View className="items-center justify-center py-12">
               <Text className="text-lg font-semibold text-gray-900 mb-2">Vault Empty</Text>

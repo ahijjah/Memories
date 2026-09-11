@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsOptional, IsString, IsUUID, IsNumber } from 'class-validator';
 
 export class CreateUploadDto {
   @IsUUID()
@@ -21,4 +21,8 @@ export class CompleteUploadDto {
   @IsOptional()
   @IsString()
   checksum?: string;
+
+  @IsOptional()
+  @IsNumber()
+  pageIndex?: number;
 }

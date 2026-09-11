@@ -23,6 +23,7 @@ export class AssetsController {
       dto.objectKey,
       dto.mimeType,
       dto.checksum,
+      dto.pageIndex,
     );
   }
 }

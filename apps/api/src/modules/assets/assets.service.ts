@@ -57,7 +57,7 @@ export class AssetsService {
     return { objectKey, uploadUrl, mimeType, expiresInSeconds };
   }
 
-  async completeUpload(memoryId: string, objectKey: string, mimeType: string, checksum?: string) {
+  async completeUpload(memoryId: string, objectKey: string, mimeType: string, checksum?: string, pageIndex?: number) {
     const headCommand = new HeadObjectCommand({
       Bucket: this.bucket,
       Key: objectKey,
@@ -76,7 +76,7 @@ export class AssetsService {
     }
 
     const asset = await this.prisma.memoryAsset.create({
-      data: { memoryId, objectKey, mimeType, checksum, variant: 'original' },
+      data: { memoryId, objectKey, mimeType, checksum, pageIndex, variant: 'original' },
     });
 
     // Enqueue AI processing for image-sourced Memories now that asset exists.
