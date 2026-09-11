@@ -75,6 +75,9 @@ export function DocumentScanner({
         const page = pages[i];
         // Fetch fresh token immediately before each upload to avoid stale token 401 errors
         const freshToken = await getToken();
+        if (!freshToken) {
+          throw new Error('Authentication token not available');
+        }
         await uploadPhotoToExistingMemory(
           freshToken,
           memoryId,
