@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, ActivityIndicator, Alert } from 'react-na
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import { CapturedPage } from '@/src/utils/document-scanner';
+import { CapturedPage, enhanceImageReadability } from '@/src/utils/document-scanner';
 
 interface CameraScreenProps {
   pageNumber: number;
@@ -55,11 +55,14 @@ export function CameraScreen({ pageNumber, onCapture, onCancel }: CameraScreenPr
       });
 
       if (photo?.uri) {
+        // Enhance image for better readability
+        const enhancedUri = await enhanceImageReadability(photo.uri);
+
         const page: CapturedPage = {
           id: `page-${Date.now()}`,
-          uri: photo.uri,
+          uri: enhancedUri, // Use enhanced URI
           timestamp: Date.now(),
-          processed: false,
+          processed: true, // Mark as processed (enhanced)
         };
         onCapture(page);
       }
@@ -80,11 +83,14 @@ export function CameraScreen({ pageNumber, onCapture, onCancel }: CameraScreenPr
       });
 
       if (!result.canceled && result.assets[0]) {
+        // Enhance image for better readability
+        const enhancedUri = await enhanceImageReadability(result.assets[0].uri);
+
         const page: CapturedPage = {
           id: `page-${Date.now()}`,
-          uri: result.assets[0].uri,
+          uri: enhancedUri, // Use enhanced URI
           timestamp: Date.now(),
-          processed: false,
+          processed: true, // Mark as processed (enhanced)
         };
         onCapture(page);
       }
