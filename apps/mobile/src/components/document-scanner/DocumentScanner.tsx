@@ -27,14 +27,7 @@ export function DocumentScanner({
   const [state, setState] = useState<ScanState>('camera');
   const [pages, setPages] = useState<CapturedPage[]>([]);
   const [saving, setSaving] = useState(false);
-  const [token, setToken] = useState<string | null>(providedToken || null);
   const scanSession = createScanSession();
-
-  useEffect(() => {
-    if (!token && !providedToken) {
-      getToken().then((t) => setToken(t));
-    }
-  }, []);
 
   const handleCapturePage = useCallback(
     async (page: CapturedPage) => {
@@ -75,18 +68,15 @@ export function DocumentScanner({
       return;
     }
 
-    if (!token) {
-      Alert.alert('Error', 'Authentication token not available');
-      return;
-    }
-
     setSaving(true);
     try {
       // Upload each page with its pageIndex
       for (let i = 0; i < pages.length; i++) {
         const page = pages[i];
+        // Fetch fresh token immediately before each upload to avoid stale token 401 errors
+        const freshToken = await getToken();
         await uploadPhotoToExistingMemory(
-          token,
+          freshToken,
           memoryId,
           page.uri,
           page.uri.endsWith('.png') ? 'image/png' : 'image/jpeg',
@@ -101,7 +91,7 @@ export function DocumentScanner({
     } finally {
       setSaving(false);
     }
-  }, [pages, token, memoryId, onComplete]);
+  }, [pages, memoryId, onComplete, getToken]);
 
   if (state === 'camera') {
     return (

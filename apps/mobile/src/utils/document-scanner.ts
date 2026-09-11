@@ -97,16 +97,18 @@ export async function enhanceImageReadability(imageUri: string): Promise<string>
     // Compute color matrix for contrast/brightness transformation
     // newValue = (oldValue - 128) * contrast + 128 + brightness
     // Expands to: newValue = oldValue * contrast + (128 * (1 - contrast) + brightness)
-    const offset = 128 * (1 - CONTRAST_FACTOR) + BRIGHTNESS_OFFSET;
+    // Offset is in 0-255 byte space; Skia.ColorFilter.MakeMatrix expects normalized 0.0-1.0, so divide by 255
+    const offset = (128 * (1 - CONTRAST_FACTOR) + BRIGHTNESS_OFFSET) / 255;
 
     // Color matrix in Skia format: [R_mult, R_add, G_mult, G_add, B_mult, B_add, A_mult, A_add]
     // Actually Skia uses 5x4 matrix: [a b c d e, f g h i j, k l m n o, p q r s t]
     // Each row: [multiply coefficients | add coefficient]
+    // CRITICAL: Each channel row must read from its own channel (diagonal), not all from R
     const colorMatrix = [
       CONTRAST_FACTOR, 0, 0, 0, offset,
-      CONTRAST_FACTOR, 0, 0, 0, offset,
-      CONTRAST_FACTOR, 0, 0, 0, offset,
-      1, 0, 0, 0, 0,
+      0, CONTRAST_FACTOR, 0, 0, offset,
+      0, 0, CONTRAST_FACTOR, 0, offset,
+      0, 0, 0, 1, 0,
     ];
 
     // Create paint with color filter
