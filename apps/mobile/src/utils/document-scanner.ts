@@ -1,6 +1,5 @@
 import * as FileSystem from 'expo-file-system/legacy';
-import { Image } from 'react-native';
-import { Skia } from '@shopify/react-native-skia';
+import { Skia, ImageFormat, ColorType, AlphaType } from '@shopify/react-native-skia';
 
 export interface CapturedPage {
   id: string;
@@ -131,8 +130,8 @@ export async function enhanceImageReadability(imageUri: string): Promise<string>
       throw new Error('Failed to create image snapshot');
     }
 
-    // Encode enhanced image to JPEG base64 (3 = ImageFormat.JPEG)
-    const base64Enhanced = enhancedImage.encodeToBase64(3 as any, 80);
+    // Encode enhanced image to JPEG base64
+    const base64Enhanced = enhancedImage.encodeToBase64(ImageFormat.JPEG, 80);
 
     // Save enhanced image to cache
     const enhancedPath = `${FileSystem.cacheDirectory}enhanced_${Date.now()}_${Math.random()
@@ -144,8 +143,15 @@ export async function enhanceImageReadability(imageUri: string): Promise<string>
     });
 
     // Measure actual luminance before and after
-    const originalPixels = originalImage.readPixels();
-    const enhancedPixels = enhancedImage.readPixels();
+    // Explicit ImageInfo to ensure 8-bit RGBA format (0-255 byte values)
+    const imageInfo = {
+      width,
+      height,
+      colorType: ColorType.RGBA_8888,
+      alphaType: AlphaType.Unpremul,
+    };
+    const originalPixels = originalImage.readPixels(0, 0, imageInfo);
+    const enhancedPixels = enhancedImage.readPixels(0, 0, imageInfo);
 
     let originalLuminance = 0;
     let enhancedLuminance = 0;
