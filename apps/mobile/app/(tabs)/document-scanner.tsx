@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { View, Text, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@clerk/clerk-expo';
 import { v4 as uuidv4 } from 'uuid';
 import { createMemory, lockMemory } from '@/src/api/client';
@@ -13,8 +13,27 @@ export default function DocumentScannerScreen() {
   const [isCreatingMemory, setIsCreatingMemory] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Guard against multiple initializations (matches DocumentScanner.tsx pattern)
+  const hasInitializedRef = useRef(false);
+
+  // DEBUG: Track initialization calls
+  const initCallCountRef = useRef(0);
+
   const initializeAndLockMemory = useCallback(async () => {
+    // Guard: prevent multiple executions
+    if (hasInitializedRef.current) {
+      console.warn('[DocumentScanner] initializeAndLockMemory already running or completed, skipping');
+      return;
+    }
+    hasInitializedRef.current = true;
+
+    initCallCountRef.current++;
+    console.log(
+      `[DocumentScanner] initializeAndLockMemory call #${initCallCountRef.current} at ${new Date().toISOString()}`
+    );
+
     try {
+      // Call getToken fresh each time (not as captured dependency)
       const token = await getToken();
       const timestamp = new Date().toLocaleString();
       const idempotencyKey = uuidv4();
@@ -40,14 +59,17 @@ export default function DocumentScannerScreen() {
       setMemoryId(memory.id);
       setIsCreatingMemory(false);
     } catch (err) {
+      // Reset guard on error so retry is possible
+      hasInitializedRef.current = false;
       setError((err as Error).message || 'Failed to create and secure document');
       setIsCreatingMemory(false);
     }
   }, [getToken]);
 
+  // Run initialization only once at mount (matches DocumentScanner.tsx pattern)
   useEffect(() => {
     initializeAndLockMemory();
-  }, [initializeAndLockMemory]);
+  }, []);
 
   const handleComplete = () => {
     Alert.alert('Success', 'Document saved to Vault', [
@@ -64,6 +86,8 @@ export default function DocumentScannerScreen() {
         onPress: () => {
           setMemoryId(null);
           setIsCreatingMemory(true);
+          // Reset guard to allow another initialization
+          hasInitializedRef.current = false;
           initializeAndLockMemory();
         },
       },
