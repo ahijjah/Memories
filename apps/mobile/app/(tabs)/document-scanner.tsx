@@ -1,9 +1,9 @@
 import { useRouter } from 'expo-router';
 import { View, Text, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@clerk/clerk-expo';
 import { v4 as uuidv4 } from 'uuid';
-import { createMemory } from '@/src/api/client';
+import { createMemory, lockMemory } from '@/src/api/client';
 import { DocumentScanner } from '@/src/components/document-scanner';
 
 export default function DocumentScannerScreen() {
@@ -13,29 +13,41 @@ export default function DocumentScannerScreen() {
   const [isCreatingMemory, setIsCreatingMemory] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const initializeMemory = async () => {
-      try {
-        const token = await getToken();
-        const timestamp = new Date().toLocaleString();
-        const idempotencyKey = uuidv4();
-        const memory = await createMemory(
-          token,
-          'camera',
-          idempotencyKey,
-          undefined,
-          `Document ${timestamp}`
-        );
-        setMemoryId(memory.id);
-        setIsCreatingMemory(false);
-      } catch (err) {
-        setError((err as Error).message || 'Failed to create memory');
-        setIsCreatingMemory(false);
-      }
-    };
+  const initializeAndLockMemory = useCallback(async () => {
+    try {
+      const token = await getToken();
+      const timestamp = new Date().toLocaleString();
+      const idempotencyKey = uuidv4();
 
-    initializeMemory();
+      // Create the memory
+      const memory = await createMemory(
+        token,
+        'camera',
+        idempotencyKey,
+        undefined,
+        `Document ${timestamp}`
+      );
+
+      // CRITICAL: Lock to vault immediately before showing camera or uploading any pages
+      // This ensures securityScope='vault' is set before completeUpload() enqueues AI processing
+      try {
+        await lockMemory(token, memory.id);
+      } catch (lockErr) {
+        // Lock failed—do not proceed to camera
+        throw new Error(`Failed to secure document in Vault: ${(lockErr as Error).message}`);
+      }
+
+      setMemoryId(memory.id);
+      setIsCreatingMemory(false);
+    } catch (err) {
+      setError((err as Error).message || 'Failed to create and secure document');
+      setIsCreatingMemory(false);
+    }
   }, [getToken]);
+
+  useEffect(() => {
+    initializeAndLockMemory();
+  }, [initializeAndLockMemory]);
 
   const handleComplete = () => {
     Alert.alert('Success', 'Document saved to Vault', [
@@ -52,26 +64,7 @@ export default function DocumentScannerScreen() {
         onPress: () => {
           setMemoryId(null);
           setIsCreatingMemory(true);
-          const initializeMemory = async () => {
-            try {
-              const token = await getToken();
-              const timestamp = new Date().toLocaleString();
-              const idempotencyKey = uuidv4();
-              const memory = await createMemory(
-                token,
-                'camera',
-                idempotencyKey,
-                undefined,
-                `Document ${timestamp}`
-              );
-              setMemoryId(memory.id);
-              setIsCreatingMemory(false);
-            } catch (err) {
-              setError((err as Error).message || 'Failed to create memory');
-              setIsCreatingMemory(false);
-            }
-          };
-          initializeMemory();
+          initializeAndLockMemory();
         },
       },
       {
