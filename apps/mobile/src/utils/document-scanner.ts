@@ -1,5 +1,6 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { Image } from 'react-native';
+import { Skia } from '@shopify/react-native-skia';
 
 export interface CapturedPage {
   id: string;
@@ -70,46 +71,112 @@ export async function applyPerspectiveCorrection(
   return imageUri;
 }
 
-// Apply contrast/brightness normalization for readability
+// Apply contrast/brightness normalization for readability using Skia
 // Uses fixed values: contrast +15%, brightness +10 (out of 255)
 // Applies per-pixel linear transform: newValue = (oldValue - 128) * contrastFactor + 128 + brightnessOffset
-//
-// LIMITATION: React Native has no native Canvas/pixel manipulation API.
-// Real implementation requires native modules (e.g., react-native-skia, requires EAS rebuild).
-// This version creates the enhanced file path and validates the flow.
-// For actual pixel manipulation, add @shopify/react-native-skia and implement
-// color matrix transformation, or use a backend image processing service.
 export async function enhanceImageReadability(imageUri: string): Promise<string> {
-  const CONTRAST_FACTOR = 1.15; // +15% contrast
-  const BRIGHTNESS_OFFSET = 10; // +10 out of 255
+  const CONTRAST_FACTOR = 1.15;
+  const BRIGHTNESS_OFFSET = 10;
 
   try {
-    // Create enhanced file path
+    // Read original image file as base64
+    const base64Data = await FileSystem.readAsStringAsync(imageUri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+
+    // Load image using Skia
+    const imageData = Skia.Data.fromBase64(base64Data);
+    const originalImage = Skia.Image.MakeImageFromEncoded(imageData);
+
+    if (!originalImage) {
+      throw new Error('Failed to decode image with Skia');
+    }
+
+    const width = originalImage.width();
+    const height = originalImage.height();
+
+    // Compute color matrix for contrast/brightness transformation
+    // newValue = (oldValue - 128) * contrast + 128 + brightness
+    // Expands to: newValue = oldValue * contrast + (128 * (1 - contrast) + brightness)
+    const offset = 128 * (1 - CONTRAST_FACTOR) + BRIGHTNESS_OFFSET;
+
+    // Color matrix in Skia format: [R_mult, R_add, G_mult, G_add, B_mult, B_add, A_mult, A_add]
+    // Actually Skia uses 5x4 matrix: [a b c d e, f g h i j, k l m n o, p q r s t]
+    // Each row: [multiply coefficients | add coefficient]
+    const colorMatrix = [
+      CONTRAST_FACTOR, 0, 0, 0, offset,
+      CONTRAST_FACTOR, 0, 0, 0, offset,
+      CONTRAST_FACTOR, 0, 0, 0, offset,
+      1, 0, 0, 0, 0,
+    ];
+
+    // Create paint with color filter
+    const paint = Skia.Paint();
+    paint.setColorFilter(Skia.ColorFilter.MakeMatrix(colorMatrix));
+
+    // Create offscreen surface for rendering
+    const surface = Skia.Surface.Make(width, height);
+    if (!surface) {
+      throw new Error('Failed to create Skia surface');
+    }
+
+    const canvas = surface.getCanvas();
+
+    // Draw original image with color filter applied
+    canvas.drawImage(originalImage, 0, 0, paint);
+
+    // Capture enhanced image
+    const enhancedImage = surface.makeImageSnapshot();
+    if (!enhancedImage) {
+      throw new Error('Failed to create image snapshot');
+    }
+
+    // Encode enhanced image to JPEG base64 (3 = ImageFormat.JPEG)
+    const base64Enhanced = enhancedImage.encodeToBase64(3 as any, 80);
+
+    // Save enhanced image to cache
     const enhancedPath = `${FileSystem.cacheDirectory}enhanced_${Date.now()}_${Math.random()
       .toString(36)
       .substr(2, 9)}.jpg`;
 
-    // Copy original to enhanced path
-    // In production with canvas support, this would apply per-pixel transformation
-    await FileSystem.copyAsync({
-      from: imageUri,
-      to: enhancedPath,
+    await FileSystem.writeAsStringAsync(enhancedPath, base64Enhanced, {
+      encoding: FileSystem.EncodingType.Base64,
     });
 
-    // Get file stats for before/after comparison
+    // Measure actual luminance before and after
+    const originalPixels = originalImage.readPixels();
+    const enhancedPixels = enhancedImage.readPixels();
+
+    let originalLuminance = 0;
+    let enhancedLuminance = 0;
+    let sampleCount = 0;
+
+    if (originalPixels && enhancedPixels) {
+      const pixelLength = originalPixels.length;
+      for (let i = 0; i < pixelLength; i += 4) {
+        const origR = originalPixels[i];
+        const origG = originalPixels[i + 1];
+        const origB = originalPixels[i + 2];
+
+        const enhR = enhancedPixels[i];
+        const enhG = enhancedPixels[i + 1];
+        const enhB = enhancedPixels[i + 2];
+
+        originalLuminance += 0.299 * origR + 0.587 * origG + 0.114 * origB;
+        enhancedLuminance += 0.299 * enhR + 0.587 * enhG + 0.114 * enhB;
+        sampleCount++;
+      }
+
+      if (sampleCount > 0) {
+        originalLuminance = originalLuminance / sampleCount;
+        enhancedLuminance = enhancedLuminance / sampleCount;
+      }
+    }
+
+    // Get file stats
     const originalStats = await FileSystem.getInfoAsync(imageUri);
     const enhancedStats = await FileSystem.getInfoAsync(enhancedPath);
 
-    // Get image dimensions
-    const dimensions = await new Promise<{ width: number; height: number }>((resolve) => {
-      Image.getSize(
-        enhancedPath,
-        (width, height) => resolve({ width, height }),
-        () => resolve({ width: 0, height: 0 })
-      );
-    });
-
-    // Log enhancement metrics
     const metrics = {
       enhancement: {
         contrastFactor: CONTRAST_FACTOR,
@@ -118,20 +185,22 @@ export async function enhanceImageReadability(imageUri: string): Promise<string>
         appliedPerRgbChannel: true,
       },
       imageDimensions: {
-        width: dimensions.width,
-        height: dimensions.height,
-        totalPixels: dimensions.width * dimensions.height,
+        width,
+        height,
+        totalPixels: width * height,
       },
       fileMetrics: {
         originalSize: originalStats.exists && 'size' in originalStats ? originalStats.size : 'unknown',
-        enhancedSize:
-          enhancedStats.exists && 'size' in enhancedStats ? enhancedStats.size : 'unknown',
+        enhancedSize: enhancedStats.exists && 'size' in enhancedStats ? enhancedStats.size : 'unknown',
       },
-      expectedTransformation: {
-        luminanceIncrease: `${(BRIGHTNESS_OFFSET / 255 * 100).toFixed(1)}% + ${((CONTRAST_FACTOR - 1) * 100).toFixed(0)}% contrast`,
-        midtonesAffected: 'Max at 128 gray level',
-        highlightsClipping: 'Clipped to 255 max',
-        shadowsClipping: 'Clipped to 0 min',
+      measuredLuminance: {
+        originalAverage: originalLuminance.toFixed(2),
+        enhancedAverage: enhancedLuminance.toFixed(2),
+        increase: (enhancedLuminance - originalLuminance).toFixed(2),
+        percentageIncrease:
+          originalLuminance > 0
+            ? ((enhancedLuminance - originalLuminance) / originalLuminance * 100).toFixed(1)
+            : 'N/A',
       },
       files: {
         original: imageUri,
@@ -139,12 +208,11 @@ export async function enhanceImageReadability(imageUri: string): Promise<string>
       },
     };
 
-    console.log('[Document Enhancement] Complete', metrics);
+    console.log('[Document Enhancement] Skia real transformation applied', metrics);
 
     return enhancedPath;
   } catch (err) {
     console.error('Failed to enhance image readability:', err);
-    // Fall back to original if enhancement fails
     return imageUri;
   }
 }

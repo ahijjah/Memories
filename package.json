@@ -30,6 +30,7 @@
     }
   },
   "dependencies": {
+    "@shopify/react-native-skia": "^2.11.2",
     "cheerio": "^1.2.0"
   }
 }
