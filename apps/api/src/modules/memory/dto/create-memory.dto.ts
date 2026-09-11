@@ -1,13 +1,15 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEnum, IsOptional, IsString, IsUUID } from 'class-validator';
-import { MemorySourceType } from '@prisma/client';
+import { IsOptional, IsString, IsUUID } from 'class-validator';
 
 // Client-supplied idempotency key (spec §8, §17): retrying the same
 // capture must never create a duplicate Memory.
 export class CreateMemoryDto {
-  @ApiProperty({ enum: MemorySourceType })
-  @IsEnum(MemorySourceType)
-  sourceType!: MemorySourceType;
+  @ApiProperty({
+    enum: ['text', 'url', 'image', 'camera', 'screenshot'],
+    description: 'Source type of the memory',
+  })
+  @IsString()
+  sourceType!: string;
 
   @ApiProperty({ required: false })
   @IsOptional()

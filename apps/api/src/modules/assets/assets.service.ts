@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, InternalServerErrorException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { S3Client, PutObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, HeadObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { nanoid } from 'nanoid';
 import { PrismaService } from '../../common/prisma/prisma.service';
@@ -95,5 +95,14 @@ export class AssetsService {
     }
 
     return asset;
+  }
+
+  async getViewUrl(objectKey: string): Promise<string> {
+    const expiresInSeconds = 3600;
+    const command = new GetObjectCommand({
+      Bucket: this.bucket,
+      Key: objectKey,
+    });
+    return getSignedUrl(this.s3PublicClient, command, { expiresIn: expiresInSeconds });
   }
 }

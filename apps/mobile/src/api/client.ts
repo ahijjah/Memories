@@ -32,6 +32,7 @@ export interface MemoryAsset {
   checksum?: string;
   pageIndex?: number;
   variant?: string;
+  url?: string;
   createdAt: string;
 }
 

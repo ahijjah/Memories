@@ -6,11 +6,15 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { AssetsService } from '../assets/assets.service';
 import { CreateCollectionDto } from './dto/create-collection.dto';
 
 @Injectable()
 export class CollectionsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly assetsService: AssetsService,
+  ) {}
 
   async create(userId: string, dto: CreateCollectionDto) {
     return this.prisma.collection.create({
@@ -34,7 +38,7 @@ export class CollectionsService {
       where: { id },
       include: {
         memories: {
-          include: { memory: true },
+          include: { memory: { include: { assets: true } } },
           orderBy: { addedAt: 'desc' },
         },
       },
@@ -45,10 +49,18 @@ export class CollectionsService {
 
     // Filter out vault-scoped memories as defense-in-depth
     const nonVaultMemories = collection.memories.filter(
-      (cm: Prisma.CollectionMemoryGetPayload<{ include: { memory: true } }>) =>
-        cm.memory.securityScope !== 'vault',
+      (cm: any) => cm.memory.securityScope !== 'vault',
     );
-    return { ...collection, memories: nonVaultMemories };
+
+    // Enrich assets with URLs
+    const enrichedMemories = await Promise.all(
+      nonVaultMemories.map(async (cm: any) => ({
+        ...cm,
+        memory: await this.enrichWithAssetUrls(cm.memory),
+      })),
+    );
+
+    return { ...collection, memories: enrichedMemories };
   }
 
   async delete(userId: string, id: string) {
@@ -127,6 +139,19 @@ export class CollectionsService {
     }
 
     return { success: true };
+  }
+
+  private async enrichWithAssetUrls(memory: any) {
+    if (!memory.assets || memory.assets.length === 0) {
+      return memory;
+    }
+    const enrichedAssets = await Promise.all(
+      memory.assets.map(async (asset: any) => ({
+        ...asset,
+        url: await this.assetsService.getViewUrl(asset.objectKey),
+      })),
+    );
+    return { ...memory, assets: enrichedAssets };
   }
 
   private assertOwnership(ownerId: string, requestingUserId: string) {

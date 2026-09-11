@@ -1,4 +1,4 @@
-import { View, Text } from 'react-native';
+import { View, Text, Image } from 'react-native';
 import { Memory } from '@/src/api/client';
 import { resolveCardType } from './cardTypeResolver';
 
@@ -152,14 +152,26 @@ export function CompactCard({ memory }: CompactCardProps) {
   const displayTitle = memory.title || `${memory.sourceType} Memory`;
   const formattedTimestamp = formatTimestamp(memory.capturedAt);
 
+  // Get first image asset with URL for thumbnail
+  const imageAsset = memory.assets?.find(
+    (asset) => asset.mimeType?.startsWith('image/') && asset.url
+  );
+
   return (
     <View className="flex-row items-center gap-3 px-4 py-3 bg-white border-b border-gray-200">
-      {/* Type badge */}
-      <View className={`${typeColor} rounded-full px-2 py-1`}>
-        <Text className={`${typeTextColor} text-xs font-semibold`}>
-          {typeLabel}
-        </Text>
-      </View>
+      {/* Thumbnail or Type badge */}
+      {imageAsset && imageAsset.url ? (
+        <Image
+          source={{ uri: imageAsset.url }}
+          style={{ width: 48, height: 48, borderRadius: 6 }}
+        />
+      ) : (
+        <View className={`${typeColor} rounded-full px-2 py-1`}>
+          <Text className={`${typeTextColor} text-xs font-semibold`}>
+            {typeLabel}
+          </Text>
+        </View>
+      )}
 
       {/* Main content */}
       <View className="flex-1">

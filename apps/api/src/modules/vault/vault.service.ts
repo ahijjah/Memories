@@ -1,9 +1,13 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { AssetsService } from '../assets/assets.service';
 
 @Injectable()
 export class VaultService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly assetsService: AssetsService,
+  ) {}
 
   async lock(userId: string, memoryId: string) {
     const memory = await this.prisma.memory.findUnique({
@@ -34,14 +38,16 @@ export class VaultService {
   }
 
   async findAllForUser(userId: string) {
-    return this.prisma.memory.findMany({
+    const memories = await this.prisma.memory.findMany({
       where: {
         userId,
         lifecycleState: { not: 'deleted' },
         securityScope: 'vault',
       },
+      include: { assets: true },
       orderBy: { capturedAt: 'desc' },
     });
+    return Promise.all(memories.map((m: any) => this.enrichWithAssetUrls(m)));
   }
 
   async findOneForUser(userId: string, id: string) {
@@ -54,7 +60,20 @@ export class VaultService {
     if (memory.securityScope !== 'vault') {
       throw new NotFoundException('Memory not found');
     }
-    return memory;
+    return this.enrichWithAssetUrls(memory);
+  }
+
+  private async enrichWithAssetUrls(memory: any) {
+    if (!memory.assets || memory.assets.length === 0) {
+      return memory;
+    }
+    const enrichedAssets = await Promise.all(
+      memory.assets.map(async (asset: any) => ({
+        ...asset,
+        url: await this.assetsService.getViewUrl(asset.objectKey),
+      })),
+    );
+    return { ...memory, assets: enrichedAssets };
   }
 
   private assertOwnership(ownerId: string, requestingUserId: string) {

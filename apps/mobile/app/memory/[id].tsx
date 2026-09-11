@@ -1,7 +1,7 @@
 import { useAuth } from "@clerk/clerk-expo";
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState, useEffect, useRef } from 'react';
-import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity, Modal, Alert, TextInput, Linking, Share, Platform } from 'react-native';
+import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity, Modal, Alert, TextInput, Linking, Share, Platform, Image } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import * as ImagePicker from 'expo-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -593,16 +593,34 @@ export default function MemoryDetailScreen() {
         {memory.assets && memory.assets.length > 0 ? (
           <View className="mb-6">
             <Text className="text-lg font-semibold text-gray-900 mb-3">Attachments</Text>
-            {memory.assets.map((asset) => (
-              <View key={asset.id} className="bg-gray-50 p-4 rounded-lg mb-2">
-                <Text className="text-sm text-gray-600">
-                  <Text className="font-semibold">Type:</Text> {asset.mimeType}
-                </Text>
-                <Text className="text-sm text-gray-600">
-                  <Text className="font-semibold">Size:</Text> {asset.variant || 'original'}
-                </Text>
-              </View>
-            ))}
+            {memory.assets
+              .sort((a, b) => {
+                const aPageIndex = a.pageIndex ?? Number.MAX_SAFE_INTEGER;
+                const bPageIndex = b.pageIndex ?? Number.MAX_SAFE_INTEGER;
+                return aPageIndex - bPageIndex;
+              })
+              .map((asset) => {
+                const isImageMimeType = asset.mimeType?.startsWith('image/');
+                return (
+                  <View key={asset.id} className="mb-3">
+                    {isImageMimeType && asset.url ? (
+                      <Image
+                        source={{ uri: asset.url }}
+                        style={{ width: '100%', resizeMode: 'contain', aspectRatio: 1 }}
+                      />
+                    ) : (
+                      <View className="bg-gray-50 p-4 rounded-lg">
+                        <Text className="text-sm text-gray-600">
+                          <Text className="font-semibold">Type:</Text> {asset.mimeType}
+                        </Text>
+                        <Text className="text-sm text-gray-600">
+                          <Text className="font-semibold">Size:</Text> {asset.variant || 'original'}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                );
+              })}
           </View>
         ) : null}
 
