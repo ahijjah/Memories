@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 
 @Injectable()
@@ -45,6 +46,13 @@ export class EngagementService {
     const now = new Date();
     const ninetyDaysFromNow = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
 
+    type MemoryWithDates = Prisma.MemoryGetPayload<{
+      include: {
+        aiInferences: true;
+        userConfirmations: true;
+      };
+    }>;
+
     const memories = await this.prisma.memory.findMany({
       where: {
         userId,
@@ -63,8 +71,15 @@ export class EngagementService {
 
     // Resolve effective date using precedence: UserConfirmation > AIInference
     // Filter to dates between now and 90 days from now
+    interface UpcomingItem {
+      id: string;
+      title: string;
+      date: string;
+      daysUntil: number;
+    }
+
     const upcomingMemories = memories
-      .filter((memory) => {
+      .filter((memory: MemoryWithDates) => {
         const userConfDate = memory.userConfirmations?.[0]?.confirmedValue;
         const aiDate = memory.aiInferences?.[0]?.valueJson;
         const effectiveDate = userConfDate || aiDate;
@@ -78,7 +93,7 @@ export class EngagementService {
           return false;
         }
       })
-      .map((memory) => {
+      .map((memory: MemoryWithDates) => {
         const userConfDate = memory.userConfirmations?.[0]?.confirmedValue;
         const aiDate = memory.aiInferences?.[0]?.valueJson;
         const effectiveDate = userConfDate || aiDate;
@@ -94,7 +109,7 @@ export class EngagementService {
           daysUntil,
         };
       })
-      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+      .sort((a: UpcomingItem, b: UpcomingItem) => new Date(a.date).getTime() - new Date(b.date).getTime())
       .slice(0, 10);
 
     return upcomingMemories;
