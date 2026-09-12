@@ -120,6 +120,7 @@ model Memory {
   lifecycleState  LifecycleState   @default(active)
   securityScope   String           @default("private") // private | vault (Vault added in E8)
   idempotencyKey  String           @unique
+  deletedAt       DateTime?
 
   assets            MemoryAsset[]
   aiInferences      AIInference[]

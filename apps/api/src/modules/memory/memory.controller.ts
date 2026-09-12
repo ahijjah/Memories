@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
@@ -48,5 +48,15 @@ export class MemoryController {
     @Body() dto: ConfirmFieldDto,
   ) {
     return this.memoryService.confirmField(user.sub, id, dto.field, dto.confirmedValue);
+  }
+
+  @Delete(':id')
+  async delete(@CurrentUser() user: CurrentUserPayload, @Param('id') id: string) {
+    return this.memoryService.deleteMemory(user.sub, id);
+  }
+
+  @Post(':id/restore')
+  async restore(@CurrentUser() user: CurrentUserPayload, @Param('id') id: string) {
+    return this.memoryService.restoreMemory(user.sub, id);
   }
 }

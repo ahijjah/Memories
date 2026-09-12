@@ -6,7 +6,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import * as ImagePicker from 'expo-image-picker';
 import * as Calendar from 'expo-calendar/legacy';
 
-import { getVaultMemoryDetail, unlockMemory, AIInference, reprocessMemory } from '@/src/api/client';
+import { getVaultMemoryDetail, unlockMemory, AIInference, reprocessMemory, deleteVaultMemory } from '@/src/api/client';
 import { getActionsForMemory, MemoryAction } from '@/src/utils/memory-actions';
 import { uploadPhotoToExistingMemory } from '@/src/utils/photo-upload';
 import { CardHeader } from '@/src/components/memory-cards/CardHeader';
@@ -94,6 +94,23 @@ export default function VaultDetailScreen() {
     },
     onError: (err) => {
       const message = err instanceof Error ? err.message : 'Failed to remove from vault';
+      Alert.alert('Error', message);
+    },
+  });
+
+  const { mutate: deleteMemoryMutation, isPending: isDeleting } = useMutation({
+    mutationFn: async () => {
+      const token = await getToken();
+      if (!id) throw new Error('Memory ID not found');
+      return deleteVaultMemory(token, id);
+    },
+    onSuccess: () => {
+      Alert.alert('Success', 'Memory deleted. It can be restored within 30 days.');
+      queryClient.invalidateQueries({ queryKey: ['vaultMemories'] });
+      router.push('/(tabs)/vault');
+    },
+    onError: (err) => {
+      const message = err instanceof Error ? err.message : 'Failed to delete memory';
       Alert.alert('Error', message);
     },
   });
@@ -683,6 +700,32 @@ export default function VaultDetailScreen() {
                 <ActivityIndicator size="small" color="#fff" />
               ) : (
                 <Text className="text-white text-center font-semibold">Remove from Vault</Text>
+              )}
+            </TouchableOpacity>
+
+            {/* Delete Memory Button */}
+            <TouchableOpacity
+              onPress={() => {
+                Alert.alert(
+                  'Delete Memory?',
+                  'This memory will be permanently deleted after 30 days. You can restore it during this grace period.',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Delete',
+                      style: 'destructive',
+                      onPress: () => deleteMemoryMutation(),
+                    },
+                  ],
+                );
+              }}
+              disabled={isDeleting}
+              className={`rounded-lg py-3 mb-4 ${isDeleting ? 'bg-gray-300' : 'bg-red-600'}`}
+            >
+              {isDeleting ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text className="text-white text-center font-semibold">Delete Memory</Text>
               )}
             </TouchableOpacity>
           </View>

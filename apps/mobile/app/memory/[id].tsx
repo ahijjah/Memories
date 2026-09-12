@@ -12,7 +12,7 @@ import ViewShot, { captureRef } from 'react-native-view-shot';
 
 type ViewShotRef = View & { capture: () => Promise<string> };
 
-import { fetchMemoryDetail, fetchProcessingStatus, Memory, ProcessingStatus, AIInference, listCollections, addMemoryToCollection, lockMemory, createReminder, reprocessMemory } from '@/src/api/client';
+import { fetchMemoryDetail, fetchProcessingStatus, Memory, ProcessingStatus, AIInference, listCollections, addMemoryToCollection, lockMemory, createReminder, reprocessMemory, deleteMemory } from '@/src/api/client';
 import { getActionsForMemory, MemoryAction } from '@/src/utils/memory-actions';
 import { uploadPhotoToExistingMemory } from '@/src/utils/photo-upload';
 import { CardHeader } from '@/src/components/memory-cards/CardHeader';
@@ -90,6 +90,23 @@ export default function MemoryDetailScreen() {
     },
     onError: (err) => {
       const message = err instanceof Error ? err.message : 'Failed to move to vault';
+      Alert.alert('Error', message);
+    },
+  });
+
+  const { mutate: mutateDelete, isPending: isDeleting } = useMutation({
+    mutationFn: async () => {
+      const token = await getToken();
+      if (!id) throw new Error('Memory ID not found');
+      return deleteMemory(token, id);
+    },
+    onSuccess: () => {
+      Alert.alert('Success', 'Memory deleted. It can be restored within 30 days.');
+      queryClient.invalidateQueries({ queryKey: ['memories'] });
+      router.push('/(tabs)/memories');
+    },
+    onError: (err) => {
+      const message = err instanceof Error ? err.message : 'Failed to delete memory';
       Alert.alert('Error', message);
     },
   });
@@ -729,6 +746,32 @@ export default function MemoryDetailScreen() {
           className="bg-blue-600 rounded-lg py-3 mb-4"
         >
           <Text className="text-white text-center font-semibold">Refresh</Text>
+        </TouchableOpacity>
+
+        {/* Delete Memory Button */}
+        <TouchableOpacity
+          onPress={() => {
+            Alert.alert(
+              'Delete Memory?',
+              'This memory will be permanently deleted after 30 days. You can restore it during this grace period.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Delete',
+                  style: 'destructive',
+                  onPress: () => mutateDelete(),
+                },
+              ],
+            );
+          }}
+          disabled={isDeleting}
+          className={`rounded-lg py-3 mb-4 ${isDeleting ? 'bg-gray-300' : 'bg-red-600'}`}
+        >
+          {isDeleting ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Text className="text-white text-center font-semibold">Delete Memory</Text>
+          )}
         </TouchableOpacity>
 
         {/* Back Button */}

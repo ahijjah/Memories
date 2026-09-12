@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { VaultService } from './vault.service';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 import { CurrentUser, CurrentUserPayload } from '../../common/decorators/current-user.decorator';
@@ -35,5 +35,21 @@ export class VaultController {
     @Param('memoryId') memoryId: string,
   ) {
     return this.vaultService.findOneForUser(user.sub, memoryId);
+  }
+
+  @Delete(':memoryId')
+  async delete(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('memoryId') memoryId: string,
+  ) {
+    return this.vaultService.deleteMemory(user.sub, memoryId);
+  }
+
+  @Post(':memoryId/restore')
+  async restore(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('memoryId') memoryId: string,
+  ) {
+    return this.vaultService.restoreMemory(user.sub, memoryId);
   }
 }

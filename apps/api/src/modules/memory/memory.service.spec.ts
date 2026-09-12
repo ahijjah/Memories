@@ -4,6 +4,7 @@ import { MemoryService } from './memory.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AiQueueService } from '../ai/ai-queue.service';
 import { AssetsService } from '../assets/assets.service';
+import { MemoryDeletionQueueService } from './deletion-queue.service';
 
 describe('MemoryService', () => {
   let service: MemoryService;
@@ -16,6 +17,7 @@ describe('MemoryService', () => {
   };
   const aiQueueMock = { enqueueUnderstanding: jest.fn() };
   const assetsMock = { getViewUrl: jest.fn().mockReturnValue('http://mock-url') };
+  const deletionQueueMock = { enqueueFinalization: jest.fn(), cancelFinalization: jest.fn() };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -25,6 +27,7 @@ describe('MemoryService', () => {
         { provide: PrismaService, useValue: prismaMock },
         { provide: AiQueueService, useValue: aiQueueMock },
         { provide: AssetsService, useValue: assetsMock },
+        { provide: MemoryDeletionQueueService, useValue: deletionQueueMock },
       ],
     }).compile();
 

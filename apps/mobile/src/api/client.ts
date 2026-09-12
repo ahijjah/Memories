@@ -289,6 +289,22 @@ export async function confirmField(
   });
 }
 
+export async function deleteMemory(token: string | null, memoryId: string): Promise<Memory> {
+  return makeRequest(`/memories/${memoryId}`, 'DELETE', token);
+}
+
+export async function restoreMemory(token: string | null, memoryId: string): Promise<Memory> {
+  return makeRequest(`/memories/${memoryId}/restore`, 'POST', token);
+}
+
+export async function deleteVaultMemory(token: string | null, memoryId: string): Promise<Memory> {
+  return makeRequest(`/vault/${memoryId}`, 'DELETE', token);
+}
+
+export async function restoreVaultMemory(token: string | null, memoryId: string): Promise<Memory> {
+  return makeRequest(`/vault/${memoryId}/restore`, 'POST', token);
+}
+
 export interface Reminder {
   id: string;
   userId: string;

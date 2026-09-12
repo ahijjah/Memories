@@ -1,8 +1,9 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AiQueueService } from '../ai/ai-queue.service';
 import { AssetsService } from '../assets/assets.service';
 import { CreateMemoryDto } from './dto/create-memory.dto';
+import { MemoryDeletionQueueService } from './deletion-queue.service';
 
 @Injectable()
 export class MemoryService {
@@ -10,6 +11,7 @@ export class MemoryService {
     private readonly prisma: PrismaService,
     private readonly aiQueue: AiQueueService,
     private readonly assetsService: AssetsService,
+    private readonly deletionQueue: MemoryDeletionQueueService,
   ) {}
 
   // Idempotent create (spec §8, §17, BR §3): retrying the same capture
@@ -53,7 +55,7 @@ export class MemoryService {
     const memories = await this.prisma.memory.findMany({
       where: {
         userId,
-        lifecycleState: { not: 'deleted' },
+        lifecycleState: { notIn: ['deleted', 'deleted_pending'] },
         securityScope: { not: 'vault' },
       },
       include: {
@@ -146,6 +148,51 @@ export class MemoryService {
       })),
     );
     return { ...memory, assets: enrichedAssets };
+  }
+
+  async deleteMemory(userId: string, id: string) {
+    const memory = await this.prisma.memory.findUnique({
+      where: { id },
+    });
+    if (!memory) throw new NotFoundException('Memory not found');
+    this.assertOwnership(memory.userId, userId);
+
+    const updated = await this.prisma.memory.update({
+      where: { id },
+      data: {
+        lifecycleState: 'deleted_pending',
+        deletedAt: new Date(),
+      },
+    });
+
+    await this.deletionQueue.enqueueFinalization(id);
+    return updated;
+  }
+
+  async restoreMemory(userId: string, id: string) {
+    const memory = await this.prisma.memory.findUnique({
+      where: { id },
+    });
+    if (!memory) throw new NotFoundException('Memory not found');
+    this.assertOwnership(memory.userId, userId);
+
+    if (memory.lifecycleState !== 'deleted_pending') {
+      throw new BadRequestException(
+        'Only memories in deleted_pending state can be restored',
+      );
+    }
+
+    await this.deletionQueue.cancelFinalization(id);
+
+    const updated = await this.prisma.memory.update({
+      where: { id },
+      data: {
+        lifecycleState: 'active',
+        deletedAt: null,
+      },
+    });
+
+    return updated;
   }
 
   private assertOwnership(ownerId: string, requestingUserId: string) {
