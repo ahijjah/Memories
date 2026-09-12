@@ -50,6 +50,7 @@ export interface MemoryUnderstanding {
   // P0.3c: Document metadata
   issuer?: string; // who issued the document (e.g. government agency, bank, insurance company, employer, school)
   owner?: string; // whose document it is — the named person it belongs to (e.g. name printed on passport/ID/certificate)
+  documentNumber?: string; // the document's own identifying number (e.g. passport number, national ID number, license number, policy number). Only if explicitly visible. Most relevant when the memory is a document.
 
   // P0.2a: Per-field confidence — separate confidence for each optional field (only for fields included)
   fieldConfidence?: {
@@ -68,6 +69,7 @@ export interface MemoryUnderstanding {
     promoCode?: number; // 0..1, confidence specifically for promoCode extraction
     issuer?: number; // 0..1, confidence specifically for issuer extraction
     owner?: number; // 0..1, confidence specifically for owner extraction
+    documentNumber?: number; // 0..1, confidence specifically for documentNumber extraction
   };
 }
 

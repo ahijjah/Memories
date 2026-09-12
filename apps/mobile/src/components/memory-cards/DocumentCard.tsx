@@ -1,4 +1,5 @@
-import { View, Text } from 'react-native';
+import { View, Text, TouchableOpacity } from 'react-native';
+import { useState } from 'react';
 
 interface DocumentCardProps {
   aiSummary: any;
@@ -9,6 +10,7 @@ interface DocumentCardProps {
   aiCategory: any;
   aiIssuer: any;
   aiOwner: any;
+  aiDocumentNumber?: any;
 }
 
 export function DocumentCard({
@@ -20,8 +22,10 @@ export function DocumentCard({
   aiCategory,
   aiIssuer,
   aiOwner,
+  aiDocumentNumber,
 }: DocumentCardProps) {
-  const hasDocumentInfo = aiCategory || aiIssuer || aiOwner || aiDate;
+  const [isDocumentNumberRevealed, setIsDocumentNumberRevealed] = useState(false);
+  const hasDocumentInfo = aiCategory || aiIssuer || aiOwner || aiDate || aiDocumentNumber;
 
   return (
     <>
@@ -46,6 +50,31 @@ export function DocumentCard({
             <Text className="text-sm text-gray-600 mb-2">
               <Text className="font-semibold">Owner:</Text> {aiOwner}
             </Text>
+          )}
+
+          {aiDocumentNumber && (
+            <View className="mb-2">
+              <View className="flex-row items-center gap-2">
+                <View className="flex-1">
+                  <Text className="text-sm text-gray-600">
+                    <Text className="font-semibold">Document #:</Text>{' '}
+                    {isDocumentNumberRevealed ? (
+                      <Text>{aiDocumentNumber}</Text>
+                    ) : (
+                      <Text>{aiDocumentNumber.length < 4 ? '••••••••' : '•••• •••• ' + aiDocumentNumber.slice(-4)}</Text>
+                    )}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => setIsDocumentNumberRevealed(!isDocumentNumberRevealed)}
+                  className="px-2 py-1"
+                >
+                  <Text className="text-xs font-semibold text-blue-600">
+                    {isDocumentNumberRevealed ? 'Hide' : 'Show'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
           )}
 
           {aiDate && (
