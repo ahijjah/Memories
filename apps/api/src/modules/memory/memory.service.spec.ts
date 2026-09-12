@@ -1,4 +1,5 @@
 import { Test } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { MemoryService } from './memory.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
@@ -23,6 +24,12 @@ describe('MemoryService', () => {
     encrypt: jest.fn((val) => `encrypted:${val}`),
     decrypt: jest.fn((val) => val.replace(/^encrypted:/, '')),
   };
+  const configMock = {
+    getOrThrow: (key: string) => {
+      if (key === 'ANTHROPIC_API_KEY') return 'test-api-key';
+      throw new Error(`Unknown config key: ${key}`);
+    },
+  };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -34,6 +41,7 @@ describe('MemoryService', () => {
         { provide: AssetsService, useValue: assetsMock },
         { provide: MemoryDeletionQueueService, useValue: deletionQueueMock },
         { provide: FieldEncryptionService, useValue: fieldEncryptionMock },
+        { provide: ConfigService, useValue: configMock },
       ],
     }).compile();
 

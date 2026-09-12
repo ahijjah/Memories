@@ -1,4 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { AnthropicAiProvider } from '@memory-app/ai';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { FieldEncryptionService } from '../../common/crypto/field-encryption.service';
 import { isSensitiveField } from '../../common/crypto/sensitive-fields';
@@ -15,6 +17,7 @@ export class MemoryService {
     private readonly assetsService: AssetsService,
     private readonly deletionQueue: MemoryDeletionQueueService,
     private readonly fieldEncryption: FieldEncryptionService,
+    private readonly config: ConfigService,
   ) {}
 
   // Idempotent create (spec §8, §17, BR §3): retrying the same capture
@@ -230,6 +233,40 @@ export class MemoryService {
     });
 
     return updated;
+  }
+
+  async summarizeMemory(userId: string, memoryId: string): Promise<string> {
+    const memory = await this.prisma.memory.findUnique({
+      where: { id: memoryId },
+      select: { id: true, userId: true, title: true, sourceUri: true, securityScope: true },
+    });
+    if (!memory) throw new NotFoundException('Memory not found');
+    this.assertOwnership(memory.userId, userId);
+    if (memory.securityScope === 'vault') {
+      throw new NotFoundException('Memory not found');
+    }
+
+    const text = memory.title || memory.sourceUri || '(no content)';
+    const apiKey = this.config.getOrThrow('ANTHROPIC_API_KEY');
+    const provider = new AnthropicAiProvider(apiKey);
+    return provider.summarize({ text, sourceUri: memory.sourceUri ?? undefined });
+  }
+
+  async extractKeyPoints(userId: string, memoryId: string): Promise<string[]> {
+    const memory = await this.prisma.memory.findUnique({
+      where: { id: memoryId },
+      select: { id: true, userId: true, title: true, sourceUri: true, securityScope: true },
+    });
+    if (!memory) throw new NotFoundException('Memory not found');
+    this.assertOwnership(memory.userId, userId);
+    if (memory.securityScope === 'vault') {
+      throw new NotFoundException('Memory not found');
+    }
+
+    const text = memory.title || memory.sourceUri || '(no content)';
+    const apiKey = this.config.getOrThrow('ANTHROPIC_API_KEY');
+    const provider = new AnthropicAiProvider(apiKey);
+    return provider.extractKeyPoints({ text, sourceUri: memory.sourceUri ?? undefined });
   }
 
   private assertOwnership(ownerId: string, requestingUserId: string) {

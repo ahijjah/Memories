@@ -102,4 +102,10 @@ export interface AiProvider {
     question: string,
     context: ContextMemory[],
   ): Promise<AnswerWithContextResponse>;
+
+  /** On-demand: generate a 2-4 sentence summary of the given text. */
+  summarize(input: { text: string; sourceUri?: string }): Promise<string>;
+
+  /** On-demand: extract 3-6 key takeaways from the given text as a JSON array. */
+  extractKeyPoints(input: { text: string; sourceUri?: string }): Promise<string[]>;
 }

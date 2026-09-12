@@ -59,4 +59,16 @@ export class MemoryController {
   async restore(@CurrentUser() user: CurrentUserPayload, @Param('id') id: string) {
     return this.memoryService.restoreMemory(user.sub, id);
   }
+
+  @Post(':id/summarize')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  async summarize(@CurrentUser() user: CurrentUserPayload, @Param('id') id: string) {
+    return this.memoryService.summarizeMemory(user.sub, id);
+  }
+
+  @Post(':id/key-points')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  async keyPoints(@CurrentUser() user: CurrentUserPayload, @Param('id') id: string) {
+    return this.memoryService.extractKeyPoints(user.sub, id);
+  }
 }

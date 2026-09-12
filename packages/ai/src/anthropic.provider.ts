@@ -213,4 +213,68 @@ You MUST:
 
     return parsed;
   }
+
+  async summarize(input: { text: string; sourceUri?: string }): Promise<string> {
+    const userMessage = input.sourceUri
+      ? `Source: ${input.sourceUri}\n\nContent:\n${input.text}`
+      : input.text;
+
+    const response = await this.client.messages.create({
+      model: this.model,
+      max_tokens: 500,
+      system:
+        'You are a concise summarizer. Generate a clear, well-written summary in 2-4 sentences. ' +
+        'Respond with ONLY the summary text, no preamble or markdown.',
+      messages: [
+        {
+          role: 'user',
+          content: userMessage,
+        },
+      ],
+    });
+
+    const textBlock = response.content.find((block) => block.type === 'text');
+    if (!textBlock || textBlock.type !== 'text') {
+      throw new Error('AI provider returned no text content');
+    }
+
+    return textBlock.text.trim();
+  }
+
+  async extractKeyPoints(input: { text: string; sourceUri?: string }): Promise<string[]> {
+    const userMessage = input.sourceUri
+      ? `Source: ${input.sourceUri}\n\nContent:\n${input.text}`
+      : input.text;
+
+    const response = await this.client.messages.create({
+      model: this.model,
+      max_tokens: 800,
+      system:
+        'You are a key point extractor. Extract 3-6 key takeaways from the given text. ' +
+        'Respond with ONLY a JSON array of strings (no markdown, no preamble): ["point 1", "point 2", ...]',
+      messages: [
+        {
+          role: 'user',
+          content: userMessage,
+        },
+      ],
+    });
+
+    const textBlock = response.content.find((block) => block.type === 'text');
+    if (!textBlock || textBlock.type !== 'text') {
+      throw new Error('AI provider returned no text content');
+    }
+
+    try {
+      const cleanText = stripMarkdownCodeFences(textBlock.text);
+      return JSON.parse(cleanText);
+    } catch {
+      // Fallback: try to parse as newline or bullet-separated
+      return textBlock.text
+        .split(/\n|•|-/)
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0)
+        .slice(0, 6);
+    }
+  }
 }

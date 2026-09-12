@@ -305,6 +305,14 @@ export async function restoreVaultMemory(token: string | null, memoryId: string)
   return makeRequest(`/vault/${memoryId}/restore`, 'POST', token);
 }
 
+export async function summarizeMemory(token: string | null, memoryId: string): Promise<string> {
+  return makeRequest(`/memories/${memoryId}/summarize`, 'POST', token);
+}
+
+export async function extractKeyPoints(token: string | null, memoryId: string): Promise<string[]> {
+  return makeRequest(`/memories/${memoryId}/key-points`, 'POST', token);
+}
+
 export interface Reminder {
   id: string;
   userId: string;

@@ -1,6 +1,6 @@
 import { Memory, AIInference } from '@/src/api/client';
 
-export type ActionKind = 'calendar' | 'maps' | 'share' | 'openUrl' | 'ask' | 'collection' | 'comingSoon';
+export type ActionKind = 'calendar' | 'maps' | 'share' | 'openUrl' | 'ask' | 'collection' | 'summarize' | 'keyPoints' | 'comingSoon';
 
 export interface MemoryAction {
   label: string;
@@ -98,8 +98,7 @@ export function getActionsForMemory(
       });
       actions.push({
         label: 'Summarize',
-        kind: 'comingSoon',
-        payload: { message: 'Generate a quick summary' },
+        kind: 'summarize',
       });
       actions.push({
         label: 'Related Memories',
@@ -109,8 +108,7 @@ export function getActionsForMemory(
       if (memoryType === 'article' || memoryType === 'ARTICLE_LEARNING') {
         actions.push({
           label: 'Key Points',
-          kind: 'comingSoon',
-          payload: { message: 'Extract key takeaways' },
+          kind: 'keyPoints',
         });
       }
       break;

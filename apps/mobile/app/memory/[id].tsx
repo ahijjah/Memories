@@ -12,7 +12,7 @@ import ViewShot, { captureRef } from 'react-native-view-shot';
 
 type ViewShotRef = View & { capture: () => Promise<string> };
 
-import { fetchMemoryDetail, fetchProcessingStatus, Memory, ProcessingStatus, AIInference, listCollections, addMemoryToCollection, lockMemory, createReminder, reprocessMemory, deleteMemory } from '@/src/api/client';
+import { fetchMemoryDetail, fetchProcessingStatus, Memory, ProcessingStatus, AIInference, listCollections, addMemoryToCollection, lockMemory, createReminder, reprocessMemory, deleteMemory, summarizeMemory, extractKeyPoints } from '@/src/api/client';
 import { getActionsForMemory, MemoryAction } from '@/src/utils/memory-actions';
 import { uploadPhotoToExistingMemory } from '@/src/utils/photo-upload';
 import { CardHeader } from '@/src/components/memory-cards/CardHeader';
@@ -41,6 +41,8 @@ export default function MemoryDetailScreen() {
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [isAddingPhoto, setIsAddingPhoto] = useState(false);
   const [isCapturingCard, setIsCapturingCard] = useState(false);
+  const [summaryResult, setSummaryResult] = useState<string | null>(null);
+  const [keyPointsResult, setKeyPointsResult] = useState<string[] | null>(null);
   const shareCardRef = useRef<ViewShotRef>(null);
 
   const { data: memory, isLoading, error, refetch } = useQuery({
@@ -130,6 +132,39 @@ export default function MemoryDetailScreen() {
     },
     onError: (err) => {
       const message = err instanceof Error ? err.message : 'Failed to set reminder';
+      Alert.alert('Error', message);
+    },
+  });
+
+  const { mutate: mutateSummarize, isPending: isSummarizing } = useMutation({
+    mutationFn: async () => {
+      const token = await getToken();
+      if (!id) throw new Error('Memory ID not found');
+      return summarizeMemory(token, id);
+    },
+    onSuccess: (result) => {
+      setSummaryResult(result);
+      Alert.alert('Summary', result);
+    },
+    onError: (err) => {
+      const message = err instanceof Error ? err.message : 'Failed to generate summary';
+      Alert.alert('Error', message);
+    },
+  });
+
+  const { mutate: mutateExtractKeyPoints, isPending: isExtractingKeyPoints } = useMutation({
+    mutationFn: async () => {
+      const token = await getToken();
+      if (!id) throw new Error('Memory ID not found');
+      return extractKeyPoints(token, id);
+    },
+    onSuccess: (result) => {
+      setKeyPointsResult(result);
+      const keyPointsText = result.join('\n• ');
+      Alert.alert('Key Points', `• ${keyPointsText}`);
+    },
+    onError: (err) => {
+      const message = err instanceof Error ? err.message : 'Failed to extract key points';
       Alert.alert('Error', message);
     },
   });
@@ -370,6 +405,12 @@ export default function MemoryDetailScreen() {
         break;
       case 'collection':
         setShowCollectionPicker(true);
+        break;
+      case 'summarize':
+        mutateSummarize();
+        break;
+      case 'keyPoints':
+        mutateExtractKeyPoints();
         break;
       case 'comingSoon':
         Alert.alert('Coming Soon', action.payload?.message || 'This feature is coming soon');
