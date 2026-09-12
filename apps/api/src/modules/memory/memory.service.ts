@@ -1,5 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { FieldEncryptionService } from '../../common/crypto/field-encryption.service';
+import { isSensitiveField } from '../../common/crypto/sensitive-fields';
 import { AiQueueService } from '../ai/ai-queue.service';
 import { AssetsService } from '../assets/assets.service';
 import { CreateMemoryDto } from './dto/create-memory.dto';
@@ -12,6 +14,7 @@ export class MemoryService {
     private readonly aiQueue: AiQueueService,
     private readonly assetsService: AssetsService,
     private readonly deletionQueue: MemoryDeletionQueueService,
+    private readonly fieldEncryption: FieldEncryptionService,
   ) {}
 
   // Idempotent create (spec §8, §17, BR §3): retrying the same capture
@@ -81,7 +84,7 @@ export class MemoryService {
     if (memory.securityScope === 'vault') {
       throw new NotFoundException('Memory not found');
     }
-    return this.enrichWithAssetUrls(memory);
+    return this.enrichWithAssetUrls(this.decryptSensitiveFields(memory));
   }
 
   async getProcessingStatus(userId: string, id: string) {
@@ -123,18 +126,52 @@ export class MemoryService {
       throw new NotFoundException('Memory not found');
     }
 
+    const encryptedValue = isSensitiveField(field)
+      ? this.fieldEncryption.encrypt(confirmedValue)
+      : confirmedValue;
+
     return this.prisma.userConfirmation.upsert({
       where: { memoryId_field: { memoryId, field } },
       create: {
         memoryId,
         userId,
         field,
-        confirmedValue,
+        confirmedValue: encryptedValue,
       },
       update: {
-        confirmedValue,
+        confirmedValue: encryptedValue,
       },
     });
+  }
+
+  private decryptSensitiveFields(memory: any) {
+    if (!memory) return memory;
+
+    if (memory.aiInferences && Array.isArray(memory.aiInferences)) {
+      memory.aiInferences = memory.aiInferences.map((inf: any) => {
+        if (isSensitiveField(inf.field)) {
+          return {
+            ...inf,
+            valueJson: this.fieldEncryption.decrypt(inf.valueJson),
+          };
+        }
+        return inf;
+      });
+    }
+
+    if (memory.userConfirmations && Array.isArray(memory.userConfirmations)) {
+      memory.userConfirmations = memory.userConfirmations.map((conf: any) => {
+        if (isSensitiveField(conf.field)) {
+          return {
+            ...conf,
+            confirmedValue: this.fieldEncryption.decrypt(conf.confirmedValue),
+          };
+        }
+        return conf;
+      });
+    }
+
+    return memory;
   }
 
   private async enrichWithAssetUrls(memory: any) {

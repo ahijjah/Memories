@@ -4,6 +4,7 @@ import { BullModule } from '@nestjs/bullmq';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { PrismaModule } from './common/prisma/prisma.module';
+import { CryptoModule } from './common/crypto/crypto.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { MemoryModule } from './modules/memory/memory.module';
@@ -34,6 +35,7 @@ import { HealthModule } from './modules/health/health.module';
       },
     }),
     PrismaModule,
+    CryptoModule,
     AuthModule,
     UsersModule,
     MemoryModule,

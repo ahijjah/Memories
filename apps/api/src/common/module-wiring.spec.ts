@@ -1,6 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { ConfigService, ConfigModule } from '@nestjs/config';
 import { PrismaModule } from './prisma/prisma.module';
+import { CryptoModule } from './crypto/crypto.module';
 
 describe('Module Wiring - Dependency Resolution', () => {
   const mockConfigService = {
@@ -17,6 +18,7 @@ describe('Module Wiring - Dependency Resolution', () => {
         REDIS_URL: 'redis://localhost:6379',
         DATABASE_URL: 'postgresql://test:test@localhost:5432/memories_test',
         CLERK_SECRET_KEY: 'test-clerk-secret',
+        FIELD_ENCRYPTION_KEY: Buffer.alloc(32, 'a').toString('base64'),
       };
       if (!(key in defaults)) {
         throw new Error(`Configuration key '${key}' does not exist`);
@@ -36,7 +38,7 @@ describe('Module Wiring - Dependency Resolution', () => {
     const { VaultModule } = await import('../modules/vault/vault.module');
 
     const moduleRef = await Test.createTestingModule({
-      imports: [ConfigModule.forRoot({ isGlobal: true }), PrismaModule, VaultModule],
+      imports: [ConfigModule.forRoot({ isGlobal: true }), CryptoModule, PrismaModule, VaultModule],
     })
       .overrideProvider(ConfigService)
       .useValue(mockConfigService)
@@ -49,7 +51,7 @@ describe('Module Wiring - Dependency Resolution', () => {
     const { MemoryModule } = await import('../modules/memory/memory.module');
 
     const moduleRef = await Test.createTestingModule({
-      imports: [ConfigModule.forRoot({ isGlobal: true }), PrismaModule, MemoryModule],
+      imports: [ConfigModule.forRoot({ isGlobal: true }), CryptoModule, PrismaModule, MemoryModule],
     })
       .overrideProvider(ConfigService)
       .useValue(mockConfigService)
@@ -62,7 +64,7 @@ describe('Module Wiring - Dependency Resolution', () => {
     const { CollectionsModule } = await import('../modules/collections/collections.module');
 
     const moduleRef = await Test.createTestingModule({
-      imports: [ConfigModule.forRoot({ isGlobal: true }), PrismaModule, CollectionsModule],
+      imports: [ConfigModule.forRoot({ isGlobal: true }), CryptoModule, PrismaModule, CollectionsModule],
     })
       .overrideProvider(ConfigService)
       .useValue(mockConfigService)

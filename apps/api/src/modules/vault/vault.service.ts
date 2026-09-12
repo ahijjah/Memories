@@ -1,5 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { FieldEncryptionService } from '../../common/crypto/field-encryption.service';
+import { isSensitiveField } from '../../common/crypto/sensitive-fields';
 import { AssetsService } from '../assets/assets.service';
 import { MemoryDeletionQueueService } from '../memory/deletion-queue.service';
 
@@ -9,6 +11,7 @@ export class VaultService {
     private readonly prisma: PrismaService,
     private readonly assetsService: AssetsService,
     private readonly deletionQueue: MemoryDeletionQueueService,
+    private readonly fieldEncryption: FieldEncryptionService,
   ) {}
 
   async lock(userId: string, memoryId: string) {
@@ -62,7 +65,37 @@ export class VaultService {
     if (memory.securityScope !== 'vault') {
       throw new NotFoundException('Memory not found');
     }
-    return this.enrichWithAssetUrls(memory);
+    return this.enrichWithAssetUrls(this.decryptSensitiveFields(memory));
+  }
+
+  private decryptSensitiveFields(memory: any) {
+    if (!memory) return memory;
+
+    if (memory.aiInferences && Array.isArray(memory.aiInferences)) {
+      memory.aiInferences = memory.aiInferences.map((inf: any) => {
+        if (isSensitiveField(inf.field)) {
+          return {
+            ...inf,
+            valueJson: this.fieldEncryption.decrypt(inf.valueJson),
+          };
+        }
+        return inf;
+      });
+    }
+
+    if (memory.userConfirmations && Array.isArray(memory.userConfirmations)) {
+      memory.userConfirmations = memory.userConfirmations.map((conf: any) => {
+        if (isSensitiveField(conf.field)) {
+          return {
+            ...conf,
+            confirmedValue: this.fieldEncryption.decrypt(conf.confirmedValue),
+          };
+        }
+        return conf;
+      });
+    }
+
+    return memory;
   }
 
   private async enrichWithAssetUrls(memory: any) {

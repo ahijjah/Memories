@@ -5,6 +5,8 @@ import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import type { Job } from 'bullmq';
 import { AnthropicAiProvider } from '@memory-app/ai';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { FieldEncryptionService } from '../../common/crypto/field-encryption.service';
+import { isSensitiveField } from '../../common/crypto/sensitive-fields';
 import { toVectorLiteral } from '../../common/pgvector.util';
 import { EmbeddingService } from './embedding.service';
 import { UrlMetadataService } from './url-metadata.service';
@@ -22,6 +24,7 @@ export class AiProcessor extends WorkerHost {
     private readonly embeddingService: EmbeddingService,
     private readonly urlMetadataService: UrlMetadataService,
     private readonly config: ConfigService,
+    private readonly fieldEncryption: FieldEncryptionService,
   ) {
     super();
     const endpoint = this.config.getOrThrow('OBJECT_STORAGE_ENDPOINT');
@@ -437,7 +440,7 @@ export class AiProcessor extends WorkerHost {
             data: {
               memoryId,
               field: 'issuer',
-              valueJson: result.issuer,
+              valueJson: this.fieldEncryption.encrypt(result.issuer),
               confidence: result.fieldConfidence?.issuer ?? result.confidence,
               modelVersion: result.modelVersion,
               provenance: 'llm_extraction',
@@ -452,7 +455,7 @@ export class AiProcessor extends WorkerHost {
             data: {
               memoryId,
               field: 'owner',
-              valueJson: result.owner,
+              valueJson: this.fieldEncryption.encrypt(result.owner),
               confidence: result.fieldConfidence?.owner ?? result.confidence,
               modelVersion: result.modelVersion,
               provenance: 'llm_extraction',
@@ -467,7 +470,7 @@ export class AiProcessor extends WorkerHost {
             data: {
               memoryId,
               field: 'documentNumber',
-              valueJson: result.documentNumber,
+              valueJson: this.fieldEncryption.encrypt(result.documentNumber),
               confidence: result.fieldConfidence?.documentNumber ?? result.confidence,
               modelVersion: result.modelVersion,
               provenance: 'llm_extraction',

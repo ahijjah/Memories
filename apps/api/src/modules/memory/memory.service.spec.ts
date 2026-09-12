@@ -2,6 +2,7 @@ import { Test } from '@nestjs/testing';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { MemoryService } from './memory.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { FieldEncryptionService } from '../../common/crypto/field-encryption.service';
 import { AiQueueService } from '../ai/ai-queue.service';
 import { AssetsService } from '../assets/assets.service';
 import { MemoryDeletionQueueService } from './deletion-queue.service';
@@ -18,6 +19,10 @@ describe('MemoryService', () => {
   const aiQueueMock = { enqueueUnderstanding: jest.fn() };
   const assetsMock = { getViewUrl: jest.fn().mockReturnValue('http://mock-url') };
   const deletionQueueMock = { enqueueFinalization: jest.fn(), cancelFinalization: jest.fn() };
+  const fieldEncryptionMock = {
+    encrypt: jest.fn((val) => `encrypted:${val}`),
+    decrypt: jest.fn((val) => val.replace(/^encrypted:/, '')),
+  };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -28,6 +33,7 @@ describe('MemoryService', () => {
         { provide: AiQueueService, useValue: aiQueueMock },
         { provide: AssetsService, useValue: assetsMock },
         { provide: MemoryDeletionQueueService, useValue: deletionQueueMock },
+        { provide: FieldEncryptionService, useValue: fieldEncryptionMock },
       ],
     }).compile();
 

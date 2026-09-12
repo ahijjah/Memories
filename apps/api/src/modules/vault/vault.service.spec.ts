@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { VaultService } from './vault.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { FieldEncryptionService } from '../../common/crypto/field-encryption.service';
 import { AssetsService } from '../assets/assets.service';
 import { MemoryDeletionQueueService } from '../memory/deletion-queue.service';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
@@ -34,6 +35,13 @@ describe('VaultService', () => {
           useValue: {
             enqueueFinalization: jest.fn(),
             cancelFinalization: jest.fn(),
+          },
+        },
+        {
+          provide: FieldEncryptionService,
+          useValue: {
+            encrypt: jest.fn((val) => `encrypted:${val}`),
+            decrypt: jest.fn((val) => val.replace(/^encrypted:/, '')),
           },
         },
       ],
