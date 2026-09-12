@@ -1,15 +1,10 @@
 import { useAuth } from "@clerk/clerk-expo";
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity, Alert, Linking, Share, Platform, Image } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import * as ImagePicker from 'expo-image-picker';
 import * as Calendar from 'expo-calendar/legacy';
-import * as FileSystem from 'expo-file-system/legacy';
-import * as Sharing from 'expo-sharing';
-import ViewShot, { captureRef } from 'react-native-view-shot';
-
-type ViewShotRef = View & { capture: () => Promise<string> };
 
 import { getVaultMemoryDetail, unlockMemory, AIInference, reprocessMemory } from '@/src/api/client';
 import { getActionsForMemory, MemoryAction } from '@/src/utils/memory-actions';
@@ -25,7 +20,6 @@ import { ArticleLearningCard } from '@/src/components/memory-cards/ArticleLearni
 import { VideoSocialCard } from '@/src/components/memory-cards/VideoSocialCard';
 import { DocumentCard } from '@/src/components/memory-cards/DocumentCard';
 import { resolveCardType } from '@/src/components/memory-cards/cardTypeResolver';
-import { ShareCardView } from '@/src/components/memory-cards/ShareCardView';
 import { checkBiometricEnrollment, authenticateVault, useVaultAutoLock, useVaultScreenProtection, type VaultAuthState } from '@/src/utils/vault-auth';
 
 export default function VaultDetailScreen() {
@@ -34,10 +28,8 @@ export default function VaultDetailScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [isAddingPhoto, setIsAddingPhoto] = useState(false);
-  const [isCapturingCard, setIsCapturingCard] = useState(false);
   const [authState, setAuthState] = useState<VaultAuthState>('locked');
   const [enrollmentChecked, setEnrollmentChecked] = useState(false);
-  const shareCardRef = useRef<ViewShotRef>(null);
 
   useVaultAutoLock(authState, setAuthState);
   useVaultScreenProtection(authState === 'unlocked');
@@ -216,41 +208,30 @@ export default function VaultDetailScreen() {
   };
 
   const handleShareMemory = async () => {
-    try {
-      await Share.share({
-        message: memory?.title || 'Check this out!',
-        url: memory?.sourceUri || undefined,
-        title: memory?.title || 'Memory',
-      });
-    } catch (err) {
-      if ((err as any).code !== 'E_SHARE_CANCELLED') {
-        Alert.alert('Error', 'Failed to share');
-      }
-    }
-  };
-
-  const handleShareCard = async () => {
-    if (!shareCardRef.current || !memory) return;
-    try {
-      setIsCapturingCard(true);
-      const imageUri = await captureRef(shareCardRef, { format: 'png', quality: 0.9 });
-      if (!imageUri) throw new Error('Failed to capture card');
-
-      const fileName = `memory-card-${Date.now()}.png`;
-      const filePath = `${FileSystem.cacheDirectory}${fileName}`;
-
-      await FileSystem.copyAsync({
-        from: imageUri,
-        to: filePath,
-      });
-
-      await Sharing.shareAsync(filePath, { mimeType: 'image/png' });
-    } catch (err) {
-      console.error('Share card error:', err);
-      Alert.alert('Error', 'Failed to share card');
-    } finally {
-      setIsCapturingCard(false);
-    }
+    Alert.alert(
+      'Share Vault Item?',
+      'This will share the title of this Vault document outside the app. Continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Share',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await Share.share({
+                message: memory?.title || 'Check this out!',
+                url: memory?.sourceUri || undefined,
+                title: memory?.title || 'Memory',
+              });
+            } catch (err) {
+              if ((err as any).code !== 'E_SHARE_CANCELLED') {
+                Alert.alert('Error', 'Failed to share');
+              }
+            }
+          },
+        },
+      ]
+    );
   };
 
   const handleAddPhoto = async () => {
