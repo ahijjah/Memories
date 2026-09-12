@@ -33,7 +33,6 @@ describe('EngagementService', () => {
   describe('getRediscoveryRandom', () => {
     it('should return up to 5 Memories older than 30 days, excluding vault, user-scoped', async () => {
       const userId = 'user-123';
-      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
       const mockMemories = [
         { id: 'mem-1', userId, lifecycleState: 'active', securityScope: 'private' },
         { id: 'mem-2', userId, lifecycleState: 'active', securityScope: 'private' },

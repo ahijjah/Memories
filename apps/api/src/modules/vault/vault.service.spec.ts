@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { VaultService } from './vault.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { AssetsService } from '../assets/assets.service';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 
 describe('VaultService', () => {
@@ -19,6 +20,12 @@ describe('VaultService', () => {
               findMany: jest.fn(),
               update: jest.fn(),
             },
+          },
+        },
+        {
+          provide: AssetsService,
+          useValue: {
+            getViewUrl: jest.fn().mockReturnValue('http://mock-url'),
           },
         },
       ],
@@ -109,6 +116,7 @@ describe('VaultService', () => {
         lifecycleState: { not: 'deleted' },
         securityScope: 'vault',
       },
+      include: { assets: true },
       orderBy: { capturedAt: 'desc' },
     });
     expect(result).toEqual(mockMemories);

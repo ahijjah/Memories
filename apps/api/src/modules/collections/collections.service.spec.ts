@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { CollectionsService } from './collections.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { AssetsService } from '../assets/assets.service';
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 
 describe('CollectionsService', () => {
@@ -27,6 +28,12 @@ describe('CollectionsService', () => {
             memory: {
               findUnique: jest.fn(),
             },
+          },
+        },
+        {
+          provide: AssetsService,
+          useValue: {
+            getViewUrl: jest.fn().mockReturnValue('http://mock-url'),
           },
         },
       ],
@@ -119,7 +126,7 @@ describe('CollectionsService', () => {
         where: { id: collectionId },
         include: {
           memories: {
-            include: { memory: true },
+            include: { memory: { include: { assets: true } } },
             orderBy: { addedAt: 'desc' },
           },
         },

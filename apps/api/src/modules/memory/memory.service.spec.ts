@@ -3,6 +3,7 @@ import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { MemoryService } from './memory.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AiQueueService } from '../ai/ai-queue.service';
+import { AssetsService } from '../assets/assets.service';
 
 describe('MemoryService', () => {
   let service: MemoryService;
@@ -14,6 +15,7 @@ describe('MemoryService', () => {
     },
   };
   const aiQueueMock = { enqueueUnderstanding: jest.fn() };
+  const assetsMock = { getViewUrl: jest.fn().mockReturnValue('http://mock-url') };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -22,6 +24,7 @@ describe('MemoryService', () => {
         MemoryService,
         { provide: PrismaService, useValue: prismaMock },
         { provide: AiQueueService, useValue: aiQueueMock },
+        { provide: AssetsService, useValue: assetsMock },
       ],
     }).compile();
 
