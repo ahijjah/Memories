@@ -1,7 +1,10 @@
 import { View, Text, TouchableOpacity } from 'react-native';
 import { useState } from 'react';
+import { ConfirmableField } from './ConfirmableField';
 
 interface DocumentCardProps {
+  memoryId: string;
+  isVault?: boolean;
   aiSummary: any;
   aiTopics: any;
   aiIntent: any;
@@ -12,9 +15,14 @@ interface DocumentCardProps {
   aiOwner: any;
   aiDocumentNumber?: any;
   aiIssueDate?: any;
+  fieldConfidences?: { [key: string]: number | null };
+  fieldConfirmations?: { [key: string]: boolean };
+  onFieldConfirmed?: () => void;
 }
 
 export function DocumentCard({
+  memoryId,
+  isVault = false,
   aiSummary,
   aiTopics,
   aiIntent,
@@ -25,6 +33,9 @@ export function DocumentCard({
   aiOwner,
   aiDocumentNumber,
   aiIssueDate,
+  fieldConfidences = {},
+  fieldConfirmations = {},
+  onFieldConfirmed = () => {},
 }: DocumentCardProps) {
   const [isDocumentNumberRevealed, setIsDocumentNumberRevealed] = useState(false);
   const hasDocumentInfo = aiCategory || aiIssuer || aiOwner || aiDate || aiDocumentNumber || aiIssueDate;
@@ -38,29 +49,53 @@ export function DocumentCard({
           <Text className="text-lg font-semibold text-gray-900 mb-3">Document</Text>
 
           {aiCategory && (
-            <Text className="text-sm text-gray-600 mb-2">
-              <Text className="font-semibold">Type:</Text> {aiCategory}
-            </Text>
+            <ConfirmableField
+              label="Type"
+              value={aiCategory}
+              confidence={fieldConfidences['category']}
+              fieldType="text"
+              memoryId={memoryId}
+              field="category"
+              isConfirmed={fieldConfirmations['category'] || false}
+              isVault={isVault}
+              onConfirmed={onFieldConfirmed}
+            />
           )}
 
           {aiIssuer && (
-            <Text className="text-sm text-gray-600 mb-2">
-              <Text className="font-semibold">Issuer:</Text> {aiIssuer}
-            </Text>
+            <ConfirmableField
+              label="Issuer"
+              value={aiIssuer}
+              confidence={fieldConfidences['issuer']}
+              fieldType="text"
+              memoryId={memoryId}
+              field="issuer"
+              isConfirmed={fieldConfirmations['issuer'] || false}
+              isVault={isVault}
+              onConfirmed={onFieldConfirmed}
+            />
           )}
 
           {aiOwner && (
-            <Text className="text-sm text-gray-600 mb-2">
-              <Text className="font-semibold">Owner:</Text> {aiOwner}
-            </Text>
+            <ConfirmableField
+              label="Owner"
+              value={aiOwner}
+              confidence={fieldConfidences['owner']}
+              fieldType="text"
+              memoryId={memoryId}
+              field="owner"
+              isConfirmed={fieldConfirmations['owner'] || false}
+              isVault={isVault}
+              onConfirmed={onFieldConfirmed}
+            />
           )}
 
           {aiDocumentNumber && (
             <View className="mb-2">
               <View className="flex-row items-center gap-2">
                 <View className="flex-1">
-                  <Text className="text-sm text-gray-600">
-                    <Text className="font-semibold">Document #:</Text>{' '}
+                  <Text className="text-xs text-gray-600 mb-1">Document #</Text>
+                  <Text className="text-base text-gray-900">
                     {isDocumentNumberRevealed ? (
                       <Text>{aiDocumentNumber}</Text>
                     ) : (
@@ -81,17 +116,33 @@ export function DocumentCard({
           )}
 
           {aiIssueDate && (
-            <Text className="text-sm text-gray-600 mb-2">
-              <Text className="font-semibold">Issued:</Text> {new Date(aiIssueDate).toLocaleDateString()}
-            </Text>
+            <ConfirmableField
+              label="Issued"
+              value={aiIssueDate}
+              confidence={fieldConfidences['issueDate']}
+              fieldType="date"
+              memoryId={memoryId}
+              field="issueDate"
+              isConfirmed={fieldConfirmations['issueDate'] || false}
+              isVault={isVault}
+              onConfirmed={onFieldConfirmed}
+            />
           )}
 
           {aiDate && (
-            <View className="flex-row items-center justify-between">
-              <Text className="text-sm text-gray-600 flex-1">
-                <Text className="font-semibold">Expires:</Text> {new Date(aiDate).toLocaleDateString()}
-              </Text>
-              <View className={`px-2 py-1 rounded ${isExpired ? 'bg-red-100' : 'bg-green-100'}`}>
+            <View className="mb-2">
+              <ConfirmableField
+                label="Expires"
+                value={aiDate}
+                confidence={fieldConfidences['date']}
+                fieldType="date"
+                memoryId={memoryId}
+                field="date"
+                isConfirmed={fieldConfirmations['date'] || false}
+                isVault={isVault}
+                onConfirmed={onFieldConfirmed}
+              />
+              <View className={`px-2 py-1 rounded mt-2 w-fit ${isExpired ? 'bg-red-100' : 'bg-green-100'}`}>
                 <Text className={`text-xs font-semibold ${isExpired ? 'text-red-700' : 'text-green-700'}`}>
                   {isExpired ? 'Expired' : 'Current'}
                 </Text>

@@ -1,7 +1,7 @@
 import { View, Text, TouchableOpacity, TextInput, Modal, ActivityIndicator } from 'react-native';
 import { useState } from 'react';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { confirmField } from '@/src/api/client';
+import { confirmField, confirmVaultField } from '@/src/api/client';
 import { useAuth } from '@clerk/clerk-expo';
 
 interface ConfirmableFieldProps {
@@ -12,6 +12,7 @@ interface ConfirmableFieldProps {
   memoryId: string;
   field: string;
   isConfirmed: boolean;
+  isVault?: boolean;
   onConfirmed: () => void;
 }
 
@@ -36,6 +37,7 @@ export function ConfirmableField({
   memoryId,
   field,
   isConfirmed,
+  isVault = false,
   onConfirmed,
 }: ConfirmableFieldProps) {
   const { getToken } = useAuth();
@@ -59,7 +61,11 @@ export function ConfirmableField({
       setIsSubmitting(true);
       const token = await getToken();
       if (!token) throw new Error('No auth token');
-      await confirmField(token, memoryId, field, value);
+      if (isVault) {
+        await confirmVaultField(token, memoryId, field, value);
+      } else {
+        await confirmField(token, memoryId, field, value);
+      }
       setShowConfirmPrompt(false);
       onConfirmed();
     } catch (err) {
@@ -74,7 +80,11 @@ export function ConfirmableField({
       setIsSubmitting(true);
       const token = await getToken();
       if (!token) throw new Error('No auth token');
-      await confirmField(token, memoryId, field, editValue);
+      if (isVault) {
+        await confirmVaultField(token, memoryId, field, editValue);
+      } else {
+        await confirmField(token, memoryId, field, editValue);
+      }
       setShowConfirmPrompt(false);
       setIsEditing(false);
       onConfirmed();

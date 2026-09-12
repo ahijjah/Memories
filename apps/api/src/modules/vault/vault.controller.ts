@@ -38,6 +38,14 @@ export class VaultController {
     return this.vaultService.findOneForUser(user.sub, memoryId);
   }
 
+  @Get(':memoryId/processing-status')
+  async processingStatus(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('memoryId') memoryId: string,
+  ) {
+    return this.vaultService.getProcessingStatus(user.sub, memoryId);
+  }
+
   @Delete(':memoryId')
   async delete(
     @CurrentUser() user: CurrentUserPayload,

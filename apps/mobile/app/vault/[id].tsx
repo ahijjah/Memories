@@ -6,7 +6,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import * as ImagePicker from 'expo-image-picker';
 import * as Calendar from 'expo-calendar/legacy';
 
-import { getVaultMemoryDetail, unlockMemory, AIInference, reprocessMemory, deleteVaultMemory, listPeople, assignPersonToMemory, unassignPersonFromMemory, Person, confirmVaultField } from '@/src/api/client';
+import { getVaultMemoryDetail, unlockMemory, AIInference, reprocessMemory, deleteVaultMemory, listPeople, assignPersonToMemory, unassignPersonFromMemory, Person, confirmVaultField, getVaultProcessingStatus, ProcessingStatus } from '@/src/api/client';
 import { getActionsForMemory, MemoryAction } from '@/src/utils/memory-actions';
 import { uploadPhotoToExistingMemory } from '@/src/utils/photo-upload';
 import { CardHeader } from '@/src/components/memory-cards/CardHeader';
@@ -33,6 +33,7 @@ export default function VaultDetailScreen() {
   const [showPersonPicker, setShowPersonPicker] = useState(false);
   const [showNotesModal, setShowNotesModal] = useState(false);
   const [notesText, setNotesText] = useState('');
+  const [shouldPoll, setShouldPoll] = useState(true);
 
   useVaultAutoLock(authState, setAuthState);
   useVaultScreenProtection(authState === 'unlocked');
@@ -125,6 +126,29 @@ export default function VaultDetailScreen() {
       return listPeople(token);
     },
   });
+
+  const { data: processingStatus, refetch: refetchStatus } = useQuery({
+    queryKey: ['vaultProcessingStatus', id],
+    queryFn: async () => {
+      const token = await getToken();
+      if (!id) throw new Error('Memory ID not found');
+      return getVaultProcessingStatus(token, id);
+    },
+  });
+
+  // Stop polling once processing is complete
+  useEffect(() => {
+    if (!processingStatus) return;
+    if (processingStatus.processingState !== 'queued' && processingStatus.processingState !== 'processing') {
+      setShouldPoll(false);
+      return;
+    }
+    setShouldPoll(true);
+    const interval = setInterval(() => {
+      refetchStatus();
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [processingStatus, refetchStatus]);
 
   const { mutate: assignPerson, isPending: isAssigning } = useMutation({
     mutationFn: async (personId: string) => {
@@ -333,8 +357,9 @@ export default function VaultDetailScreen() {
         // Trigger reprocessing
         await reprocessMemory(token, id);
 
-        // Refetch the memory to show updated data
+        // Refetch both memory detail and processing status to resume polling
         await refetch();
+        await refetchStatus();
 
         Alert.alert('Success', 'Photo added! Analyzing details...');
       }
@@ -814,6 +839,8 @@ export default function VaultDetailScreen() {
             case 'document':
               return (
                 <DocumentCard
+                  memoryId={id}
+                  isVault={true}
                   aiSummary={aiSummary}
                   aiTopics={aiTopics}
                   aiIntent={aiIntent}
@@ -824,6 +851,21 @@ export default function VaultDetailScreen() {
                   aiOwner={getFieldValue('owner')}
                   aiDocumentNumber={getFieldValue('documentNumber')}
                   aiIssueDate={getFieldValue('issueDate')}
+                  fieldConfidences={{
+                    category: getFieldConfidence('category'),
+                    issuer: getFieldConfidence('issuer'),
+                    owner: getFieldConfidence('owner'),
+                    issueDate: getFieldConfidence('issueDate'),
+                    date: getFieldConfidence('date'),
+                  }}
+                  fieldConfirmations={{
+                    category: isFieldConfirmed('category'),
+                    issuer: isFieldConfirmed('issuer'),
+                    owner: isFieldConfirmed('owner'),
+                    issueDate: isFieldConfirmed('issueDate'),
+                    date: isFieldConfirmed('date'),
+                  }}
+                  onFieldConfirmed={() => refetch()}
                 />
               );
             case 'generic':

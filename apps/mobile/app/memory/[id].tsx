@@ -616,6 +616,8 @@ export default function MemoryDetailScreen() {
             case 'document':
               return (
                 <DocumentCard
+                  memoryId={id}
+                  isVault={false}
                   aiSummary={aiSummary}
                   aiTopics={aiTopics}
                   aiIntent={aiIntent}
@@ -626,6 +628,21 @@ export default function MemoryDetailScreen() {
                   aiOwner={getFieldValue('owner')}
                   aiDocumentNumber={getFieldValue('documentNumber')}
                   aiIssueDate={getFieldValue('issueDate')}
+                  fieldConfidences={{
+                    category: getFieldConfidence('category'),
+                    issuer: getFieldConfidence('issuer'),
+                    owner: getFieldConfidence('owner'),
+                    issueDate: getFieldConfidence('issueDate'),
+                    date: getFieldConfidence('date'),
+                  }}
+                  fieldConfirmations={{
+                    category: isFieldConfirmed('category'),
+                    issuer: isFieldConfirmed('issuer'),
+                    owner: isFieldConfirmed('owner'),
+                    issueDate: isFieldConfirmed('issueDate'),
+                    date: isFieldConfirmed('date'),
+                  }}
+                  onFieldConfirmed={() => refetch()}
                 />
               );
             case 'generic':

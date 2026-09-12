@@ -266,6 +266,13 @@ export async function getVaultMemoryDetail(token: string | null, id: string): Pr
   return makeRequest(`/vault/${id}`, 'GET', token);
 }
 
+export async function getVaultProcessingStatus(
+  token: string | null,
+  id: string,
+): Promise<ProcessingStatus> {
+  return makeRequest(`/vault/${id}/processing-status`, 'GET', token);
+}
+
 export async function lockMemory(token: string | null, memoryId: string): Promise<Memory> {
   return makeRequest(`/vault/${memoryId}/lock`, 'POST', token);
 }

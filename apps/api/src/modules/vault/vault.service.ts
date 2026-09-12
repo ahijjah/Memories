@@ -68,6 +68,19 @@ export class VaultService {
     return this.enrichWithAssetUrls(this.decryptSensitiveFields(memory));
   }
 
+  async getProcessingStatus(userId: string, id: string) {
+    const memory = await this.prisma.memory.findUnique({
+      where: { id },
+      select: { id: true, userId: true, processingState: true, updatedAt: true, securityScope: true },
+    });
+    if (!memory) throw new NotFoundException('Memory not found');
+    this.assertOwnership(memory.userId, userId);
+    if (memory.securityScope !== 'vault') {
+      throw new NotFoundException('Memory not found');
+    }
+    return memory;
+  }
+
   private decryptSensitiveFields(memory: any) {
     if (!memory) return memory;
 
