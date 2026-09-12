@@ -1,12 +1,12 @@
 import { useAuth } from "@clerk/clerk-expo";
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { useState, useEffect, useCallback } from 'react';
-import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity, Alert, Linking, Share, Platform, Image } from 'react-native';
+import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity, Alert, Linking, Share, Platform, Image, Modal, FlatList } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import * as ImagePicker from 'expo-image-picker';
 import * as Calendar from 'expo-calendar/legacy';
 
-import { getVaultMemoryDetail, unlockMemory, AIInference, reprocessMemory, deleteVaultMemory } from '@/src/api/client';
+import { getVaultMemoryDetail, unlockMemory, AIInference, reprocessMemory, deleteVaultMemory, listPeople, assignPersonToMemory, unassignPersonFromMemory, Person } from '@/src/api/client';
 import { getActionsForMemory, MemoryAction } from '@/src/utils/memory-actions';
 import { uploadPhotoToExistingMemory } from '@/src/utils/photo-upload';
 import { CardHeader } from '@/src/components/memory-cards/CardHeader';
@@ -30,6 +30,7 @@ export default function VaultDetailScreen() {
   const [isAddingPhoto, setIsAddingPhoto] = useState(false);
   const [authState, setAuthState] = useState<VaultAuthState>('locked');
   const [enrollmentChecked, setEnrollmentChecked] = useState(false);
+  const [showPersonPicker, setShowPersonPicker] = useState(false);
 
   useVaultAutoLock(authState, setAuthState);
   useVaultScreenProtection(authState === 'unlocked');
@@ -111,6 +112,45 @@ export default function VaultDetailScreen() {
     },
     onError: (err) => {
       const message = err instanceof Error ? err.message : 'Failed to delete memory';
+      Alert.alert('Error', message);
+    },
+  });
+
+  const { data: people = [] } = useQuery({
+    queryKey: ['people'],
+    queryFn: async () => {
+      const token = await getToken();
+      return listPeople(token);
+    },
+  });
+
+  const { mutate: assignPerson, isPending: isAssigning } = useMutation({
+    mutationFn: async (personId: string) => {
+      const token = await getToken();
+      if (!id) throw new Error('Memory ID not found');
+      return assignPersonToMemory(token, personId, id);
+    },
+    onSuccess: () => {
+      setShowPersonPicker(false);
+      refetch();
+    },
+    onError: (err) => {
+      const message = err instanceof Error ? err.message : 'Failed to assign person';
+      Alert.alert('Error', message);
+    },
+  });
+
+  const { mutate: unassignPerson, isPending: isUnassigning } = useMutation({
+    mutationFn: async () => {
+      const token = await getToken();
+      if (!id || !memory?.personId) throw new Error('Missing data');
+      return unassignPersonFromMemory(token, memory.personId, id);
+    },
+    onSuccess: () => {
+      refetch();
+    },
+    onError: (err) => {
+      const message = err instanceof Error ? err.message : 'Failed to unassign person';
       Alert.alert('Error', message);
     },
   });
@@ -457,6 +497,106 @@ export default function VaultDetailScreen() {
             🔒 In Vault
           </Text>
         </View>
+
+        {/* Person Assignment Section */}
+        <View className="mb-6 p-4 rounded-lg bg-blue-50 border border-blue-200">
+          {memory.personId ? (
+            <View>
+              <View className="flex-row items-center justify-between mb-3">
+                <View>
+                  <Text className="text-sm text-blue-700 font-semibold">Linked to Person</Text>
+                  <Text className="text-lg font-bold text-blue-900 mt-1">
+                    {people.find((p) => p.id === memory.personId)?.name || 'Unknown'}
+                  </Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                onPress={() => {
+                  Alert.alert('Unlink Person?', 'Remove this person from the document?', [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Unlink',
+                      style: 'destructive',
+                      onPress: () => unassignPerson(),
+                    },
+                  ]);
+                }}
+                disabled={isUnassigning}
+                className={`py-2 px-3 rounded-lg ${isUnassigning ? 'bg-blue-200' : 'bg-blue-600'}`}
+              >
+                <Text className="text-white text-center font-semibold text-sm">
+                  {isUnassigning ? 'Unlinking...' : 'Unlink'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View>
+              <Text className="text-sm text-blue-700 font-semibold mb-3">No Person Linked</Text>
+              <TouchableOpacity
+                onPress={() => setShowPersonPicker(true)}
+                disabled={people.length === 0}
+                className={`py-2 px-3 rounded-lg ${
+                  people.length === 0 ? 'bg-gray-300' : 'bg-blue-600'
+                }`}
+              >
+                <Text className="text-white text-center font-semibold text-sm">
+                  {people.length === 0 ? 'No People Added' : 'Link Person'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+
+        {/* Person Picker Modal */}
+        <Modal
+          visible={showPersonPicker}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowPersonPicker(false)}
+        >
+          <View className="flex-1 bg-black/50">
+            <View className="flex-1 bg-white mt-auto rounded-t-2xl">
+              <View className="p-4 border-b border-gray-200">
+                <View className="flex-row items-center justify-between">
+                  <Text className="text-lg font-bold text-gray-900">Link Person</Text>
+                  <TouchableOpacity onPress={() => setShowPersonPicker(false)}>
+                    <Text className="text-lg text-gray-600">✕</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+              <FlatList
+                data={people}
+                keyExtractor={(item) => item.id}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    onPress={() => assignPerson(item.id)}
+                    disabled={isAssigning}
+                    className="p-4 border-b border-gray-100 flex-row items-center justify-between"
+                  >
+                    <View>
+                      <Text className="text-base font-semibold text-gray-900">{item.name}</Text>
+                      {item.relationship && (
+                        <Text className="text-sm text-gray-600 mt-1">{item.relationship}</Text>
+                      )}
+                    </View>
+                    {isAssigning ? (
+                      <ActivityIndicator size="small" />
+                    ) : (
+                      <Text className="text-blue-600 font-semibold">Select</Text>
+                    )}
+                  </TouchableOpacity>
+                )}
+                ListEmptyComponent={
+                  <View className="p-8 items-center">
+                    <Text className="text-gray-600 text-center">
+                      No people added yet. Go to the People tab to create one.
+                    </Text>
+                  </View>
+                }
+              />
+            </View>
+          </View>
+        </Modal>
 
         {/* Add Photo Prompt */}
         {shouldShowPhotoPrompt && (

@@ -48,6 +48,7 @@ export interface Memory {
   lifecycleState: string;
   securityScope: string;
   idempotencyKey: string;
+  personId?: string;
   assets?: MemoryAsset[];
   aiInferences?: AIInference[];
   userConfirmations?: UserConfirmation[];
