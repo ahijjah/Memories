@@ -947,6 +947,14 @@ export default function VaultDetailScreen() {
               </View>
             )}
 
+            {/* Scan Another Document Button */}
+            <TouchableOpacity
+              onPress={() => router.push('/(tabs)/document-scanner')}
+              className="rounded-lg py-3 mb-4 bg-blue-600"
+            >
+              <Text className="text-white text-center font-semibold">Scan Another Document</Text>
+            </TouchableOpacity>
+
             {/* Remove from Vault Button */}
             <TouchableOpacity
               onPress={() => {

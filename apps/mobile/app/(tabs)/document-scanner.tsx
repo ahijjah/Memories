@@ -72,32 +72,9 @@ export default function DocumentScannerScreen() {
   }, []);
 
   const handleComplete = () => {
-    Alert.alert('Success', 'Document saved to Vault', [
-      {
-        text: 'View Document',
-        onPress: () => {
-          if (memoryId) {
-            router.push(`/vault/${memoryId}`);
-          }
-        },
-      },
-      {
-        text: 'Scan Another',
-        onPress: () => {
-          setMemoryId(null);
-          setIsCreatingMemory(true);
-          // Reset guard to allow another initialization
-          hasInitializedRef.current = false;
-          initializeAndLockMemory();
-        },
-      },
-      {
-        text: 'Done',
-        onPress: () => {
-          router.back();
-        },
-      },
-    ]);
+    if (memoryId) {
+      router.push(`/vault/${memoryId}`);
+    }
   };
 
   const handleCancel = () => {

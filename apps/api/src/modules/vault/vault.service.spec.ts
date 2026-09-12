@@ -179,4 +179,68 @@ describe('VaultService', () => {
       NotFoundException,
     );
   });
+
+  it('should get processing status for a vault memory', async () => {
+    const userId = 'user-123';
+    const memoryId = 'mem-1';
+    const mockProcessingStatus = {
+      id: memoryId,
+      userId,
+      processingState: 'processing',
+      updatedAt: new Date(),
+      securityScope: 'vault',
+    };
+
+    jest.spyOn(prismaService.memory, 'findUnique').mockResolvedValue(mockProcessingStatus as any);
+
+    const result = await service.getProcessingStatus(userId, memoryId);
+
+    expect(prismaService.memory.findUnique).toHaveBeenCalledWith({
+      where: { id: memoryId },
+      select: { id: true, userId: true, processingState: true, updatedAt: true, securityScope: true },
+    });
+    expect(result.processingState).toBe('processing');
+  });
+
+  it('should throw NotFoundException when getting processing status for non-existent memory', async () => {
+    const userId = 'user-123';
+    const memoryId = 'mem-1';
+
+    jest.spyOn(prismaService.memory, 'findUnique').mockResolvedValue(null);
+
+    await expect(service.getProcessingStatus(userId, memoryId)).rejects.toThrow(NotFoundException);
+  });
+
+  it('should throw ForbiddenException when getting processing status for memory owned by another user', async () => {
+    const userId = 'user-123';
+    const otherUserId = 'user-456';
+    const memoryId = 'mem-1';
+    const mockMemory = {
+      id: memoryId,
+      userId: otherUserId,
+      processingState: 'processing',
+      updatedAt: new Date(),
+      securityScope: 'vault',
+    };
+
+    jest.spyOn(prismaService.memory, 'findUnique').mockResolvedValue(mockMemory as any);
+
+    await expect(service.getProcessingStatus(userId, memoryId)).rejects.toThrow(ForbiddenException);
+  });
+
+  it('should throw NotFoundException when getting processing status for non-vault memory', async () => {
+    const userId = 'user-123';
+    const memoryId = 'mem-1';
+    const mockMemory = {
+      id: memoryId,
+      userId,
+      processingState: 'processing',
+      updatedAt: new Date(),
+      securityScope: 'private',
+    };
+
+    jest.spyOn(prismaService.memory, 'findUnique').mockResolvedValue(mockMemory as any);
+
+    await expect(service.getProcessingStatus(userId, memoryId)).rejects.toThrow(NotFoundException);
+  });
 });

@@ -1,5 +1,7 @@
-import { View, Text, TouchableOpacity } from 'react-native';
+import { View, Text, TouchableOpacity, Modal, TextInput, ActivityIndicator, Alert } from 'react-native';
 import { useState } from 'react';
+import { useAuth } from '@clerk/clerk-expo';
+import { confirmField, confirmVaultField } from '@/src/api/client';
 import { ConfirmableField } from './ConfirmableField';
 
 interface DocumentCardProps {
@@ -37,9 +39,32 @@ export function DocumentCard({
   fieldConfirmations = {},
   onFieldConfirmed = () => {},
 }: DocumentCardProps) {
+  const { getToken } = useAuth();
   const [isDocumentNumberRevealed, setIsDocumentNumberRevealed] = useState(false);
+  const [showDocNumberEditModal, setShowDocNumberEditModal] = useState(false);
+  const [docNumberEditValue, setDocNumberEditValue] = useState(aiDocumentNumber || '');
+  const [isSubmittingDocNumber, setIsSubmittingDocNumber] = useState(false);
   const hasDocumentInfo = aiCategory || aiIssuer || aiOwner || aiDate || aiDocumentNumber || aiIssueDate;
   const isExpired = aiDate ? new Date(aiDate) < new Date() : false;
+
+  const handleEditDocumentNumber = async () => {
+    try {
+      setIsSubmittingDocNumber(true);
+      const token = await getToken();
+      if (!token) throw new Error('No auth token');
+      if (isVault) {
+        await confirmVaultField(token, memoryId, 'documentNumber', docNumberEditValue);
+      } else {
+        await confirmField(token, memoryId, 'documentNumber', docNumberEditValue);
+      }
+      setShowDocNumberEditModal(false);
+      onFieldConfirmed();
+    } catch (err) {
+      Alert.alert('Error', `Failed to update document number: ${(err as Error).message}`);
+    } finally {
+      setIsSubmittingDocNumber(false);
+    }
+  };
 
   return (
     <>
@@ -111,6 +136,15 @@ export function DocumentCard({
                     {isDocumentNumberRevealed ? 'Hide' : 'Show'}
                   </Text>
                 </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => {
+                    setDocNumberEditValue(aiDocumentNumber);
+                    setShowDocNumberEditModal(true);
+                  }}
+                  className="px-2 py-1"
+                >
+                  <Text className="text-xs font-semibold text-blue-600">Edit</Text>
+                </TouchableOpacity>
               </View>
             </View>
           )}
@@ -151,6 +185,51 @@ export function DocumentCard({
           )}
         </View>
       )}
+
+      {/* Document Number Edit Modal */}
+      <Modal
+        visible={showDocNumberEditModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => !isSubmittingDocNumber && setShowDocNumberEditModal(false)}
+      >
+        <View className="flex-1 bg-black/50 justify-center px-4">
+          <View className="bg-white rounded-lg p-4">
+            <Text className="text-base font-semibold text-gray-900 mb-4">Edit Document Number</Text>
+
+            <TextInput
+              value={docNumberEditValue}
+              onChangeText={setDocNumberEditValue}
+              placeholder="Enter document number"
+              className="border border-gray-300 rounded-lg px-4 py-3 text-base mb-4"
+              placeholderTextColor="#999"
+              editable={!isSubmittingDocNumber}
+            />
+
+            <View className="flex-row gap-3">
+              <TouchableOpacity
+                onPress={() => setShowDocNumberEditModal(false)}
+                disabled={isSubmittingDocNumber}
+                className="flex-1 bg-gray-200 rounded-lg py-2"
+              >
+                <Text className="text-gray-900 text-center font-semibold text-sm">Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={handleEditDocumentNumber}
+                disabled={isSubmittingDocNumber}
+                className="flex-1 bg-blue-600 rounded-lg py-2"
+              >
+                {isSubmittingDocNumber ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text className="text-white text-center font-semibold text-sm">Save</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Summary */}
       {aiSummary ? (
