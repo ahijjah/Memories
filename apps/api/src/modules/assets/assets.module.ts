@@ -7,5 +7,6 @@ import { AiModule } from '../ai/ai.module';
   imports: [AiModule],
   controllers: [AssetsController],
   providers: [AssetsService],
+  exports: [AssetsService],
 })
 export class AssetsModule {}
