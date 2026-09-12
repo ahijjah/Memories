@@ -238,7 +238,13 @@ export class MemoryService {
   async summarizeMemory(userId: string, memoryId: string): Promise<string> {
     const memory = await this.prisma.memory.findUnique({
       where: { id: memoryId },
-      select: { id: true, userId: true, title: true, sourceUri: true, securityScope: true },
+      include: {
+        aiInferences: {
+          where: { field: 'summary' },
+          select: { valueJson: true },
+          take: 1,
+        },
+      },
     });
     if (!memory) throw new NotFoundException('Memory not found');
     this.assertOwnership(memory.userId, userId);
@@ -246,7 +252,14 @@ export class MemoryService {
       throw new NotFoundException('Memory not found');
     }
 
-    const text = memory.title || memory.sourceUri || '(no content)';
+    // Build text from existing AI-extracted summary + title (summary is a string)
+    const summaryInference = memory.aiInferences?.[0];
+    const summaryText = typeof summaryInference?.valueJson === 'string' ? summaryInference.valueJson : null;
+    const parts: string[] = [];
+    if (memory.title) parts.push(memory.title);
+    if (summaryText) parts.push(summaryText);
+    const text = parts.length > 0 ? parts.join('\n\n') : memory.sourceUri || '(no content)';
+
     const apiKey = this.config.getOrThrow('ANTHROPIC_API_KEY');
     const provider = new AnthropicAiProvider(apiKey);
     return provider.summarize({ text, sourceUri: memory.sourceUri ?? undefined });
@@ -255,7 +268,13 @@ export class MemoryService {
   async extractKeyPoints(userId: string, memoryId: string): Promise<string[]> {
     const memory = await this.prisma.memory.findUnique({
       where: { id: memoryId },
-      select: { id: true, userId: true, title: true, sourceUri: true, securityScope: true },
+      include: {
+        aiInferences: {
+          where: { field: 'summary' },
+          select: { valueJson: true },
+          take: 1,
+        },
+      },
     });
     if (!memory) throw new NotFoundException('Memory not found');
     this.assertOwnership(memory.userId, userId);
@@ -263,7 +282,14 @@ export class MemoryService {
       throw new NotFoundException('Memory not found');
     }
 
-    const text = memory.title || memory.sourceUri || '(no content)';
+    // Build text from existing AI-extracted summary + title (summary is a string)
+    const summaryInference = memory.aiInferences?.[0];
+    const summaryText = typeof summaryInference?.valueJson === 'string' ? summaryInference.valueJson : null;
+    const parts: string[] = [];
+    if (memory.title) parts.push(memory.title);
+    if (summaryText) parts.push(summaryText);
+    const text = parts.length > 0 ? parts.join('\n\n') : memory.sourceUri || '(no content)';
+
     const apiKey = this.config.getOrThrow('ANTHROPIC_API_KEY');
     const provider = new AnthropicAiProvider(apiKey);
     return provider.extractKeyPoints({ text, sourceUri: memory.sourceUri ?? undefined });

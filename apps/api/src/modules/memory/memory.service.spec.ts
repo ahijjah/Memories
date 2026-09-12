@@ -8,6 +8,23 @@ import { AiQueueService } from '../ai/ai-queue.service';
 import { AssetsService } from '../assets/assets.service';
 import { MemoryDeletionQueueService } from './deletion-queue.service';
 
+// Mock AI provider to capture input passed to summarize/extractKeyPoints
+let mockSummarizeInput: any;
+let mockExtractKeyPointsInput: any;
+
+jest.mock('@memory-app/ai', () => ({
+  AnthropicAiProvider: jest.fn().mockImplementation(() => ({
+    summarize: jest.fn().mockImplementation((input) => {
+      mockSummarizeInput = input;
+      return Promise.resolve('Quick summary');
+    }),
+    extractKeyPoints: jest.fn().mockImplementation((input) => {
+      mockExtractKeyPointsInput = input;
+      return Promise.resolve(['point 1', 'point 2']);
+    }),
+  })),
+}));
+
 describe('MemoryService', () => {
   let service: MemoryService;
   const prismaMock = {
@@ -96,6 +113,72 @@ describe('MemoryService', () => {
     prismaMock.memory.findUnique.mockResolvedValue(vaultMemory);
 
     await expect(service.findOneForUser('user-1', 'mem-1')).rejects.toThrow(
+      NotFoundException,
+    );
+  });
+
+  it('summarizeMemory includes existing AI summary in input text', async () => {
+    const memory = {
+      id: 'mem-1',
+      userId: 'user-1',
+      title: 'Article Title',
+      sourceUri: 'https://example.com/article',
+      securityScope: 'private',
+      aiInferences: [{ valueJson: 'This is an AI-extracted summary of the article.' }],
+    };
+    prismaMock.memory.findUnique.mockResolvedValue(memory);
+
+    await service.summarizeMemory('user-1', 'mem-1');
+
+    expect(mockSummarizeInput.text).toContain('Article Title');
+    expect(mockSummarizeInput.text).toContain('This is an AI-extracted summary');
+  });
+
+  it('extractKeyPoints includes existing AI summary in input text', async () => {
+    const memory = {
+      id: 'mem-1',
+      userId: 'user-1',
+      title: 'Article Title',
+      sourceUri: 'https://example.com/article',
+      securityScope: 'private',
+      aiInferences: [{ valueJson: 'This is an AI-extracted summary of the article.' }],
+    };
+    prismaMock.memory.findUnique.mockResolvedValue(memory);
+
+    await service.extractKeyPoints('user-1', 'mem-1');
+
+    expect(mockExtractKeyPointsInput.text).toContain('Article Title');
+    expect(mockExtractKeyPointsInput.text).toContain('This is an AI-extracted summary');
+  });
+
+  it('summarizeMemory falls back to title when no summary inference exists', async () => {
+    const memory = {
+      id: 'mem-1',
+      userId: 'user-1',
+      title: 'Article Title',
+      sourceUri: 'https://example.com/article',
+      securityScope: 'private',
+      aiInferences: [],
+    };
+    prismaMock.memory.findUnique.mockResolvedValue(memory);
+
+    await service.summarizeMemory('user-1', 'mem-1');
+
+    expect(mockSummarizeInput.text).toBe('Article Title');
+  });
+
+  it('extractKeyPoints throws NotFoundException for vault-scoped memory', async () => {
+    const memory = {
+      id: 'mem-1',
+      userId: 'user-1',
+      title: 'Secret Document',
+      sourceUri: 'https://example.com/doc',
+      securityScope: 'vault',
+      aiInferences: [],
+    };
+    prismaMock.memory.findUnique.mockResolvedValue(memory);
+
+    await expect(service.extractKeyPoints('user-1', 'mem-1')).rejects.toThrow(
       NotFoundException,
     );
   });
