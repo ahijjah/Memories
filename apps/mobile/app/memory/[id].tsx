@@ -622,6 +622,7 @@ export default function MemoryDetailScreen() {
                   aiIssuer={getFieldValue('issuer')}
                   aiOwner={getFieldValue('owner')}
                   aiDocumentNumber={getFieldValue('documentNumber')}
+                  aiIssueDate={getFieldValue('issueDate')}
                 />
               );
             case 'generic':
