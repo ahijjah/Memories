@@ -243,7 +243,19 @@ export async function applyPerspectiveCorrection(
   quad: { topLeft: [number, number]; topRight: [number, number]; bottomLeft: [number, number]; bottomRight: [number, number] },
 ): Promise<string> {
   try {
-    // Compute homography to verify math works
+    // Read original image
+    const base64Data = await FileSystem.readAsStringAsync(imageUri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+
+    const imageData = Skia.Data.fromBase64(base64Data);
+    const sourceImage = Skia.Image.MakeImageFromEncoded(imageData);
+
+    if (!sourceImage) {
+      throw new Error('Failed to decode image with Skia');
+    }
+
+    // Determine output dimensions based on quad aspect ratio
     const [tl_x, tl_y] = quad.topLeft;
     const [tr_x, tr_y] = quad.topRight;
     const [bl_x, bl_y] = quad.bottomLeft;
@@ -256,7 +268,7 @@ export async function applyPerspectiveCorrection(
     const outputHeight = 1000;
     const outputWidth = Math.round(outputHeight * aspectRatio);
 
-    // Compute homography (proves math correctness)
+    // Compute homography
     const H = computeHomography(
       {
         tl: { x: quad.topLeft[0], y: quad.topLeft[1] },
@@ -268,15 +280,52 @@ export async function applyPerspectiveCorrection(
       outputHeight,
     );
 
-    console.log('[Document Warp] Homography computed', {
-      outputWidth,
-      outputHeight,
-      H,
+    // Create offscreen surface for warped result
+    const surface = Skia.Surface.Make(outputWidth, outputHeight);
+    if (!surface) {
+      throw new Error('Failed to create Skia surface');
+    }
+
+    const canvas = surface.getCanvas();
+
+    // Apply homography matrix and draw source image
+    // H is a flat 9-element array [h00, h01, h02, h10, h11, h12, h20, h21, h22]
+    // canvas.concat accepts number[] directly
+    canvas.concat(H);
+    canvas.drawImage(sourceImage, 0, 0);
+
+    // Capture warped image
+    const warpedImage = surface.makeImageSnapshot();
+    if (!warpedImage) {
+      throw new Error('Failed to create warped image snapshot');
+    }
+
+    // Encode to JPEG base64
+    const base64Warped = warpedImage.encodeToBase64(ImageFormat.JPEG, 85);
+
+    // Save warped image to cache
+    const warpedPath = `${FileSystem.cacheDirectory}warped_${Date.now()}_${Math.random()
+      .toString(36)
+      .substr(2, 9)}.jpg`;
+
+    await FileSystem.writeAsStringAsync(warpedPath, base64Warped, {
+      encoding: FileSystem.EncodingType.Base64,
     });
 
-    // For now, return original image
-    // Full Skia warp implementation would go here
-    return imageUri;
+    const originalStats = await FileSystem.getInfoAsync(imageUri);
+    const warpedStats = await FileSystem.getInfoAsync(warpedPath);
+
+    console.log('[Document Warp] Perspective correction applied', {
+      originalPath: imageUri,
+      originalSize: originalStats.exists && 'size' in originalStats ? originalStats.size : 'unknown',
+      warpedPath,
+      warpedSize: warpedStats.exists && 'size' in warpedStats ? warpedStats.size : 'unknown',
+      outputDimensions: { width: outputWidth, height: outputHeight },
+      quadCorners: quad,
+      homographyMatrix: H,
+    });
+
+    return warpedPath;
   } catch (err) {
     console.error('Failed to apply perspective correction:', err);
     return imageUri;
