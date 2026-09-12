@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 
@@ -29,12 +29,19 @@ export class EngagementService {
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
     // Use raw query for random ordering since Prisma doesn't support ORDER BY RANDOM() directly
+    // Exclude memories where user has negative feedback (not_relevant or dont_show_again)
     const memories = await this.prisma.$queryRaw`
       SELECT m.* FROM "memories" m
       WHERE m."userId" = ${userId}
         AND m."lifecycleState" = 'active'
         AND m."securityScope" != 'vault'
         AND m."capturedAt" < ${thirtyDaysAgo}
+        AND NOT EXISTS (
+          SELECT 1 FROM "rediscovery_feedback" rf
+          WHERE rf."memoryId" = m."id"
+            AND rf."userId" = ${userId}
+            AND rf."feedback" IN ('not_relevant', 'dont_show_again')
+        )
       ORDER BY RANDOM()
       LIMIT 5
     `;
@@ -113,5 +120,27 @@ export class EngagementService {
       .slice(0, 10);
 
     return upcomingMemories;
+  }
+
+  async recordFeedback(userId: string, memoryId: string, feedback: string) {
+    const validFeedbackValues = ['useful', 'not_relevant', 'dont_show_again'];
+
+    if (!validFeedbackValues.includes(feedback)) {
+      throw new BadRequestException(
+        `Invalid feedback value: ${feedback}. Must be one of: ${validFeedbackValues.join(', ')}`,
+      );
+    }
+
+    return this.prisma.rediscoveryFeedback.upsert({
+      where: { userId_memoryId: { userId, memoryId } },
+      create: {
+        userId,
+        memoryId,
+        feedback,
+      },
+      update: {
+        feedback,
+      },
+    });
   }
 }

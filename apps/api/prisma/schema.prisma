@@ -36,6 +36,7 @@ model User {
   collections     Collection[]
   reminders       Reminder[]
   people          Person[]
+  rediscoveryFeedback RediscoveryFeedback[]
 
   @@map("users")
 }
@@ -131,6 +132,7 @@ model Memory {
   embedding         Embedding?
   collections       CollectionMemory[]
   reminders         Reminder[]
+  rediscoveryFeedback RediscoveryFeedback[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -270,4 +272,21 @@ model Person {
 
   @@index([userId])
   @@map("people")
+}
+
+// Feedback for rediscovery feature: tracks user responses to rediscovered memories
+// Negative feedback (not_relevant, dont_show_again) excludes memories from future rediscovery random selection
+model RediscoveryFeedback {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  memoryId  String
+  memory    Memory   @relation(fields: [memoryId], references: [id], onDelete: Cascade)
+  feedback  String   // useful | not_relevant | dont_show_again
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, memoryId])
+  @@index([userId, feedback])
+  @@map("rediscovery_feedback")
 }

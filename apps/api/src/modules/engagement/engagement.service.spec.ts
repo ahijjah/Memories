@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { BadRequestException } from '@nestjs/common';
 import { EngagementService } from './engagement.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 
@@ -15,6 +16,9 @@ describe('EngagementService', () => {
           useValue: {
             memory: {
               findMany: jest.fn(),
+            },
+            rediscoveryFeedback: {
+              upsert: jest.fn(),
             },
             $queryRaw: jest.fn(),
           },
@@ -74,6 +78,23 @@ describe('EngagementService', () => {
 
       // Verify vault exclusion
       expect(queryStr).toContain(`"securityScope" != 'vault'`);
+    });
+
+    it('regression-test: memories with negative feedback are excluded via NOT EXISTS subquery', async () => {
+      const userId = 'user-123';
+
+      jest.spyOn(prismaService, '$queryRaw').mockResolvedValue([]);
+
+      await service.getRediscoveryRandom(userId);
+
+      const queryCall = (prismaService.$queryRaw as jest.Mock).mock.calls[0];
+      const queryStr = queryCall[0].join('');
+
+      // Verify NOT EXISTS subquery for feedback exclusion
+      expect(queryStr).toContain('NOT EXISTS');
+      expect(queryStr).toContain('rediscovery_feedback');
+      expect(queryStr).toContain("'not_relevant'");
+      expect(queryStr).toContain("'dont_show_again'");
     });
   });
 
@@ -228,6 +249,80 @@ describe('EngagementService', () => {
       const result = await service.getUpcoming(userId);
 
       expect(result).toHaveLength(0);
+    });
+  });
+
+  describe('recordFeedback', () => {
+    it('should upsert feedback for a memory (creates new feedback)', async () => {
+      const userId = 'user-123';
+      const memoryId = 'mem-456';
+      const feedback = 'useful';
+      const mockFeedback = { id: 'fb-1', userId, memoryId, feedback, createdAt: new Date(), updatedAt: new Date() };
+
+      jest.spyOn(prismaService.rediscoveryFeedback, 'upsert').mockResolvedValue(mockFeedback as any);
+
+      const result = await service.recordFeedback(userId, memoryId, feedback);
+
+      expect(prismaService.rediscoveryFeedback.upsert).toHaveBeenCalledWith({
+        where: { userId_memoryId: { userId, memoryId } },
+        create: { userId, memoryId, feedback },
+        update: { feedback },
+      });
+      expect(result).toEqual(mockFeedback);
+    });
+
+    it('should upsert feedback (overwrites existing feedback on same memory)', async () => {
+      const userId = 'user-123';
+      const memoryId = 'mem-456';
+      const newFeedback = 'not_relevant';
+      const mockUpdatedFeedback = { id: 'fb-1', userId, memoryId, feedback: newFeedback, createdAt: new Date(), updatedAt: new Date() };
+
+      jest.spyOn(prismaService.rediscoveryFeedback, 'upsert').mockResolvedValue(mockUpdatedFeedback as any);
+
+      const result = await service.recordFeedback(userId, memoryId, newFeedback);
+
+      expect(prismaService.rediscoveryFeedback.upsert).toHaveBeenCalledWith({
+        where: { userId_memoryId: { userId, memoryId } },
+        create: { userId, memoryId, feedback: newFeedback },
+        update: { feedback: newFeedback },
+      });
+      expect(result.feedback).toBe(newFeedback);
+    });
+
+    it('should reject invalid feedback values', async () => {
+      const userId = 'user-123';
+      const memoryId = 'mem-456';
+      const invalidFeedback = 'invalid_value';
+
+      await expect(service.recordFeedback(userId, memoryId, invalidFeedback)).rejects.toThrow(BadRequestException);
+      expect(prismaService.rediscoveryFeedback.upsert).not.toHaveBeenCalled();
+    });
+
+    it('should accept all valid feedback values', async () => {
+      const userId = 'user-123';
+      const memoryId = 'mem-456';
+      const validValues = ['useful', 'not_relevant', 'dont_show_again'];
+
+      for (const feedback of validValues) {
+        (prismaService.rediscoveryFeedback.upsert as jest.Mock).mockResolvedValue({
+          id: 'fb-1',
+          userId,
+          memoryId,
+          feedback,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
+
+        await service.recordFeedback(userId, memoryId, feedback);
+
+        expect(prismaService.rediscoveryFeedback.upsert).toHaveBeenCalledWith({
+          where: { userId_memoryId: { userId, memoryId } },
+          create: { userId, memoryId, feedback },
+          update: { feedback },
+        });
+      }
+
+      expect((prismaService.rediscoveryFeedback.upsert as jest.Mock).mock.calls).toHaveLength(3);
     });
   });
 });

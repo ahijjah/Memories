@@ -1,4 +1,4 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, UseGuards, Body, Param } from '@nestjs/common';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { CurrentUserPayload } from '../../common/decorators/current-user.decorator';
@@ -17,5 +17,14 @@ export class EngagementController {
   @Get('upcoming')
   upcoming(@CurrentUser() user: CurrentUserPayload) {
     return this.engagementService.getUpcoming(user.sub);
+  }
+
+  @Post('rediscover/:memoryId/feedback')
+  recordRediscoveryFeedback(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('memoryId') memoryId: string,
+    @Body() body: { feedback: string },
+  ) {
+    return this.engagementService.recordFeedback(user.sub, memoryId, body.feedback);
   }
 }

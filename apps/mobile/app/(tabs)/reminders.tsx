@@ -2,12 +2,15 @@ import { useAuth } from "@clerk/clerk-expo";
 import { useRouter } from 'expo-router';
 import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity, Alert } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { listReminders, getRediscoveryMemories, updateReminderStatus, deleteReminder, Reminder, Memory } from '@/src/api/client';
+import { listReminders, getRediscoveryMemories, updateReminderStatus, deleteReminder, recordRediscoveryFeedback, Reminder, Memory } from '@/src/api/client';
+import { useState, useEffect } from 'react';
 
 export default function RemindersScreen() {
   const { getToken } = useAuth();
   const router = useRouter();
   const queryClient = useQueryClient();
+  const [rediscoveryMemoriesLocal, setRediscoveryMemoriesLocal] = useState<Memory[]>([]);
+  const [feedbackPending, setFeedbackPending] = useState<{ [key: string]: boolean }>({});
 
   const { data: reminders = [], isLoading: remindersLoading, error: remindersError, refetch: refetchReminders } = useQuery({
     queryKey: ['reminders'],
@@ -24,6 +27,10 @@ export default function RemindersScreen() {
       return getRediscoveryMemories(token);
     },
   });
+
+  useEffect(() => {
+    setRediscoveryMemoriesLocal(rediscoveryMemories);
+  }, [rediscoveryMemories]);
 
   const { mutate: updateStatus, isPending: isUpdating } = useMutation({
     mutationFn: async ({ reminderId, status }: { reminderId: string; status: string }) => {
@@ -44,6 +51,36 @@ export default function RemindersScreen() {
       queryClient.invalidateQueries({ queryKey: ['reminders'] });
     },
   });
+
+  const { mutate: sendRediscoveryFeedback } = useMutation({
+    mutationFn: async ({ memoryId, feedback }: { memoryId: string; feedback: string }) => {
+      const token = await getToken();
+      return recordRediscoveryFeedback(token, memoryId, feedback);
+    },
+    onSuccess: (_, { memoryId }) => {
+      // Remove card optimistically
+      setRediscoveryMemoriesLocal(prev => prev.filter(m => m.id !== memoryId));
+      setFeedbackPending(prev => {
+        const updated = { ...prev };
+        delete updated[memoryId];
+        return updated;
+      });
+      queryClient.invalidateQueries({ queryKey: ['rediscover'] });
+    },
+    onError: (_, { memoryId }) => {
+      setFeedbackPending(prev => {
+        const updated = { ...prev };
+        delete updated[memoryId];
+        return updated;
+      });
+      Alert.alert('Error', 'Failed to record feedback');
+    },
+  });
+
+  const handleRediscoveryFeedback = (memoryId: string, feedback: string) => {
+    setFeedbackPending(prev => ({ ...prev, [memoryId]: true }));
+    sendRediscoveryFeedback({ memoryId, feedback });
+  };
 
   const handleStatusChange = (reminderId: string, status: string) => {
     updateStatus({ reminderId, status });
@@ -197,26 +234,59 @@ export default function RemindersScreen() {
             </TouchableOpacity>
           </View>
 
-          {rediscoveryMemories.length === 0 ? (
+          {rediscoveryMemoriesLocal.length === 0 ? (
             <View className="bg-gray-50 rounded-lg p-6 items-center">
               <Text className="text-gray-600 text-center">
                 No older memories to rediscover yet.
               </Text>
             </View>
           ) : (
-            rediscoveryMemories.map((memory: Memory) => (
-              <TouchableOpacity
+            rediscoveryMemoriesLocal.map((memory: Memory) => (
+              <View
                 key={memory.id}
-                onPress={() => handleRediscoverMemoryPress(memory.id)}
                 className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-3"
               >
-                <Text className="text-base font-semibold text-gray-900 mb-1">
-                  {memory.title || 'Untitled'}
-                </Text>
-                <Text className="text-xs text-gray-500">
-                  {new Date(memory.capturedAt).toLocaleDateString()}
-                </Text>
-              </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => handleRediscoverMemoryPress(memory.id)}
+                  disabled={feedbackPending[memory.id]}
+                >
+                  <Text className="text-base font-semibold text-gray-900 mb-1">
+                    {memory.title || 'Untitled'}
+                  </Text>
+                  <Text className="text-xs text-gray-500">
+                    {new Date(memory.capturedAt).toLocaleDateString()}
+                  </Text>
+                </TouchableOpacity>
+                <View className="flex-row gap-2 mt-3">
+                  <TouchableOpacity
+                    onPress={() => handleRediscoveryFeedback(memory.id, 'useful')}
+                    disabled={feedbackPending[memory.id]}
+                    className="flex-1 bg-green-100 rounded-lg py-2"
+                  >
+                    <Text className="text-green-900 text-center font-semibold text-sm">
+                      👍 Useful
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => handleRediscoveryFeedback(memory.id, 'not_relevant')}
+                    disabled={feedbackPending[memory.id]}
+                    className="flex-1 bg-yellow-100 rounded-lg py-2"
+                  >
+                    <Text className="text-yellow-900 text-center font-semibold text-sm">
+                      👎 Not relevant
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => handleRediscoveryFeedback(memory.id, 'dont_show_again')}
+                    disabled={feedbackPending[memory.id]}
+                    className="flex-1 bg-red-100 rounded-lg py-2"
+                  >
+                    <Text className="text-red-900 text-center font-semibold text-sm">
+                      × Hide
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
             ))
           )}
         </View>

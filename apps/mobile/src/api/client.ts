@@ -386,6 +386,14 @@ export async function getUpcomingMemories(token: string | null): Promise<Upcomin
   return makeRequest('/engagement/upcoming', 'GET', token);
 }
 
+export async function recordRediscoveryFeedback(
+  token: string | null,
+  memoryId: string,
+  feedback: string,
+): Promise<any> {
+  return makeRequest(`/engagement/rediscover/${memoryId}/feedback`, 'POST', token, { feedback });
+}
+
 export async function compareMemories(token: string | null, memoryIds: string[]): Promise<{ comparison: string; keyDifferences: string[] }> {
   return makeRequest('/memories/compare', 'POST', token, { memoryIds });
 }
