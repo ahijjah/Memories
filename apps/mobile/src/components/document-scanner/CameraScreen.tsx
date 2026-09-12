@@ -3,7 +3,8 @@ import { View, Text, TouchableOpacity, ActivityIndicator, Alert } from 'react-na
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import { CapturedPage, enhanceImageReadability } from '@/src/utils/document-scanner';
+import { CapturedPage, enhanceImageReadability, applyPerspectiveCorrection } from '@/src/utils/document-scanner';
+import { CropScreen } from './CropScreen';
 
 interface CameraScreenProps {
   pageNumber: number;
@@ -34,6 +35,9 @@ export function CameraScreen({ pageNumber, onCapture, onCancel }: CameraScreenPr
   const [capturing, setCapturing] = useState(false);
   const [isStable, setIsStable] = useState(false);
   const [stabilityCount, setStabilityCount] = useState(0);
+  const [showCropScreen, setShowCropScreen] = useState(false);
+  const [rawImageUri, setRawImageUri] = useState<string | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
   const cameraRef = useRef<CameraView>(null);
   const stabilityTimerRef = useRef<any>(null);
 
@@ -55,16 +59,9 @@ export function CameraScreen({ pageNumber, onCapture, onCancel }: CameraScreenPr
       });
 
       if (photo?.uri) {
-        // Enhance image for better readability
-        const enhancedUri = await enhanceImageReadability(photo.uri);
-
-        const page: CapturedPage = {
-          id: `page-${Date.now()}`,
-          uri: enhancedUri, // Use enhanced URI
-          timestamp: Date.now(),
-          processed: true, // Mark as processed (enhanced)
-        };
-        onCapture(page);
+        // Show crop screen for perspective correction
+        setRawImageUri(photo.uri);
+        setShowCropScreen(true);
       }
     } catch (err) {
       Alert.alert('Capture Error', 'Failed to capture image');
@@ -83,22 +80,71 @@ export function CameraScreen({ pageNumber, onCapture, onCancel }: CameraScreenPr
       });
 
       if (!result.canceled && result.assets[0]) {
-        // Enhance image for better readability
-        const enhancedUri = await enhanceImageReadability(result.assets[0].uri);
-
-        const page: CapturedPage = {
-          id: `page-${Date.now()}`,
-          uri: enhancedUri, // Use enhanced URI
-          timestamp: Date.now(),
-          processed: true, // Mark as processed (enhanced)
-        };
-        onCapture(page);
+        // Show crop screen for perspective correction
+        setRawImageUri(result.assets[0].uri);
+        setShowCropScreen(true);
       }
     } catch (err) {
       Alert.alert('Library Error', 'Failed to pick image');
       console.error('Library pick error:', err);
     }
   };
+
+  const handleCropConfirmed = async (quad: {
+    topLeft: [number, number];
+    topRight: [number, number];
+    bottomLeft: [number, number];
+    bottomRight: [number, number];
+  }) => {
+    if (!rawImageUri) return;
+
+    setShowCropScreen(false);
+    setIsProcessing(true);
+
+    try {
+      // Apply perspective correction (homography warp)
+      const warpedUri = await applyPerspectiveCorrection(rawImageUri, quad);
+
+      // Enhance for readability
+      const enhancedUri = await enhanceImageReadability(warpedUri);
+
+      const page: CapturedPage = {
+        id: `page-${Date.now()}`,
+        uri: enhancedUri,
+        timestamp: Date.now(),
+        processed: true,
+      };
+      onCapture(page);
+    } catch (err) {
+      Alert.alert('Processing Error', 'Failed to process image');
+      console.error('Image processing error:', err);
+    } finally {
+      setIsProcessing(false);
+      setRawImageUri(null);
+    }
+  };
+
+  if (isProcessing) {
+    return (
+      <View className="flex-1 bg-black justify-center items-center">
+        <ActivityIndicator size="large" color="#fff" />
+        <Text className="text-white mt-4">Processing image...</Text>
+      </View>
+    );
+  }
+
+  if (showCropScreen && rawImageUri) {
+    return (
+      <CropScreen
+        imageUri={rawImageUri}
+        onCropConfirmed={handleCropConfirmed}
+        onCancel={() => {
+          setShowCropScreen(false);
+          setRawImageUri(null);
+        }}
+      />
+    );
+  }
 
   if (!permission?.granted) {
     return (
