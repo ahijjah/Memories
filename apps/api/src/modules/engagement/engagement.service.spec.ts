@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { EngagementService } from './engagement.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 
@@ -16,6 +16,7 @@ describe('EngagementService', () => {
           useValue: {
             memory: {
               findMany: jest.fn(),
+              findUnique: jest.fn(),
             },
             rediscoveryFeedback: {
               upsert: jest.fn(),
@@ -257,8 +258,10 @@ describe('EngagementService', () => {
       const userId = 'user-123';
       const memoryId = 'mem-456';
       const feedback = 'useful';
+      const mockMemory = { id: memoryId, userId };
       const mockFeedback = { id: 'fb-1', userId, memoryId, feedback, createdAt: new Date(), updatedAt: new Date() };
 
+      jest.spyOn(prismaService.memory, 'findUnique').mockResolvedValue(mockMemory as any);
       jest.spyOn(prismaService.rediscoveryFeedback, 'upsert').mockResolvedValue(mockFeedback as any);
 
       const result = await service.recordFeedback(userId, memoryId, feedback);
@@ -275,8 +278,10 @@ describe('EngagementService', () => {
       const userId = 'user-123';
       const memoryId = 'mem-456';
       const newFeedback = 'not_relevant';
+      const mockMemory = { id: memoryId, userId };
       const mockUpdatedFeedback = { id: 'fb-1', userId, memoryId, feedback: newFeedback, createdAt: new Date(), updatedAt: new Date() };
 
+      jest.spyOn(prismaService.memory, 'findUnique').mockResolvedValue(mockMemory as any);
       jest.spyOn(prismaService.rediscoveryFeedback, 'upsert').mockResolvedValue(mockUpdatedFeedback as any);
 
       const result = await service.recordFeedback(userId, memoryId, newFeedback);
@@ -301,7 +306,10 @@ describe('EngagementService', () => {
     it('should accept all valid feedback values', async () => {
       const userId = 'user-123';
       const memoryId = 'mem-456';
+      const mockMemory = { id: memoryId, userId };
       const validValues = ['useful', 'not_relevant', 'dont_show_again'];
+
+      jest.spyOn(prismaService.memory, 'findUnique').mockResolvedValue(mockMemory as any);
 
       for (const feedback of validValues) {
         (prismaService.rediscoveryFeedback.upsert as jest.Mock).mockResolvedValue({
@@ -323,6 +331,50 @@ describe('EngagementService', () => {
       }
 
       expect((prismaService.rediscoveryFeedback.upsert as jest.Mock).mock.calls).toHaveLength(3);
+    });
+
+    it('should throw NotFoundException when recording feedback on non-existent memory', async () => {
+      const userId = 'user-123';
+      const memoryId = 'mem-nonexistent';
+      const feedback = 'useful';
+
+      jest.spyOn(prismaService.memory, 'findUnique').mockResolvedValue(null);
+
+      await expect(service.recordFeedback(userId, memoryId, feedback)).rejects.toThrow(NotFoundException);
+      expect(prismaService.rediscoveryFeedback.upsert).not.toHaveBeenCalled();
+    });
+
+    it('should throw ForbiddenException when recording feedback on memory owned by another user', async () => {
+      const userId = 'user-123';
+      const otherUserId = 'user-456';
+      const memoryId = 'mem-1';
+      const feedback = 'useful';
+      const mockMemory = { id: memoryId, userId: otherUserId };
+
+      jest.spyOn(prismaService.memory, 'findUnique').mockResolvedValue(mockMemory as any);
+
+      await expect(service.recordFeedback(userId, memoryId, feedback)).rejects.toThrow(ForbiddenException);
+      expect(prismaService.rediscoveryFeedback.upsert).not.toHaveBeenCalled();
+    });
+
+    it('should verify ownership before upserting feedback', async () => {
+      const userId = 'user-123';
+      const memoryId = 'mem-1';
+      const feedback = 'useful';
+      const mockMemory = { id: memoryId, userId };
+      const mockFeedback = { id: 'fb-1', userId, memoryId, feedback, createdAt: new Date(), updatedAt: new Date() };
+
+      jest.spyOn(prismaService.memory, 'findUnique').mockResolvedValue(mockMemory as any);
+      jest.spyOn(prismaService.rediscoveryFeedback, 'upsert').mockResolvedValue(mockFeedback as any);
+
+      const result = await service.recordFeedback(userId, memoryId, feedback);
+
+      expect(prismaService.memory.findUnique).toHaveBeenCalledWith({
+        where: { id: memoryId },
+        select: { id: true, userId: true },
+      });
+      expect(prismaService.rediscoveryFeedback.upsert).toHaveBeenCalled();
+      expect(result).toEqual(mockFeedback);
     });
   });
 });

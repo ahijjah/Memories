@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 
@@ -129,6 +129,20 @@ export class EngagementService {
       throw new BadRequestException(
         `Invalid feedback value: ${feedback}. Must be one of: ${validFeedbackValues.join(', ')}`,
       );
+    }
+
+    // Verify memory exists and belongs to user
+    const memory = await this.prisma.memory.findUnique({
+      where: { id: memoryId },
+      select: { id: true, userId: true },
+    });
+
+    if (!memory) {
+      throw new NotFoundException(`Memory not found: ${memoryId}`);
+    }
+
+    if (memory.userId !== userId) {
+      throw new ForbiddenException('Cannot record feedback on a memory you do not own');
     }
 
     return this.prisma.rediscoveryFeedback.upsert({
