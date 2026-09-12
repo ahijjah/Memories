@@ -306,6 +306,18 @@ export async function restoreVaultMemory(token: string | null, memoryId: string)
   return makeRequest(`/vault/${memoryId}/restore`, 'POST', token);
 }
 
+export async function confirmVaultField(
+  token: string | null,
+  memoryId: string,
+  field: string,
+  confirmedValue: any,
+): Promise<UserConfirmation> {
+  return makeRequest(`/vault/${memoryId}/confirm`, 'POST', token, {
+    field,
+    confirmedValue,
+  });
+}
+
 export async function summarizeMemory(token: string | null, memoryId: string): Promise<string> {
   return makeRequest(`/memories/${memoryId}/summarize`, 'POST', token);
 }

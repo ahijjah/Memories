@@ -11,6 +11,7 @@ interface DocumentCardProps {
   aiIssuer: any;
   aiOwner: any;
   aiDocumentNumber?: any;
+  aiIssueDate?: any;
 }
 
 export function DocumentCard({
@@ -23,9 +24,11 @@ export function DocumentCard({
   aiIssuer,
   aiOwner,
   aiDocumentNumber,
+  aiIssueDate,
 }: DocumentCardProps) {
   const [isDocumentNumberRevealed, setIsDocumentNumberRevealed] = useState(false);
-  const hasDocumentInfo = aiCategory || aiIssuer || aiOwner || aiDate || aiDocumentNumber;
+  const hasDocumentInfo = aiCategory || aiIssuer || aiOwner || aiDate || aiDocumentNumber || aiIssueDate;
+  const isExpired = aiDate ? new Date(aiDate) < new Date() : false;
 
   return (
     <>
@@ -77,10 +80,23 @@ export function DocumentCard({
             </View>
           )}
 
-          {aiDate && (
-            <Text className="text-sm text-gray-600">
-              <Text className="font-semibold">Expires:</Text> {new Date(aiDate).toLocaleDateString()}
+          {aiIssueDate && (
+            <Text className="text-sm text-gray-600 mb-2">
+              <Text className="font-semibold">Issued:</Text> {new Date(aiIssueDate).toLocaleDateString()}
             </Text>
+          )}
+
+          {aiDate && (
+            <View className="flex-row items-center justify-between">
+              <Text className="text-sm text-gray-600 flex-1">
+                <Text className="font-semibold">Expires:</Text> {new Date(aiDate).toLocaleDateString()}
+              </Text>
+              <View className={`px-2 py-1 rounded ${isExpired ? 'bg-red-100' : 'bg-green-100'}`}>
+                <Text className={`text-xs font-semibold ${isExpired ? 'text-red-700' : 'text-green-700'}`}>
+                  {isExpired ? 'Expired' : 'Current'}
+                </Text>
+              </View>
+            </View>
           )}
         </View>
       )}

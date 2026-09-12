@@ -51,6 +51,7 @@ export interface MemoryUnderstanding {
   issuer?: string; // who issued the document (e.g. government agency, bank, insurance company, employer, school)
   owner?: string; // whose document it is — the named person it belongs to (e.g. name printed on passport/ID/certificate)
   documentNumber?: string; // the document's own identifying number (e.g. passport number, national ID number, license number, policy number). Only if explicitly visible. Most relevant when the memory is a document.
+  issueDate?: string; // ISO date string — the date the document was issued/created, distinct from the expiry date in the `date` field
 
   // P0.2a: Per-field confidence — separate confidence for each optional field (only for fields included)
   fieldConfidence?: {
@@ -70,6 +71,7 @@ export interface MemoryUnderstanding {
     issuer?: number; // 0..1, confidence specifically for issuer extraction
     owner?: number; // 0..1, confidence specifically for owner extraction
     documentNumber?: number; // 0..1, confidence specifically for documentNumber extraction
+    issueDate?: number; // 0..1, confidence specifically for issueDate extraction
   };
 }
 

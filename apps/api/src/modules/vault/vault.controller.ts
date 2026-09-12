@@ -1,7 +1,8 @@
-import { Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Controller, Delete, Get, Param, Post, UseGuards, Body } from '@nestjs/common';
 import { VaultService } from './vault.service';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 import { CurrentUser, CurrentUserPayload } from '../../common/decorators/current-user.decorator';
+import { ConfirmFieldDto } from '../memory/dto/confirm-field.dto';
 
 @Controller('vault')
 @UseGuards(ClerkAuthGuard)
@@ -51,5 +52,14 @@ export class VaultController {
     @Param('memoryId') memoryId: string,
   ) {
     return this.vaultService.restoreMemory(user.sub, memoryId);
+  }
+
+  @Post(':memoryId/confirm')
+  async confirmField(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('memoryId') memoryId: string,
+    @Body() dto: ConfirmFieldDto,
+  ) {
+    return this.vaultService.confirmField(user.sub, memoryId, dto.field, dto.confirmedValue);
   }
 }

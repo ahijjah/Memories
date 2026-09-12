@@ -1,12 +1,12 @@
 import { useAuth } from "@clerk/clerk-expo";
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { useState, useEffect, useCallback } from 'react';
-import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity, Alert, Linking, Share, Platform, Image, Modal, FlatList } from 'react-native';
+import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity, Alert, Linking, Share, Platform, Image, Modal, FlatList, TextInput } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import * as ImagePicker from 'expo-image-picker';
 import * as Calendar from 'expo-calendar/legacy';
 
-import { getVaultMemoryDetail, unlockMemory, AIInference, reprocessMemory, deleteVaultMemory, listPeople, assignPersonToMemory, unassignPersonFromMemory, Person } from '@/src/api/client';
+import { getVaultMemoryDetail, unlockMemory, AIInference, reprocessMemory, deleteVaultMemory, listPeople, assignPersonToMemory, unassignPersonFromMemory, Person, confirmVaultField } from '@/src/api/client';
 import { getActionsForMemory, MemoryAction } from '@/src/utils/memory-actions';
 import { uploadPhotoToExistingMemory } from '@/src/utils/photo-upload';
 import { CardHeader } from '@/src/components/memory-cards/CardHeader';
@@ -31,6 +31,8 @@ export default function VaultDetailScreen() {
   const [authState, setAuthState] = useState<VaultAuthState>('locked');
   const [enrollmentChecked, setEnrollmentChecked] = useState(false);
   const [showPersonPicker, setShowPersonPicker] = useState(false);
+  const [showNotesModal, setShowNotesModal] = useState(false);
+  const [notesText, setNotesText] = useState('');
 
   useVaultAutoLock(authState, setAuthState);
   useVaultScreenProtection(authState === 'unlocked');
@@ -151,6 +153,22 @@ export default function VaultDetailScreen() {
     },
     onError: (err) => {
       const message = err instanceof Error ? err.message : 'Failed to unassign person';
+      Alert.alert('Error', message);
+    },
+  });
+
+  const { mutate: saveNotes, isPending: isSavingNotes } = useMutation({
+    mutationFn: async (notes: string) => {
+      const token = await getToken();
+      if (!id) throw new Error('Memory ID not found');
+      return confirmVaultField(token, id, 'notes', notes);
+    },
+    onSuccess: () => {
+      setShowNotesModal(false);
+      refetch();
+    },
+    onError: (err) => {
+      const message = err instanceof Error ? err.message : 'Failed to save notes';
       Alert.alert('Error', message);
     },
   });
@@ -598,6 +616,75 @@ export default function VaultDetailScreen() {
           </View>
         </Modal>
 
+        {/* Notes Section */}
+        <View className="mb-6 p-4 rounded-lg bg-purple-50 border border-purple-200">
+          <View className="flex-row items-center justify-between mb-3">
+            <Text className="text-sm text-purple-700 font-semibold">Notes</Text>
+            <TouchableOpacity
+              onPress={() => {
+                setNotesText(getFieldValue('notes') || '');
+                setShowNotesModal(true);
+              }}
+            >
+              <Text className="text-blue-600 font-semibold text-sm">Edit</Text>
+            </TouchableOpacity>
+          </View>
+          {getFieldValue('notes') ? (
+            <Text className="text-base text-gray-700">{getFieldValue('notes')}</Text>
+          ) : (
+            <Text className="text-sm text-gray-500 italic">No notes yet. Add some context about this document.</Text>
+          )}
+        </View>
+
+        {/* Notes Modal */}
+        <Modal
+          visible={showNotesModal}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowNotesModal(false)}
+        >
+          <View className="flex-1 bg-black/50">
+            <View className="flex-1 bg-white mt-auto rounded-t-2xl">
+              <View className="p-4 border-b border-gray-200">
+                <View className="flex-row items-center justify-between">
+                  <Text className="text-lg font-bold text-gray-900">Edit Notes</Text>
+                  <TouchableOpacity onPress={() => setShowNotesModal(false)}>
+                    <Text className="text-lg text-gray-600">✕</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+              <View className="flex-1 p-4">
+                <TextInput
+                  multiline
+                  numberOfLines={8}
+                  value={notesText}
+                  onChangeText={setNotesText}
+                  placeholder="Add any notes or context about this document..."
+                  className="flex-1 p-3 border border-gray-300 rounded-lg text-base text-gray-900"
+                  textAlignVertical="top"
+                />
+              </View>
+              <View className="p-4 border-t border-gray-200 flex-row gap-3">
+                <TouchableOpacity
+                  onPress={() => setShowNotesModal(false)}
+                  className="flex-1 bg-gray-300 rounded-lg py-3"
+                >
+                  <Text className="text-center font-semibold text-gray-900">Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => saveNotes(notesText)}
+                  disabled={isSavingNotes}
+                  className={`flex-1 rounded-lg py-3 ${isSavingNotes ? 'bg-purple-300' : 'bg-purple-600'}`}
+                >
+                  <Text className="text-center font-semibold text-white">
+                    {isSavingNotes ? 'Saving...' : 'Save Notes'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
         {/* Add Photo Prompt */}
         {shouldShowPhotoPrompt && (
           <View className="mb-6 p-4 rounded-lg bg-amber-50 border border-amber-200">
@@ -736,6 +823,7 @@ export default function VaultDetailScreen() {
                   aiIssuer={getFieldValue('issuer')}
                   aiOwner={getFieldValue('owner')}
                   aiDocumentNumber={getFieldValue('documentNumber')}
+                  aiIssueDate={getFieldValue('issueDate')}
                 />
               );
             case 'generic':

@@ -162,6 +162,35 @@ export class VaultService {
     return updated;
   }
 
+  async confirmField(userId: string, memoryId: string, field: string, confirmedValue: any) {
+    const memory = await this.prisma.memory.findUnique({
+      where: { id: memoryId },
+      select: { id: true, userId: true, securityScope: true },
+    });
+    if (!memory) throw new NotFoundException('Memory not found');
+    this.assertOwnership(memory.userId, userId);
+    if (memory.securityScope !== 'vault') {
+      throw new NotFoundException('Memory not found');
+    }
+
+    const encryptedValue = isSensitiveField(field)
+      ? this.fieldEncryption.encrypt(confirmedValue)
+      : confirmedValue;
+
+    return this.prisma.userConfirmation.upsert({
+      where: { memoryId_field: { memoryId, field } },
+      create: {
+        memoryId,
+        userId,
+        field,
+        confirmedValue: encryptedValue,
+      },
+      update: {
+        confirmedValue: encryptedValue,
+      },
+    });
+  }
+
   private assertOwnership(ownerId: string, requestingUserId: string) {
     if (ownerId !== requestingUserId) {
       throw new ForbiddenException('You do not have access to this Memory');

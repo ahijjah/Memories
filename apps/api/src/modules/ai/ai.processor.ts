@@ -479,6 +479,21 @@ export class AiProcessor extends WorkerHost {
         );
       }
 
+      if (result.issueDate) {
+        inferencesToCreate.push(
+          this.prisma.aIInference.create({
+            data: {
+              memoryId,
+              field: 'issueDate',
+              valueJson: result.issueDate,
+              confidence: result.fieldConfidence?.issueDate ?? result.confidence,
+              modelVersion: result.modelVersion,
+              provenance: 'llm_extraction',
+            },
+          }),
+        );
+      }
+
       inferencesToCreate.push(
         this.prisma.memory.update({
           where: { id: memoryId },
