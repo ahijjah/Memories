@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@prisma/client';
 import { AnthropicAiProvider } from '@memory-app/ai';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { FieldEncryptionService } from '../../common/crypto/field-encryption.service';
@@ -300,6 +301,13 @@ export class MemoryService {
       throw new BadRequestException('Must compare between 2 and 5 memories');
     }
 
+    type MemoryWithConfirmations = Prisma.MemoryGetPayload<{
+      include: {
+        aiInferences: true;
+        userConfirmations: true;
+      };
+    }>;
+
     // Fetch all memories with their inferences and confirmations
     const fetchedMemories = await Promise.all(
       memoryIds.map(id =>
@@ -322,7 +330,7 @@ export class MemoryService {
     );
 
     // Validate ownership and vault scope, filter out nulls
-    const memories = fetchedMemories.filter((m): m is Exclude<typeof m, null> => {
+    const memories = fetchedMemories.filter((m): m is MemoryWithConfirmations => {
       if (!m) throw new NotFoundException('Memory not found');
       this.assertOwnership(m.userId, userId);
       if (m.securityScope === 'vault') {
@@ -334,11 +342,11 @@ export class MemoryService {
     // Extract product data for comparison
     const products = memories.map(memory => {
       const getFieldValue = (field: string): string | undefined => {
-        const confirmation = memory.userConfirmations.find(c => c.field === field);
+        const confirmation = memory.userConfirmations.find((c: typeof memory.userConfirmations[number]) => c.field === field);
         if (confirmation && confirmation.confirmedValue) {
           return String(confirmation.confirmedValue);
         }
-        const inference = memory.aiInferences.find(i => i.field === field);
+        const inference = memory.aiInferences.find((i: typeof memory.aiInferences[number]) => i.field === field);
         if (inference && inference.valueJson) {
           return String(inference.valueJson);
         }
