@@ -378,3 +378,45 @@ export async function exportAccountData(token: string | null): Promise<AccountEx
 export async function deleteAccount(token: string | null, confirmEmail: string): Promise<{ deleted: boolean; assetCleanupFailures: number }> {
   return makeRequest('/account', 'DELETE', token, { confirmEmail });
 }
+
+export interface Person {
+  id: string;
+  userId: string;
+  name: string;
+  relationship?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreatePersonRequest {
+  name: string;
+  relationship?: string;
+}
+
+export async function listPeople(token: string | null): Promise<Person[]> {
+  return makeRequest('/people', 'GET', token);
+}
+
+export async function createPerson(token: string | null, data: CreatePersonRequest): Promise<Person> {
+  return makeRequest('/people', 'POST', token, data);
+}
+
+export async function deletePerson(token: string | null, personId: string): Promise<void> {
+  return makeRequest(`/people/${personId}`, 'DELETE', token);
+}
+
+export async function assignPersonToMemory(
+  token: string | null,
+  personId: string,
+  memoryId: string,
+): Promise<Memory> {
+  return makeRequest(`/people/${personId}/assign-to-memory/${memoryId}`, 'POST', token);
+}
+
+export async function unassignPersonFromMemory(
+  token: string | null,
+  personId: string,
+  memoryId: string,
+): Promise<Memory> {
+  return makeRequest(`/people/${personId}/assign-to-memory/${memoryId}`, 'DELETE', token);
+}

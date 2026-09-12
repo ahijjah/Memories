@@ -35,6 +35,7 @@ model User {
   userConfirmations UserConfirmation[]
   collections     Collection[]
   reminders       Reminder[]
+  people          Person[]
 
   @@map("users")
 }
@@ -110,6 +111,8 @@ model Memory {
   id              String           @id @default(uuid())
   userId          String
   user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  personId        String?
+  person          Person?          @relation(fields: [personId], references: [id], onDelete: SetNull)
   sourceType      MemorySourceType
   sourceUri       String?
   memoryType      MemoryType?
@@ -253,4 +256,18 @@ model Reminder {
   @@index([userId])
   @@index([status, remindAt])
   @@map("reminders")
+}
+
+model Person {
+  id           String   @id @default(uuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name         String
+  relationship String? // e.g. "mother", "friend", "colleague" — flexible, user-defined
+  memories     Memory[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([userId])
+  @@map("people")
 }

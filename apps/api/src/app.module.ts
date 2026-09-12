@@ -18,6 +18,7 @@ import { RemindersModule } from './modules/reminders/reminders.module';
 import { EngagementModule } from './modules/engagement/engagement.module';
 import { AccountModule } from './modules/account/account.module';
 import { HealthModule } from './modules/health/health.module';
+import { PersonModule } from './modules/person/person.module';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { HealthModule } from './modules/health/health.module';
     EngagementModule,
     AccountModule,
     HealthModule,
+    PersonModule,
   ],
   providers: [
     {
