@@ -26,7 +26,7 @@ import { VideoSocialCard } from '@/src/components/memory-cards/VideoSocialCard';
 import { DocumentCard } from '@/src/components/memory-cards/DocumentCard';
 import { resolveCardType } from '@/src/components/memory-cards/cardTypeResolver';
 import { ShareCardView } from '@/src/components/memory-cards/ShareCardView';
-import { checkBiometricEnrollment, authenticateVault, useVaultAutoLock, type VaultAuthState } from '@/src/utils/vault-auth';
+import { checkBiometricEnrollment, authenticateVault, useVaultAutoLock, useVaultScreenProtection, type VaultAuthState } from '@/src/utils/vault-auth';
 
 export default function VaultDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -40,6 +40,7 @@ export default function VaultDetailScreen() {
   const shareCardRef = useRef<ViewShotRef>(null);
 
   useVaultAutoLock(authState, setAuthState);
+  useVaultScreenProtection(authState === 'unlocked');
 
   useFocusEffect(
     useCallback(() => {

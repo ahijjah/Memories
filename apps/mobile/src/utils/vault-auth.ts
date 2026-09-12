@@ -1,5 +1,6 @@
 import * as LocalAuthentication from 'expo-local-authentication';
-import { AppState, type AppStateStatus } from 'react-native';
+import * as ScreenCapture from 'expo-screen-capture';
+import { AppState, type AppStateStatus, Platform } from 'react-native';
 import { useEffect, useRef } from 'react';
 
 export type VaultAuthState = 'locked' | 'unauthenticated' | 'checking' | 'unlocked' | 'failed' | 'no_enrollment';
@@ -65,4 +66,36 @@ export function useVaultAutoLock(
       subscriptionRef.current?.remove();
     };
   }, [authState, setAuthState]);
+}
+
+export function useVaultScreenProtection(isUnlocked: boolean): void {
+  useEffect(() => {
+    // Android-only screen capture protection; no-op on iOS
+    if (Platform.OS !== 'android') {
+      return;
+    }
+
+    if (!isUnlocked) {
+      return;
+    }
+
+    let isMounted = true;
+
+    const protectScreen = async () => {
+      try {
+        await ScreenCapture.preventScreenCaptureAsync();
+      } catch (err) {
+        console.warn('Failed to prevent screen capture:', err);
+      }
+    };
+
+    protectScreen();
+
+    return () => {
+      isMounted = false;
+      ScreenCapture.allowScreenCaptureAsync().catch((err: any) =>
+        console.warn('Failed to allow screen capture:', err),
+      );
+    };
+  }, [isUnlocked]);
 }

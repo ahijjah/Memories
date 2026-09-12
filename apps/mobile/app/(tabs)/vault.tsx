@@ -5,7 +5,7 @@ import { useState, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { listVaultMemories, Memory } from '@/src/api/client';
 import { CompactCard } from '@/src/components/memory-cards/CompactCard';
-import { checkBiometricEnrollment, authenticateVault, useVaultAutoLock, type VaultAuthState } from '@/src/utils/vault-auth';
+import { checkBiometricEnrollment, authenticateVault, useVaultAutoLock, useVaultScreenProtection, type VaultAuthState } from '@/src/utils/vault-auth';
 
 export default function VaultScreen() {
   const { getToken } = useAuth();
@@ -14,6 +14,7 @@ export default function VaultScreen() {
   const [enrollmentChecked, setEnrollmentChecked] = useState(false);
 
   useVaultAutoLock(authState, setAuthState);
+  useVaultScreenProtection(authState === 'unlocked');
 
   useFocusEffect(
     useCallback(() => {
