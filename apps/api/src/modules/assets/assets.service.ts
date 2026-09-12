@@ -5,6 +5,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { nanoid } from 'nanoid';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AiQueueService } from '../ai/ai-queue.service';
+import { ObjectStorageSseService } from '../../common/crypto/object-storage-sse.service';
 
 @Injectable()
 export class AssetsService {
@@ -17,6 +18,7 @@ export class AssetsService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly aiQueue: AiQueueService,
+    private readonly sseCrypto: ObjectStorageSseService,
   ) {
     const endpoint = this.config.getOrThrow('OBJECT_STORAGE_ENDPOINT');
     const publicEndpoint = this.config.getOrThrow('OBJECT_STORAGE_PUBLIC_ENDPOINT');
@@ -46,15 +48,18 @@ export class AssetsService {
     const objectKey = `memories/${memoryId}/${nanoid()}`;
     const expiresInSeconds = 900;
 
+    const sseParams = this.sseCrypto.getSseParams();
     const command = new PutObjectCommand({
       Bucket: this.bucket,
       Key: objectKey,
       ContentType: mimeType,
+      ...sseParams,
     });
 
     const uploadUrl = await getSignedUrl(this.s3PublicClient, command, { expiresIn: expiresInSeconds });
+    const uploadHeaders = this.sseCrypto.getSseHeaders();
 
-    return { objectKey, uploadUrl, mimeType, expiresInSeconds };
+    return { objectKey, uploadUrl, mimeType, expiresInSeconds, uploadHeaders };
   }
 
   async completeUpload(memoryId: string, objectKey: string, mimeType: string, checksum?: string, pageIndex?: number) {
@@ -100,12 +105,16 @@ export class AssetsService {
     return asset;
   }
 
-  async getViewUrl(objectKey: string): Promise<string> {
+  async getViewUrl(objectKey: string): Promise<{ url: string; headers: Record<string, string> }> {
     const expiresInSeconds = 3600;
+    const sseParams = this.sseCrypto.getSseParams();
     const command = new GetObjectCommand({
       Bucket: this.bucket,
       Key: objectKey,
+      ...sseParams,
     });
-    return getSignedUrl(this.s3PublicClient, command, { expiresIn: expiresInSeconds });
+    const url = await getSignedUrl(this.s3PublicClient, command, { expiresIn: expiresInSeconds });
+    const headers = this.sseCrypto.getSseHeaders();
+    return { url, headers };
   }
 }

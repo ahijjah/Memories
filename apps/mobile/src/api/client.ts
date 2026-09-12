@@ -33,6 +33,7 @@ export interface MemoryAsset {
   pageIndex?: number;
   variant?: string;
   url?: string;
+  headers?: Record<string, string>;
   createdAt: string;
 }
 
@@ -157,7 +158,7 @@ export async function createUpload(
   token: string | null,
   memoryId: string,
   mimeType: string,
-): Promise<{ objectKey: string; uploadUrl: string; mimeType: string; expiresInSeconds: number }> {
+): Promise<{ objectKey: string; uploadUrl: string; mimeType: string; expiresInSeconds: number; uploadHeaders: Record<string, string> }> {
   return makeRequest('/assets/create-upload', 'POST', token, { memoryId, mimeType });
 }
 

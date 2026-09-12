@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { S3Client, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import type { Job } from 'bullmq';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { ObjectStorageSseService } from '../../common/crypto/object-storage-sse.service';
 import { MEMORY_DELETION_QUEUE, MemoryDeletionJobData } from './deletion-queue.service';
 
 @Processor(MEMORY_DELETION_QUEUE)
@@ -15,6 +16,7 @@ export class MemoryDeletionProcessor extends WorkerHost {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly sseCrypto: ObjectStorageSseService,
   ) {
     super();
     const endpoint = this.config.getOrThrow('OBJECT_STORAGE_ENDPOINT');
@@ -59,9 +61,11 @@ export class MemoryDeletionProcessor extends WorkerHost {
     let assetCleanupFailures = 0;
     for (const asset of assets) {
       try {
+        const sseParams = this.sseCrypto.getSseParams();
         const deleteCommand = new DeleteObjectCommand({
           Bucket: this.bucket,
           Key: asset.objectKey,
+          ...sseParams,
         });
         await this.s3Client.send(deleteCommand);
       } catch (err) {

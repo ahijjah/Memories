@@ -162,7 +162,7 @@ export function CompactCard({ memory }: CompactCardProps) {
       {/* Thumbnail or Type badge */}
       {imageAsset && imageAsset.url ? (
         <Image
-          source={{ uri: imageAsset.url }}
+          source={{ uri: imageAsset.url, headers: imageAsset.headers }}
           style={{ width: 48, height: 48, borderRadius: 6 }}
         />
       ) : (

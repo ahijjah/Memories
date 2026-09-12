@@ -146,10 +146,14 @@ export class CollectionsService {
       return memory;
     }
     const enrichedAssets = await Promise.all(
-      memory.assets.map(async (asset: any) => ({
-        ...asset,
-        url: await this.assetsService.getViewUrl(asset.objectKey),
-      })),
+      memory.assets.map(async (asset: any) => {
+        const viewData = await this.assetsService.getViewUrl(asset.objectKey);
+        return {
+          ...asset,
+          url: viewData.url,
+          headers: viewData.headers,
+        };
+      }),
     );
     return { ...memory, assets: enrichedAssets };
   }

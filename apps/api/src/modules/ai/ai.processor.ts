@@ -6,6 +6,7 @@ import type { Job } from 'bullmq';
 import { AnthropicAiProvider } from '@memory-app/ai';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { FieldEncryptionService } from '../../common/crypto/field-encryption.service';
+import { ObjectStorageSseService } from '../../common/crypto/object-storage-sse.service';
 import { isSensitiveField } from '../../common/crypto/sensitive-fields';
 import { toVectorLiteral } from '../../common/pgvector.util';
 import { EmbeddingService } from './embedding.service';
@@ -25,6 +26,7 @@ export class AiProcessor extends WorkerHost {
     private readonly urlMetadataService: UrlMetadataService,
     private readonly config: ConfigService,
     private readonly fieldEncryption: FieldEncryptionService,
+    private readonly sseCrypto: ObjectStorageSseService,
   ) {
     super();
     const endpoint = this.config.getOrThrow('OBJECT_STORAGE_ENDPOINT');
@@ -45,9 +47,11 @@ export class AiProcessor extends WorkerHost {
     mimeType: string,
   ): Promise<{ base64: string; mediaType: string } | null> {
     try {
+      const sseParams = this.sseCrypto.getSseParams();
       const command = new GetObjectCommand({
         Bucket: this.bucket,
         Key: objectKey,
+        ...sseParams,
       });
 
       const response = await this.s3Client.send(command);

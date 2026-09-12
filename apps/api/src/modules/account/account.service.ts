@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { S3Client, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { createClerkClient } from '@clerk/backend';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { ObjectStorageSseService } from '../../common/crypto/object-storage-sse.service';
 
 @Injectable()
 export class AccountService {
@@ -14,6 +15,7 @@ export class AccountService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly sseCrypto: ObjectStorageSseService,
   ) {
     const endpoint = this.config.getOrThrow('OBJECT_STORAGE_ENDPOINT');
     const accessKeyId = this.config.getOrThrow('OBJECT_STORAGE_ACCESS_KEY');
@@ -131,9 +133,11 @@ export class AccountService {
     let assetCleanupFailures = 0;
     for (const asset of assets) {
       try {
+        const sseParams = this.sseCrypto.getSseParams();
         const deleteCommand = new DeleteObjectCommand({
           Bucket: this.bucket,
           Key: asset.objectKey,
+          ...sseParams,
         });
         await this.s3Client.send(deleteCommand);
       } catch (err) {

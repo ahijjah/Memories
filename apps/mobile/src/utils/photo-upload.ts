@@ -24,6 +24,7 @@ export async function uploadPhotoToMemory(
     httpMethod: 'PUT',
     headers: {
       'Content-Type': mimeType,
+      ...uploadTarget.uploadHeaders,
     },
   });
 
@@ -58,6 +59,7 @@ export async function uploadPhotoToExistingMemory(
     httpMethod: 'PUT',
     headers: {
       'Content-Type': mimeType,
+      ...uploadTarget.uploadHeaders,
     },
   });
 
