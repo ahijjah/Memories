@@ -75,10 +75,8 @@ export interface UnderstandInput {
   /** Raw text, OCR output, or a short description of the asset to understand. */
   text: string;
   sourceUri?: string;
-  /** Base64-encoded image data for vision analysis. */
-  imageBase64?: string;
-  /** MIME type of the image (e.g. 'image/jpeg', 'image/png'). */
-  imageMediaType?: string;
+  /** Array of images for vision analysis (e.g. for multi-page documents). */
+  images?: { base64: string; mediaType: string }[];
 }
 
 export interface ContextMemory {

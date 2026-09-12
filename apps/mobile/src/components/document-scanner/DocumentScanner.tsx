@@ -7,6 +7,7 @@ import { createScanSession, CapturedPage } from '@/src/utils/document-scanner';
 import { CameraScreen } from './CameraScreen';
 import { ReviewScreen } from './ReviewScreen';
 import { uploadPhotoToExistingMemory } from '@/src/utils/photo-upload';
+import { reprocessMemory } from '@/src/api/client';
 
 type ScanState = 'camera' | 'review';
 
@@ -85,6 +86,13 @@ export function DocumentScanner({
           page.uri.endsWith('.png') ? 'image/png' : 'image/jpeg',
           i, // pageIndex is 0-based
         );
+      }
+
+      // Trigger AI processing once after all pages have been uploaded (spec §8: idempotent processing).
+      // For multi-page documents, assets.service.ts skips auto-enqueue, so we explicitly trigger it here.
+      const freshToken = await getToken();
+      if (freshToken) {
+        await reprocessMemory(freshToken, memoryId);
       }
 
       Alert.alert('Success', 'Document pages saved successfully');

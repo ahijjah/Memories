@@ -81,8 +81,11 @@ export class AssetsService {
 
     // Enqueue AI processing for image-sourced Memories now that asset exists.
     // Text/URL Memories were already enqueued in memory.service.ts's create().
+    // For multi-page documents (pageIndex defined), skip auto-enqueue; frontend will call
+    // reprocessMemory() once all pages are uploaded (spec §8: idempotent processing).
     const isImageSource = ['image', 'camera', 'screenshot'].includes(memory.sourceType);
-    if (isImageSource) {
+    const isSingleAsset = pageIndex === undefined;
+    if (isImageSource && isSingleAsset) {
       try {
         await this.aiQueue.enqueueUnderstanding(memoryId);
         this.logger.debug(`AI processing enqueued for Memory ${memoryId} after asset upload`);

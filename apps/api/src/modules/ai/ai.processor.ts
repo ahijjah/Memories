@@ -112,24 +112,39 @@ export class AiProcessor extends WorkerHost {
       let ogImageUrl: string | undefined;
 
       // Check for user-uploaded assets first (higher priority than og:image)
-      let imageBase64: string | undefined;
-      let imageMediaType: string | undefined;
+      // For multi-page documents, include up to 5 pages in vision analysis, ordered by pageIndex.
+      const MAX_IMAGES = 5;
+      const images: { base64: string; mediaType: string }[] = [];
       const assets = await this.prisma.memoryAsset.findMany({
         where: { memoryId },
+        orderBy: { pageIndex: 'asc' },
       });
 
       if (assets.length > 0) {
-        // Use the first (primary) asset for vision analysis
-        const imageData = await this.fetchImageAsBase64(assets[0].objectKey, assets[0].mimeType);
-        if (imageData) {
-          imageBase64 = imageData.base64;
-          imageMediaType = imageData.mediaType;
+        // Fetch all assets (capped at MAX_IMAGES) for vision analysis
+        for (let i = 0; i < Math.min(assets.length, MAX_IMAGES); i++) {
+          const asset = assets[i];
+          const imageData = await this.fetchImageAsBase64(asset.objectKey, asset.mimeType);
+          if (imageData) {
+            images.push(imageData);
+          }
+        }
+
+        if (images.length > 0) {
           this.logger.debug(
-            `Vision analysis enabled for Memory ${memoryId} (user-uploaded asset, ${imageData.mediaType})`,
+            `Vision analysis enabled for Memory ${memoryId} (${images.length} user-uploaded asset(s): ${images.map((img) => img.mediaType).join(', ')})`,
           );
-        } else {
+        }
+
+        if (assets.length > MAX_IMAGES) {
           this.logger.warn(
-            `Failed to fetch user-uploaded image for Memory ${memoryId}, falling back to text-only or og:image`,
+            `Memory ${memoryId} has ${assets.length} assets, but only the first ${MAX_IMAGES} will be analyzed to bound cost and payload size`,
+          );
+        }
+
+        if (images.length === 0 && assets.length > 0) {
+          this.logger.warn(
+            `Failed to fetch user-uploaded images for Memory ${memoryId}, falling back to text-only or og:image`,
           );
         }
       }
@@ -152,14 +167,16 @@ export class AiProcessor extends WorkerHost {
             `URL metadata extracted for Memory ${memoryId}: title="${urlMetadata.title}", hasImage=${!!urlMetadata.imageUrl}`,
           );
 
-          // Attempt to fetch and include the og:image for vision analysis (only if no user-uploaded image)
-          if (urlMetadata.imageUrl && !imageBase64) {
+          // Attempt to fetch and include the og:image for vision analysis (only if no user-uploaded images)
+          if (urlMetadata.imageUrl && images.length === 0) {
             const imageBytes = await this.urlMetadataService.fetchImageBytes(
               urlMetadata.imageUrl,
             );
             if (imageBytes) {
-              imageBase64 = imageBytes.data.toString('base64');
-              imageMediaType = imageBytes.mimeType;
+              images.push({
+                base64: imageBytes.data.toString('base64'),
+                mediaType: imageBytes.mimeType,
+              });
               this.logger.debug(
                 `Vision analysis enabled for URL-sourced Memory ${memoryId} (og:image, ${imageBytes.mimeType}, ${imageBytes.data.length} bytes)`,
               );
@@ -179,8 +196,7 @@ export class AiProcessor extends WorkerHost {
       const result = await provider.understand({
         text: inputText,
         sourceUri: memory.sourceUri ?? undefined,
-        imageBase64,
-        imageMediaType,
+        images: images.length > 0 ? images : undefined,
       });
 
       // Store as AIInference records, never overwriting the original capture

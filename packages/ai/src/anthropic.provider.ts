@@ -92,25 +92,28 @@ export class AnthropicAiProvider implements AiProvider {
   }
 
   async understand(input: UnderstandInput): Promise<MemoryUnderstanding> {
-    // Build multimodal content when image is present
+    // Build multimodal content when images are present
     let content: string | any[];
-    if (input.imageBase64 && input.imageMediaType) {
-      content = [
-        {
-          type: 'image',
-          source: {
-            type: 'base64',
-            media_type: input.imageMediaType,
-            data: input.imageBase64,
-          },
+    if (input.images && input.images.length > 0) {
+      // Build one image block per entry in the images array
+      const blocks: any[] = input.images.map((img) => ({
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: img.mediaType,
+          data: img.base64,
         },
-        {
-          type: 'text',
-          text: input.sourceUri
-            ? `Source: ${input.sourceUri}\n\nCaption/Context:\n${input.text}`
-            : `Content:\n${input.text}`,
-        },
-      ];
+      }));
+
+      // Add text block at the end
+      blocks.push({
+        type: 'text',
+        text: input.sourceUri
+          ? `Source: ${input.sourceUri}\n\nCaption/Context:\n${input.text}`
+          : `Content:\n${input.text}`,
+      });
+
+      content = blocks;
     } else {
       // Text-only content
       content = input.sourceUri
