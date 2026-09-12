@@ -1,6 +1,6 @@
 import { Memory, AIInference } from '@/src/api/client';
 
-export type ActionKind = 'calendar' | 'maps' | 'share' | 'openUrl' | 'ask' | 'collection' | 'summarize' | 'keyPoints' | 'comingSoon';
+export type ActionKind = 'calendar' | 'maps' | 'share' | 'openUrl' | 'ask' | 'collection' | 'summarize' | 'keyPoints' | 'compare' | 'comingSoon';
 
 export interface MemoryAction {
   label: string;
@@ -83,8 +83,8 @@ export function getActionsForMemory(
       });
       actions.push({
         label: 'Compare',
-        kind: 'comingSoon',
-        payload: { message: 'Compare with similar products' },
+        kind: 'compare',
+        payload: { memoryId: memory.id },
       });
       break;
 

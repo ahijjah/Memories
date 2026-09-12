@@ -412,6 +412,9 @@ export default function MemoryDetailScreen() {
       case 'keyPoints':
         mutateExtractKeyPoints();
         break;
+      case 'compare':
+        router.push(`/compare/${action.payload?.memoryId}`);
+        break;
       case 'comingSoon':
         Alert.alert('Coming Soon', action.payload?.message || 'This feature is coming soon');
         break;

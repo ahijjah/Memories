@@ -279,4 +279,65 @@ You MUST:
         .slice(0, 6);
     }
   }
+
+  async compareProducts(input: {
+    products: {
+      title: string;
+      brand?: string;
+      model?: string;
+      price?: string;
+      category?: string;
+      summary?: string;
+    }[];
+  }): Promise<{ comparison: string; keyDifferences: string[] }> {
+    const productDetails = input.products
+      .map(
+        (p, idx) =>
+          `${idx + 1}. ${p.title}` +
+          (p.brand ? `\n   Brand: ${p.brand}` : '') +
+          (p.model ? `\n   Model: ${p.model}` : '') +
+          (p.price ? `\n   Price: ${p.price}` : '') +
+          (p.category ? `\n   Category: ${p.category}` : '') +
+          (p.summary ? `\n   Summary: ${p.summary}` : ''),
+      )
+      .join('\n\n');
+
+    const userMessage = `Compare the following products and provide a focused comparison paragraph and 3-5 key differences:\n\n${productDetails}\n\nRespond with ONLY valid JSON (no markdown, no preamble): {"comparison": "paragraph comparing all products", "keyDifferences": ["difference 1", "difference 2", ...]}`;
+
+    const response = await this.client.messages.create({
+      model: this.model,
+      max_tokens: 1200,
+      system:
+        'You are a product comparison expert. Analyze the provided products and give a concise, balanced comparison. ' +
+        'Focus on practical differences relevant to purchase decisions. Respond only with JSON.',
+      messages: [
+        {
+          role: 'user',
+          content: userMessage,
+        },
+      ],
+    });
+
+    const textBlock = response.content.find((block) => block.type === 'text');
+    if (!textBlock || textBlock.type !== 'text') {
+      throw new Error('AI provider returned no text content');
+    }
+
+    try {
+      const cleanText = stripMarkdownCodeFences(textBlock.text);
+      const parsed = JSON.parse(cleanText);
+      return {
+        comparison: parsed.comparison || '',
+        keyDifferences: Array.isArray(parsed.keyDifferences)
+          ? parsed.keyDifferences
+          : [],
+      };
+    } catch {
+      // Fallback: return minimal valid response
+      return {
+        comparison: textBlock.text,
+        keyDifferences: [],
+      };
+    }
+  }
 }

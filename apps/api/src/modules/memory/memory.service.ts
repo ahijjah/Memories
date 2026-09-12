@@ -295,6 +295,72 @@ export class MemoryService {
     return provider.extractKeyPoints({ text, sourceUri: memory.sourceUri ?? undefined });
   }
 
+  async compareMemories(userId: string, memoryIds: string[]) {
+    if (memoryIds.length < 2 || memoryIds.length > 5) {
+      throw new BadRequestException('Must compare between 2 and 5 memories');
+    }
+
+    // Fetch all memories with their inferences and confirmations
+    const fetchedMemories = await Promise.all(
+      memoryIds.map(id =>
+        this.prisma.memory.findUnique({
+          where: { id },
+          include: {
+            aiInferences: {
+              where: {
+                field: { in: ['brand', 'model', 'price', 'category', 'summary'] },
+              },
+            },
+            userConfirmations: {
+              where: {
+                field: { in: ['brand', 'model', 'price', 'category', 'summary'] },
+              },
+            },
+          },
+        })
+      )
+    );
+
+    // Validate ownership and vault scope, filter out nulls
+    const memories = fetchedMemories.filter((m): m is Exclude<typeof m, null> => {
+      if (!m) throw new NotFoundException('Memory not found');
+      this.assertOwnership(m.userId, userId);
+      if (m.securityScope === 'vault') {
+        throw new BadRequestException('Vault content cannot be compared');
+      }
+      return true;
+    });
+
+    // Extract product data for comparison
+    const products = memories.map(memory => {
+      const getFieldValue = (field: string): string | undefined => {
+        const confirmation = memory.userConfirmations.find(c => c.field === field);
+        if (confirmation && confirmation.confirmedValue) {
+          return String(confirmation.confirmedValue);
+        }
+        const inference = memory.aiInferences.find(i => i.field === field);
+        if (inference && inference.valueJson) {
+          return String(inference.valueJson);
+        }
+        return undefined;
+      };
+
+      const summary = getFieldValue('summary');
+      return {
+        title: memory.title || '(untitled)',
+        brand: getFieldValue('brand'),
+        model: getFieldValue('model'),
+        price: getFieldValue('price'),
+        category: getFieldValue('category'),
+        summary: summary && typeof summary === 'string' ? summary : undefined,
+      };
+    });
+
+    const apiKey = this.config.getOrThrow('ANTHROPIC_API_KEY');
+    const provider = new AnthropicAiProvider(apiKey);
+    return provider.compareProducts({ products });
+  }
+
   private assertOwnership(ownerId: string, requestingUserId: string) {
     // Server-side authorization on every access (spec §18, FR-SEC-001) —
     // never rely on the client to only ask for its own data.

@@ -7,6 +7,7 @@ import type { CurrentUserPayload } from '../../common/decorators/current-user.de
 import { MemoryService } from './memory.service';
 import { CreateMemoryDto } from './dto/create-memory.dto';
 import { ConfirmFieldDto } from './dto/confirm-field.dto';
+import { CompareProductsDto } from './dto/compare-products.dto';
 
 @ApiTags('memory')
 @ApiBearerAuth()
@@ -70,5 +71,11 @@ export class MemoryController {
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   async keyPoints(@CurrentUser() user: CurrentUserPayload, @Param('id') id: string) {
     return this.memoryService.extractKeyPoints(user.sub, id);
+  }
+
+  @Post('compare')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  async compare(@CurrentUser() user: CurrentUserPayload, @Body() dto: CompareProductsDto) {
+    return this.memoryService.compareMemories(user.sub, dto.memoryIds);
   }
 }

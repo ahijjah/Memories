@@ -8,9 +8,10 @@ import { AiQueueService } from '../ai/ai-queue.service';
 import { AssetsService } from '../assets/assets.service';
 import { MemoryDeletionQueueService } from './deletion-queue.service';
 
-// Mock AI provider to capture input passed to summarize/extractKeyPoints
+// Mock AI provider to capture input passed to summarize/extractKeyPoints/compareProducts
 let mockSummarizeInput: any;
 let mockExtractKeyPointsInput: any;
+let mockCompareProductsInput: any;
 
 jest.mock('@memory-app/ai', () => ({
   AnthropicAiProvider: jest.fn().mockImplementation(() => ({
@@ -21,6 +22,13 @@ jest.mock('@memory-app/ai', () => ({
     extractKeyPoints: jest.fn().mockImplementation((input) => {
       mockExtractKeyPointsInput = input;
       return Promise.resolve(['point 1', 'point 2']);
+    }),
+    compareProducts: jest.fn().mockImplementation((input) => {
+      mockCompareProductsInput = input;
+      return Promise.resolve({
+        comparison: 'Product A is better than B',
+        keyDifferences: ['A has better price', 'B has better quality'],
+      });
     }),
   })),
 }));
@@ -181,5 +189,81 @@ describe('MemoryService', () => {
     await expect(service.extractKeyPoints('user-1', 'mem-1')).rejects.toThrow(
       NotFoundException,
     );
+  });
+
+  it('compareMemories rejects less than 2 memoryIds', async () => {
+    await expect(service.compareMemories('user-1', ['mem-1'])).rejects.toThrow(
+      'Must compare between 2 and 5 memories',
+    );
+  });
+
+  it('compareMemories rejects more than 5 memoryIds', async () => {
+    await expect(
+      service.compareMemories('user-1', ['mem-1', 'mem-2', 'mem-3', 'mem-4', 'mem-5', 'mem-6']),
+    ).rejects.toThrow('Must compare between 2 and 5 memories');
+  });
+
+  it('compareMemories rejects if any memory is vault-scoped', async () => {
+    const product1 = {
+      id: 'mem-1',
+      userId: 'user-1',
+      title: 'Product 1',
+      securityScope: 'private',
+      aiInferences: [],
+      userConfirmations: [],
+    };
+    const vaultProduct = {
+      id: 'mem-2',
+      userId: 'user-1',
+      title: 'Secret Product',
+      securityScope: 'vault',
+      aiInferences: [],
+      userConfirmations: [],
+    };
+
+    prismaMock.memory.findUnique.mockResolvedValueOnce(product1);
+    prismaMock.memory.findUnique.mockResolvedValueOnce(vaultProduct);
+
+    await expect(
+      service.compareMemories('user-1', ['mem-1', 'mem-2']),
+    ).rejects.toThrow('Vault content cannot be compared');
+  });
+
+  it('compareMemories returns comparison with key differences', async () => {
+    const product1 = {
+      id: 'mem-1',
+      userId: 'user-1',
+      title: 'iPhone 15',
+      securityScope: 'private',
+      aiInferences: [
+        { field: 'brand', valueJson: 'Apple' },
+        { field: 'price', valueJson: '$999' },
+        { field: 'summary', valueJson: 'Latest iPhone model' },
+      ],
+      userConfirmations: [],
+    };
+    const product2 = {
+      id: 'mem-2',
+      userId: 'user-1',
+      title: 'Samsung Galaxy S24',
+      securityScope: 'private',
+      aiInferences: [
+        { field: 'brand', valueJson: 'Samsung' },
+        { field: 'price', valueJson: '$899' },
+        { field: 'summary', valueJson: 'Flagship Android phone' },
+      ],
+      userConfirmations: [],
+    };
+
+    prismaMock.memory.findUnique.mockResolvedValueOnce(product1);
+    prismaMock.memory.findUnique.mockResolvedValueOnce(product2);
+
+    const result = await service.compareMemories('user-1', ['mem-1', 'mem-2']);
+
+    expect(result.comparison).toBeDefined();
+    expect(Array.isArray(result.keyDifferences)).toBe(true);
+    expect(mockCompareProductsInput.products).toHaveLength(2);
+    expect(mockCompareProductsInput.products[0].title).toBe('iPhone 15');
+    expect(mockCompareProductsInput.products[1].title).toBe('Samsung Galaxy S24');
   });
 });

@@ -379,6 +379,10 @@ export async function getUpcomingMemories(token: string | null): Promise<Upcomin
   return makeRequest('/engagement/upcoming', 'GET', token);
 }
 
+export async function compareMemories(token: string | null, memoryIds: string[]): Promise<{ comparison: string; keyDifferences: string[] }> {
+  return makeRequest('/memories/compare', 'POST', token, { memoryIds });
+}
+
 export interface AccountExportData {
   user: {
     id: string;

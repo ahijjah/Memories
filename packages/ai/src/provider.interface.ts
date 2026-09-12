@@ -110,4 +110,16 @@ export interface AiProvider {
 
   /** On-demand: extract 3-6 key takeaways from the given text as a JSON array. */
   extractKeyPoints(input: { text: string; sourceUri?: string }): Promise<string[]>;
+
+  /** On-demand: compare multiple products and return comparison summary + key differences. */
+  compareProducts(input: {
+    products: {
+      title: string;
+      brand?: string;
+      model?: string;
+      price?: string;
+      category?: string;
+      summary?: string;
+    }[];
+  }): Promise<{ comparison: string; keyDifferences: string[] }>;
 }
