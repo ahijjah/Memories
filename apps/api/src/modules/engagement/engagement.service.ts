@@ -40,4 +40,63 @@ export class EngagementService {
 
     return memories;
   }
+
+  async getUpcoming(userId: string) {
+    const now = new Date();
+    const ninetyDaysFromNow = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
+
+    const memories = await this.prisma.memory.findMany({
+      where: {
+        userId,
+        lifecycleState: 'active',
+        securityScope: { not: 'vault' },
+      },
+      include: {
+        aiInferences: {
+          where: { field: 'date' },
+        },
+        userConfirmations: {
+          where: { field: 'date' },
+        },
+      },
+    });
+
+    // Resolve effective date using precedence: UserConfirmation > AIInference
+    // Filter to dates between now and 90 days from now
+    const upcomingMemories = memories
+      .filter((memory) => {
+        const userConfDate = memory.userConfirmations?.[0]?.confirmedValue;
+        const aiDate = memory.aiInferences?.[0]?.valueJson;
+        const effectiveDate = userConfDate || aiDate;
+
+        if (!effectiveDate) return false;
+
+        try {
+          const dateObj = new Date(String(effectiveDate));
+          return dateObj >= now && dateObj <= ninetyDaysFromNow;
+        } catch {
+          return false;
+        }
+      })
+      .map((memory) => {
+        const userConfDate = memory.userConfirmations?.[0]?.confirmedValue;
+        const aiDate = memory.aiInferences?.[0]?.valueJson;
+        const effectiveDate = userConfDate || aiDate;
+        const dateObj = new Date(String(effectiveDate));
+        const daysUntil = Math.ceil(
+          (dateObj.getTime() - now.getTime()) / (24 * 60 * 60 * 1000),
+        );
+
+        return {
+          id: memory.id,
+          title: memory.title,
+          date: dateObj.toISOString(),
+          daysUntil,
+        };
+      })
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+      .slice(0, 10);
+
+    return upcomingMemories;
+  }
 }

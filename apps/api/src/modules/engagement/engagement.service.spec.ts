@@ -96,4 +96,138 @@ describe('EngagementService', () => {
       expect(result).toEqual(mockMemories);
     });
   });
+
+  describe('getUpcoming', () => {
+    it('should return Memories with dates between now and 90 days from now, sorted by date ascending', async () => {
+      const userId = 'user-123';
+      const now = new Date();
+      const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+      const inThirtyDays = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+      const mockMemories = [
+        {
+          id: 'mem-1',
+          userId,
+          title: 'Event Tomorrow',
+          lifecycleState: 'active',
+          securityScope: 'private',
+          aiInferences: [{ field: 'date', valueJson: tomorrow.toISOString() }],
+          userConfirmations: [],
+        },
+        {
+          id: 'mem-2',
+          userId,
+          title: 'Event in 30 Days',
+          lifecycleState: 'active',
+          securityScope: 'private',
+          aiInferences: [{ field: 'date', valueJson: inThirtyDays.toISOString() }],
+          userConfirmations: [],
+        },
+      ];
+
+      jest.spyOn(prismaService.memory, 'findMany').mockResolvedValue(mockMemories as any);
+
+      const result = await service.getUpcoming(userId);
+
+      expect(result).toHaveLength(2);
+      expect(result[0].id).toBe('mem-1');
+      expect(result[1].id).toBe('mem-2');
+      expect(result[0].daysUntil).toBe(1);
+      expect(result[1].daysUntil).toBe(30);
+    });
+
+    it('regression-test: vault-scoped memories are excluded even if they have a near-future date', async () => {
+      const userId = 'user-123';
+      const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+      // Test that the Prisma query filter excludes vault-scoped memories at the database level.
+      // The mock simulates what Prisma would return after applying the securityScope filter.
+      const mockMemories = [
+        {
+          id: 'regular-mem',
+          userId,
+          title: 'Regular Event',
+          lifecycleState: 'active',
+          securityScope: 'private',
+          aiInferences: [{ field: 'date', valueJson: tomorrow.toISOString() }],
+          userConfirmations: [],
+        },
+      ];
+
+      jest.spyOn(prismaService.memory, 'findMany').mockResolvedValue(mockMemories as any);
+
+      const result = await service.getUpcoming(userId);
+
+      // Verify the filter was applied at the Prisma level (this is the security control)
+      const callArgs = (prismaService.memory.findMany as jest.Mock).mock.calls[0][0];
+      expect(callArgs.where.securityScope).toEqual({ not: 'vault' });
+      expect(callArgs.where.lifecycleState).toBe('active');
+
+      // Result should only include non-vault memories
+      expect(result).toHaveLength(1);
+      expect(result[0].id).toBe('regular-mem');
+    });
+
+    it('should use UserConfirmation date over AIInference date when both exist', async () => {
+      const userId = 'user-123';
+      const now = new Date();
+      const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+      const inSevenDays = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+      const mockMemories = [
+        {
+          id: 'mem-1',
+          userId,
+          title: 'Event with confirmed date',
+          lifecycleState: 'active',
+          securityScope: 'private',
+          aiInferences: [{ field: 'date', valueJson: inSevenDays.toISOString() }],
+          userConfirmations: [{ field: 'date', confirmedValue: tomorrow.toISOString() }],
+        },
+      ];
+
+      jest.spyOn(prismaService.memory, 'findMany').mockResolvedValue(mockMemories as any);
+
+      const result = await service.getUpcoming(userId);
+
+      expect(result).toHaveLength(1);
+      // Should use confirmed date (tomorrow), not AI date (7 days)
+      expect(result[0].daysUntil).toBe(1);
+      expect(result[0].date).toBe(tomorrow.toISOString());
+    });
+
+    it('should exclude memories with dates outside 90-day window', async () => {
+      const userId = 'user-123';
+      const now = new Date();
+      const pastDate = new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000); // 10 days ago
+      const futureDate = new Date(now.getTime() + 100 * 24 * 60 * 60 * 1000); // 100 days from now
+
+      const mockMemories = [
+        {
+          id: 'mem-past',
+          userId,
+          title: 'Past Event',
+          lifecycleState: 'active',
+          securityScope: 'private',
+          aiInferences: [{ field: 'date', valueJson: pastDate.toISOString() }],
+          userConfirmations: [],
+        },
+        {
+          id: 'mem-future',
+          userId,
+          title: 'Far Future Event',
+          lifecycleState: 'active',
+          securityScope: 'private',
+          aiInferences: [{ field: 'date', valueJson: futureDate.toISOString() }],
+          userConfirmations: [],
+        },
+      ];
+
+      jest.spyOn(prismaService.memory, 'findMany').mockResolvedValue(mockMemories as any);
+
+      const result = await service.getUpcoming(userId);
+
+      expect(result).toHaveLength(0);
+    });
+  });
 });

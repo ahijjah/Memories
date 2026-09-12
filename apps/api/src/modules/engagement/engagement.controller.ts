@@ -13,4 +13,9 @@ export class EngagementController {
   rediscover(@CurrentUser() user: CurrentUserPayload) {
     return this.engagementService.getRediscoveryRandom(user.sub);
   }
+
+  @Get('upcoming')
+  upcoming(@CurrentUser() user: CurrentUserPayload) {
+    return this.engagementService.getUpcoming(user.sub);
+  }
 }

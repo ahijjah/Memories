@@ -368,6 +368,17 @@ export async function getRediscoveryMemories(token: string | null): Promise<Memo
   return makeRequest('/engagement/rediscover', 'GET', token);
 }
 
+export interface UpcomingMemory {
+  id: string;
+  title: string;
+  date: string;
+  daysUntil: number;
+}
+
+export async function getUpcomingMemories(token: string | null): Promise<UpcomingMemory[]> {
+  return makeRequest('/engagement/upcoming', 'GET', token);
+}
+
 export interface AccountExportData {
   user: {
     id: string;

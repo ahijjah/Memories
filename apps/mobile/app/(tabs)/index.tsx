@@ -2,7 +2,7 @@ import { useAuth } from "@clerk/clerk-expo";
 import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
-import { fetchMemories, Memory } from '@/src/api/client';
+import { fetchMemories, Memory, getUpcomingMemories, UpcomingMemory } from '@/src/api/client';
 import { CompactCard } from '@/src/components/memory-cards/CompactCard';
 
 export default function HomeScreen() {
@@ -17,12 +17,27 @@ export default function HomeScreen() {
     },
   });
 
+  const { data: upcomingMemories = [] } = useQuery({
+    queryKey: ['upcomingMemories'],
+    queryFn: async () => {
+      const token = await getToken();
+      return getUpcomingMemories(token);
+    },
+  });
+
   const handleMemoryPress = (id: string) => {
     router.push(`/memory/${id}`);
   };
 
+  const formatDaysUntil = (daysUntil: number): string => {
+    if (daysUntil === 0) return 'today';
+    if (daysUntil === 1) return 'tomorrow';
+    return `in ${daysUntil} days`;
+  };
+
   const recentMemories = (memories || []).slice(0, 10);
   const hasMemories = recentMemories.length > 0;
+  const hasUpcoming = upcomingMemories.length > 0;
 
   return (
     <View className="flex-1 bg-white relative">
@@ -58,17 +73,41 @@ export default function HomeScreen() {
               </Text>
             </View>
           ) : (
-            <View className="mb-6">
-              <Text className="text-lg font-semibold text-gray-900 mb-3">Recent</Text>
-              <View>
-                {recentMemories.map((memory: Memory) => (
-                  <TouchableOpacity
-                    key={memory.id}
-                    onPress={() => handleMemoryPress(memory.id)}
-                  >
-                    <CompactCard memory={memory} />
-                  </TouchableOpacity>
-                ))}
+            <View>
+              {/* Upcoming Section */}
+              {hasUpcoming && (
+                <View className="mb-6">
+                  <Text className="text-lg font-semibold text-gray-900 mb-3">Upcoming</Text>
+                  <View className="space-y-2">
+                    {upcomingMemories.map((upcoming: UpcomingMemory) => (
+                      <TouchableOpacity
+                        key={upcoming.id}
+                        onPress={() => handleMemoryPress(upcoming.id)}
+                        className="bg-blue-50 rounded-lg p-4 flex-row items-center justify-between"
+                      >
+                        <View className="flex-1">
+                          <Text className="text-base font-semibold text-gray-900">{upcoming.title}</Text>
+                          <Text className="text-sm text-blue-600 mt-1">{formatDaysUntil(upcoming.daysUntil)}</Text>
+                        </View>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+              )}
+
+              {/* Recent Section */}
+              <View className="mb-6">
+                <Text className="text-lg font-semibold text-gray-900 mb-3">Recent</Text>
+                <View>
+                  {recentMemories.map((memory: Memory) => (
+                    <TouchableOpacity
+                      key={memory.id}
+                      onPress={() => handleMemoryPress(memory.id)}
+                    >
+                      <CompactCard memory={memory} />
+                    </TouchableOpacity>
+                  ))}
+                </View>
               </View>
             </View>
           )}
