@@ -1,4 +1,6 @@
 import * as LocalAuthentication from 'expo-local-authentication';
+import { AppState, type AppStateStatus } from 'react-native';
+import { useEffect, useRef } from 'react';
 
 export type VaultAuthState = 'locked' | 'unauthenticated' | 'checking' | 'unlocked' | 'failed' | 'no_enrollment';
 
@@ -30,4 +32,37 @@ export async function authenticateVault(): Promise<boolean> {
     console.error('Authentication error:', err);
     return false;
   }
+}
+
+export function useVaultAutoLock(
+  authState: VaultAuthState,
+  setAuthState: (state: VaultAuthState) => void,
+): void {
+  const backgroundTimeRef = useRef<number | null>(null);
+  const subscriptionRef = useRef<any>(null);
+
+  useEffect(() => {
+    const handleAppStateChange = (nextAppState: AppStateStatus) => {
+      if (nextAppState === 'background' || nextAppState === 'inactive') {
+        backgroundTimeRef.current = Date.now();
+      } else if (nextAppState === 'active') {
+        if (backgroundTimeRef.current !== null && authState === 'unlocked') {
+          const backgroundDuration = Date.now() - backgroundTimeRef.current;
+          const GRACE_PERIOD_MS = 30 * 1000; // 30 seconds
+
+          if (backgroundDuration > GRACE_PERIOD_MS) {
+            setAuthState('locked');
+          }
+        }
+        backgroundTimeRef.current = null;
+      }
+    };
+
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    subscriptionRef.current = subscription;
+
+    return () => {
+      subscriptionRef.current?.remove();
+    };
+  }, [authState, setAuthState]);
 }
