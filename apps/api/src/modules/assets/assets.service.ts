@@ -109,8 +109,32 @@ export class AssetsService {
     const expiresInSeconds = 3600;
     const sseParams = this.sseCrypto.getSseParams();
 
+    // Check if object is actually SSE-C encrypted by attempting HeadObjectCommand with SSE-C params
+    let isEncrypted = true;
     try {
-      // Try with SSE-C params first (for newly encrypted objects)
+      await this.s3Client.send(
+        new HeadObjectCommand({
+          Bucket: this.bucket,
+          Key: objectKey,
+          ...sseParams,
+        })
+      );
+      // HEAD succeeded with SSE-C params → object is genuinely encrypted
+      isEncrypted = true;
+    } catch (error) {
+      // HEAD failed with SSE-C params → object is not SSE-C encrypted (or key mismatch, but assume unencrypted for backward compat)
+      const err = error as any;
+      if (err.Code === 'InvalidArgument' || err.$metadata?.httpStatusCode === 400) {
+        this.logger.debug(`Object ${objectKey} is not SSE-C encrypted, will sign URL without SSE-C params`);
+        isEncrypted = false;
+      } else {
+        // Unexpected error (object not found, network error, etc.) — re-throw
+        throw error;
+      }
+    }
+
+    // Sign presigned URL with or without SSE-C params based on actual encryption state
+    if (isEncrypted) {
       const command = new GetObjectCommand({
         Bucket: this.bucket,
         Key: objectKey,
@@ -119,20 +143,13 @@ export class AssetsService {
       const url = await getSignedUrl(this.s3PublicClient, command, { expiresIn: expiresInSeconds });
       const headers = this.sseCrypto.getSseHeaders();
       return { url, headers };
-    } catch (error) {
-      // Fallback: retry without SSE-C params for existing unencrypted objects
-      // MinIO returns error when SSE-C params are provided for non-encrypted object
-      const err = error as any;
-      if (err.Code === 'InvalidArgument' || err.$metadata?.httpStatusCode === 400) {
-        this.logger.debug(`Object ${objectKey} appears unencrypted, retrying without SSE-C params`);
-        const fallbackCommand = new GetObjectCommand({
-          Bucket: this.bucket,
-          Key: objectKey,
-        });
-        const url = await getSignedUrl(this.s3PublicClient, fallbackCommand, { expiresIn: expiresInSeconds });
-        return { url, headers: {} };
-      }
-      throw error;
+    } else {
+      const command = new GetObjectCommand({
+        Bucket: this.bucket,
+        Key: objectKey,
+      });
+      const url = await getSignedUrl(this.s3PublicClient, command, { expiresIn: expiresInSeconds });
+      return { url, headers: {} };
     }
   }
 }
