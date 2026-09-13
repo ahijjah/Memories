@@ -899,7 +899,7 @@ export default function VaultDetailScreen() {
                   <View key={asset.id} className="mb-3">
                     {isImageMimeType && asset.url ? (
                       <Image
-                        source={{ uri: asset.url }}
+                        source={{ uri: asset.url, headers: asset.headers }}
                         style={{ width: '100%', resizeMode: 'contain', aspectRatio: 1 }}
                       />
                     ) : (

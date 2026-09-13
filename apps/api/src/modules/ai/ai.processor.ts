@@ -48,13 +48,29 @@ export class AiProcessor extends WorkerHost {
   ): Promise<{ base64: string; mediaType: string } | null> {
     try {
       const sseParams = this.sseCrypto.getSseParams();
-      const command = new GetObjectCommand({
+      let command = new GetObjectCommand({
         Bucket: this.bucket,
         Key: objectKey,
         ...sseParams,
       });
 
-      const response = await this.s3Client.send(command);
+      let response: any;
+      try {
+        response = await this.s3Client.send(command);
+      } catch (err) {
+        // Fallback: retry without SSE-C params for existing unencrypted objects
+        const error = err as any;
+        if (error.Code === 'InvalidArgument' || error.$metadata?.httpStatusCode === 400) {
+          this.logger.debug(`Object ${objectKey} appears unencrypted, retrying without SSE-C params`);
+          command = new GetObjectCommand({
+            Bucket: this.bucket,
+            Key: objectKey,
+          });
+          response = await this.s3Client.send(command);
+        } else {
+          throw err;
+        }
+      }
 
       if (!response.Body) {
         this.logger.warn(`No body in S3 response for ${objectKey}`);

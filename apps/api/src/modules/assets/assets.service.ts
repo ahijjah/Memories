@@ -108,13 +108,31 @@ export class AssetsService {
   async getViewUrl(objectKey: string): Promise<{ url: string; headers: Record<string, string> }> {
     const expiresInSeconds = 3600;
     const sseParams = this.sseCrypto.getSseParams();
-    const command = new GetObjectCommand({
-      Bucket: this.bucket,
-      Key: objectKey,
-      ...sseParams,
-    });
-    const url = await getSignedUrl(this.s3PublicClient, command, { expiresIn: expiresInSeconds });
-    const headers = this.sseCrypto.getSseHeaders();
-    return { url, headers };
+
+    try {
+      // Try with SSE-C params first (for newly encrypted objects)
+      const command = new GetObjectCommand({
+        Bucket: this.bucket,
+        Key: objectKey,
+        ...sseParams,
+      });
+      const url = await getSignedUrl(this.s3PublicClient, command, { expiresIn: expiresInSeconds });
+      const headers = this.sseCrypto.getSseHeaders();
+      return { url, headers };
+    } catch (error) {
+      // Fallback: retry without SSE-C params for existing unencrypted objects
+      // MinIO returns error when SSE-C params are provided for non-encrypted object
+      const err = error as any;
+      if (err.Code === 'InvalidArgument' || err.$metadata?.httpStatusCode === 400) {
+        this.logger.debug(`Object ${objectKey} appears unencrypted, retrying without SSE-C params`);
+        const fallbackCommand = new GetObjectCommand({
+          Bucket: this.bucket,
+          Key: objectKey,
+        });
+        const url = await getSignedUrl(this.s3PublicClient, fallbackCommand, { expiresIn: expiresInSeconds });
+        return { url, headers: {} };
+      }
+      throw error;
+    }
   }
 }

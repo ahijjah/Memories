@@ -134,12 +134,27 @@ export class AccountService {
     for (const asset of assets) {
       try {
         const sseParams = this.sseCrypto.getSseParams();
-        const deleteCommand = new DeleteObjectCommand({
+        let deleteCommand = new DeleteObjectCommand({
           Bucket: this.bucket,
           Key: asset.objectKey,
           ...sseParams,
         });
-        await this.s3Client.send(deleteCommand);
+        try {
+          await this.s3Client.send(deleteCommand);
+        } catch (err) {
+          // Fallback: retry without SSE-C params for existing unencrypted objects
+          const error = err as any;
+          if (error.Code === 'InvalidArgument' || error.$metadata?.httpStatusCode === 400) {
+            this.logger.debug(`Asset ${asset.objectKey} appears unencrypted, retrying delete without SSE-C params`);
+            deleteCommand = new DeleteObjectCommand({
+              Bucket: this.bucket,
+              Key: asset.objectKey,
+            });
+            await this.s3Client.send(deleteCommand);
+          } else {
+            throw err;
+          }
+        }
       } catch (err) {
         assetCleanupFailures++;
         this.logger.warn(
