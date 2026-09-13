@@ -125,6 +125,8 @@ model Memory {
   securityScope   String           @default("private") // private | vault (Vault added in E8)
   idempotencyKey  String           @unique
   deletedAt       DateTime?
+  lastViewedAt    DateTime?
+  viewCount       Int              @default(0)
 
   assets            MemoryAsset[]
   aiInferences      AIInference[]

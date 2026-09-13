@@ -50,6 +50,7 @@ export interface Memory {
   securityScope: string;
   idempotencyKey: string;
   personId?: string;
+  collectionName?: string;
   assets?: MemoryAsset[];
   aiInferences?: AIInference[];
   userConfirmations?: UserConfirmation[];

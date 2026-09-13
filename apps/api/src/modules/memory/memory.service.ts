@@ -88,6 +88,21 @@ export class MemoryService {
     if (memory.securityScope === 'vault') {
       throw new NotFoundException('Memory not found');
     }
+
+    // Track view for non-vault memories only
+    try {
+      await this.prisma.memory.update({
+        where: { id },
+        data: {
+          viewCount: { increment: 1 },
+          lastViewedAt: new Date(),
+        },
+      });
+    } catch (err) {
+      // Non-fatal: a view tracking failure should not break the actual view request
+      console.warn(`Failed to track view for memory ${id}: ${(err as Error).message}`);
+    }
+
     return this.enrichWithAssetUrls(this.decryptSensitiveFields(memory));
   }
 

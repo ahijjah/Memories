@@ -105,6 +105,27 @@ export default function RemindersScreen() {
     router.push(`/memory/${memoryId}`);
   };
 
+  const getRediscoverMessage = (memory: Memory): string => {
+    const now = new Date();
+    const capturedAt = new Date(memory.capturedAt);
+    const diffMs = now.getTime() - capturedAt.getTime();
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    const diffMonths = Math.floor(diffDays / 30);
+
+    let timeAgoText = '';
+    if (diffMonths > 0) {
+      timeAgoText = `${diffMonths} month${diffMonths > 1 ? 's' : ''} ago`;
+    } else {
+      timeAgoText = `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`;
+    }
+
+    const collectionName = (memory as any).collectionName;
+    if (collectionName) {
+      return `You're looking at ${collectionName}. You saved this ${timeAgoText}.`;
+    }
+    return `You saved this ${timeAgoText}.`;
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'due':
@@ -253,8 +274,8 @@ export default function RemindersScreen() {
                   <Text className="text-base font-semibold text-gray-900 mb-1">
                     {memory.title || 'Untitled'}
                   </Text>
-                  <Text className="text-xs text-gray-500">
-                    {new Date(memory.capturedAt).toLocaleDateString()}
+                  <Text className="text-sm text-gray-600 mb-1">
+                    {getRediscoverMessage(memory)}
                   </Text>
                 </TouchableOpacity>
                 <View className="flex-row gap-2 mt-3">

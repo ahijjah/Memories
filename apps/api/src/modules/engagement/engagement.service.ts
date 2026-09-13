@@ -28,10 +28,17 @@ export class EngagementService {
   async getRediscoveryRandom(userId: string) {
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
-    // Use raw query for random ordering since Prisma doesn't support ORDER BY RANDOM() directly
+    // Use raw query for random ordering and view count prioritization
     // Exclude memories where user has negative feedback (not_relevant or dont_show_again)
+    // Prioritize low viewCount (unviewed/rarely viewed memories surface first)
+    // Include collection name if memory belongs to a collection
     const memories = await this.prisma.$queryRaw`
-      SELECT m.* FROM "memories" m
+      SELECT
+        m.*,
+        c."name" as "collectionName"
+      FROM "memories" m
+      LEFT JOIN "collection_memories" cm ON m."id" = cm."memoryId"
+      LEFT JOIN "collections" c ON cm."collectionId" = c."id" AND c."userId" = ${userId}
       WHERE m."userId" = ${userId}
         AND m."lifecycleState" = 'active'
         AND m."securityScope" != 'vault'
@@ -42,7 +49,7 @@ export class EngagementService {
             AND rf."userId" = ${userId}
             AND rf."feedback" IN ('not_relevant', 'dont_show_again')
         )
-      ORDER BY RANDOM()
+      ORDER BY m."viewCount" ASC, RANDOM()
       LIMIT 5
     `;
 
