@@ -233,7 +233,7 @@ export class EngagementService {
         // Check if all memories with this topic are in the same collection
         const uniqueCollections = new Set<string>();
         for (const memoryId of memoryIds) {
-          const memory = memories.find(m => m.id === memoryId);
+          const memory = memories.find((m: MemoryWithTopics) => m.id === memoryId);
           if (memory?.collections && memory.collections.length > 0) {
             for (const collection of memory.collections) {
               uniqueCollections.add(collection.collectionId);
@@ -244,8 +244,8 @@ export class EngagementService {
           }
         }
 
-        // Only qualify if NOT all in the same single collection
-        if (uniqueCollections.size !== 1) {
+        // Only qualify if NOT all in the same single collection (exclude if size==1 and not uncollected)
+        if (uniqueCollections.size !== 1 || uniqueCollections.has('__uncollected__')) {
           bestTopic = topic;
           maxCount = memoryIds.length;
         }
