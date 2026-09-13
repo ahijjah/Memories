@@ -129,6 +129,138 @@ export class EngagementService {
     return upcomingMemories;
   }
 
+  async getForYouSuggestions(userId: string) {
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+    // Fetch product-type memories from last 30 days (non-vault, active)
+    const memories = await this.prisma.memory.findMany({
+      where: {
+        userId,
+        lifecycleState: 'active',
+        securityScope: { not: 'vault' },
+        memoryType: { in: ['product', 'PRODUCT'] },
+        capturedAt: { gte: thirtyDaysAgo },
+      },
+      include: {
+        aiInferences: {
+          where: { field: 'category' },
+        },
+      },
+    });
+
+    if (memories.length === 0) return null;
+
+    // Group by category (resolve in TypeScript, consistent with getUpcoming pattern)
+    const categoryMap: { [category: string]: string[] } = {};
+    for (const memory of memories) {
+      const categoryInference = memory.aiInferences?.[0];
+      if (categoryInference?.valueJson) {
+        const category = String(categoryInference.valueJson);
+        if (!categoryMap[category]) {
+          categoryMap[category] = [];
+        }
+        categoryMap[category].push(memory.id);
+      }
+    }
+
+    // Find category with 3+ items, pick the one with most items
+    let bestCategory: string | null = null;
+    let maxCount = 0;
+    for (const [category, memoryIds] of Object.entries(categoryMap)) {
+      if (memoryIds.length >= 3 && memoryIds.length > maxCount) {
+        bestCategory = category;
+        maxCount = memoryIds.length;
+      }
+    }
+
+    if (!bestCategory) return null;
+
+    return {
+      category: bestCategory,
+      memoryIds: categoryMap[bestCategory].slice(0, 5),
+      count: categoryMap[bestCategory].length,
+    };
+  }
+
+  async getContinueSuggestions(userId: string) {
+    const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+
+    // Fetch memories from last 14 days with topics (non-vault, active)
+    type MemoryWithTopics = Prisma.MemoryGetPayload<{
+      include: {
+        aiInferences: true;
+        collections: true;
+      };
+    }>;
+
+    const memories = await this.prisma.memory.findMany({
+      where: {
+        userId,
+        lifecycleState: 'active',
+        securityScope: { not: 'vault' },
+        capturedAt: { gte: fourteenDaysAgo },
+      },
+      include: {
+        aiInferences: {
+          where: { field: 'topics' },
+        },
+        collections: true,
+      },
+    });
+
+    if (memories.length === 0) return null;
+
+    // Count topic occurrences (topics is an array of strings)
+    const topicMap: { [topic: string]: string[] } = {};
+    for (const memory of memories) {
+      const topicsInference = memory.aiInferences?.[0];
+      if (topicsInference?.valueJson && Array.isArray(topicsInference.valueJson)) {
+        for (const topic of topicsInference.valueJson) {
+          const topicStr = String(topic);
+          if (!topicMap[topicStr]) {
+            topicMap[topicStr] = [];
+          }
+          topicMap[topicStr].push(memory.id);
+        }
+      }
+    }
+
+    // Find topics appearing in 2+ memories, exclude if all are in same collection
+    let bestTopic: string | null = null;
+    let maxCount = 0;
+    for (const [topic, memoryIds] of Object.entries(topicMap)) {
+      if (memoryIds.length >= 2 && memoryIds.length > maxCount) {
+        // Check if all memories with this topic are in the same collection
+        const uniqueCollections = new Set<string>();
+        for (const memoryId of memoryIds) {
+          const memory = memories.find(m => m.id === memoryId);
+          if (memory?.collections && memory.collections.length > 0) {
+            for (const collection of memory.collections) {
+              uniqueCollections.add(collection.collectionId);
+            }
+          } else {
+            // Memory not in any collection, so break the "all in same collection" pattern
+            uniqueCollections.add('__uncollected__');
+          }
+        }
+
+        // Only qualify if NOT all in the same single collection
+        if (uniqueCollections.size !== 1) {
+          bestTopic = topic;
+          maxCount = memoryIds.length;
+        }
+      }
+    }
+
+    if (!bestTopic) return null;
+
+    return {
+      topic: bestTopic,
+      memoryIds: topicMap[bestTopic].slice(0, 5),
+      count: topicMap[bestTopic].length,
+    };
+  }
+
   async recordFeedback(userId: string, memoryId: string, feedback: string) {
     const validFeedbackValues = ['useful', 'not_relevant', 'dont_show_again'];
 

@@ -2,7 +2,7 @@ import { useAuth } from "@clerk/clerk-expo";
 import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
-import { fetchMemories, Memory, getUpcomingMemories, UpcomingMemory } from '@/src/api/client';
+import { fetchMemories, Memory, getUpcomingMemories, UpcomingMemory, getForYouSuggestions, ForYouSuggestion, getContinueSuggestions, ContinueSuggestion } from '@/src/api/client';
 import { CompactCard } from '@/src/components/memory-cards/CompactCard';
 
 export default function HomeScreen() {
@@ -25,8 +25,28 @@ export default function HomeScreen() {
     },
   });
 
+  const { data: forYouSuggestion } = useQuery({
+    queryKey: ['forYouSuggestion'],
+    queryFn: async () => {
+      const token = await getToken();
+      return getForYouSuggestions(token);
+    },
+  });
+
+  const { data: continueSuggestion } = useQuery({
+    queryKey: ['continueSuggestion'],
+    queryFn: async () => {
+      const token = await getToken();
+      return getContinueSuggestions(token);
+    },
+  });
+
   const handleMemoryPress = (id: string) => {
     router.push(`/memory/${id}`);
+  };
+
+  const handleSuggestionPress = (query: string) => {
+    router.push(`/(tabs)/search?q=${encodeURIComponent(query)}`);
   };
 
   const formatDaysUntil = (daysUntil: number): string => {
@@ -92,6 +112,42 @@ export default function HomeScreen() {
                       </TouchableOpacity>
                     ))}
                   </View>
+                </View>
+              )}
+
+              {/* For You Section */}
+              {forYouSuggestion && (
+                <View className="mb-6">
+                  <Text className="text-lg font-semibold text-gray-900 mb-3">For You</Text>
+                  <TouchableOpacity
+                    onPress={() => handleSuggestionPress(forYouSuggestion.category)}
+                    className="bg-purple-50 border border-purple-200 rounded-lg p-4"
+                  >
+                    <Text className="text-base font-semibold text-gray-900 mb-1">
+                      {forYouSuggestion.category}
+                    </Text>
+                    <Text className="text-sm text-gray-600">
+                      {forYouSuggestion.count} item{forYouSuggestion.count > 1 ? 's' : ''} in this category
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {/* Continue Section */}
+              {continueSuggestion && (
+                <View className="mb-6">
+                  <Text className="text-lg font-semibold text-gray-900 mb-3">Continue</Text>
+                  <TouchableOpacity
+                    onPress={() => handleSuggestionPress(continueSuggestion.topic)}
+                    className="bg-green-50 border border-green-200 rounded-lg p-4"
+                  >
+                    <Text className="text-base font-semibold text-gray-900 mb-1">
+                      {continueSuggestion.topic}
+                    </Text>
+                    <Text className="text-sm text-gray-600">
+                      {continueSuggestion.count} item{continueSuggestion.count > 1 ? 's' : ''} on this topic
+                    </Text>
+                  </TouchableOpacity>
                 </View>
               )}
 

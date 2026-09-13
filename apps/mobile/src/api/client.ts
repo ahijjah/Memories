@@ -400,6 +400,26 @@ export async function compareMemories(token: string | null, memoryIds: string[])
   return makeRequest('/memories/compare', 'POST', token, { memoryIds });
 }
 
+export interface ForYouSuggestion {
+  category: string;
+  memoryIds: string[];
+  count: number;
+}
+
+export async function getForYouSuggestions(token: string | null): Promise<ForYouSuggestion | null> {
+  return makeRequest('/engagement/for-you', 'GET', token);
+}
+
+export interface ContinueSuggestion {
+  topic: string;
+  memoryIds: string[];
+  count: number;
+}
+
+export async function getContinueSuggestions(token: string | null): Promise<ContinueSuggestion | null> {
+  return makeRequest('/engagement/continue', 'GET', token);
+}
+
 export interface AccountExportData {
   user: {
     id: string;

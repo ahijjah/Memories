@@ -377,4 +377,375 @@ describe('EngagementService', () => {
       expect(result).toEqual(mockFeedback);
     });
   });
+
+  describe('getForYouSuggestions', () => {
+    it('should return category with 3+ products in last 30 days', async () => {
+      const userId = 'user-123';
+      const mockMemories = [
+        {
+          id: 'mem-1',
+          userId,
+          memoryType: 'product',
+          lifecycleState: 'active',
+          securityScope: 'private',
+          capturedAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000),
+          aiInferences: [{ field: 'category', valueJson: 'Electronics' }],
+        },
+        {
+          id: 'mem-2',
+          userId,
+          memoryType: 'PRODUCT',
+          lifecycleState: 'active',
+          securityScope: 'private',
+          capturedAt: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000),
+          aiInferences: [{ field: 'category', valueJson: 'Electronics' }],
+        },
+        {
+          id: 'mem-3',
+          userId,
+          memoryType: 'product',
+          lifecycleState: 'active',
+          securityScope: 'private',
+          capturedAt: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000),
+          aiInferences: [{ field: 'category', valueJson: 'Electronics' }],
+        },
+      ];
+
+      jest.spyOn(prismaService.memory, 'findMany').mockResolvedValue(mockMemories as any);
+
+      const result = await service.getForYouSuggestions(userId);
+
+      expect(result).not.toBeNull();
+      expect(result?.category).toBe('Electronics');
+      expect(result?.memoryIds).toHaveLength(3);
+      expect(result?.count).toBe(3);
+    });
+
+    it('should return null if no category has 3+ items (2-item threshold does not qualify)', async () => {
+      const userId = 'user-123';
+      const mockMemories = [
+        {
+          id: 'mem-1',
+          userId,
+          memoryType: 'product',
+          lifecycleState: 'active',
+          securityScope: 'private',
+          capturedAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000),
+          aiInferences: [{ field: 'category', valueJson: 'Electronics' }],
+        },
+        {
+          id: 'mem-2',
+          userId,
+          memoryType: 'product',
+          lifecycleState: 'active',
+          securityScope: 'private',
+          capturedAt: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000),
+          aiInferences: [{ field: 'category', valueJson: 'Electronics' }],
+        },
+      ];
+
+      jest.spyOn(prismaService.memory, 'findMany').mockResolvedValue(mockMemories as any);
+
+      const result = await service.getForYouSuggestions(userId);
+
+      expect(result).toBeNull();
+    });
+
+    it('regression-test: vault-scoped memories are excluded', async () => {
+      const userId = 'user-123';
+
+      jest.spyOn(prismaService.memory, 'findMany').mockResolvedValue([]);
+
+      await service.getForYouSuggestions(userId);
+
+      const callArgs = (prismaService.memory.findMany as jest.Mock).mock.calls[0][0];
+      expect(callArgs.where.userId).toBe(userId);
+      expect(callArgs.where.lifecycleState).toBe('active');
+      expect(callArgs.where.securityScope).toEqual({ not: 'vault' });
+      expect(callArgs.where.memoryType).toEqual({ in: ['product', 'PRODUCT'] });
+    });
+
+    it('should pick category with most items when multiple categories qualify', async () => {
+      const userId = 'user-123';
+      const mockMemories = [
+        {
+          id: 'mem-1',
+          userId,
+          memoryType: 'product',
+          lifecycleState: 'active',
+          securityScope: 'private',
+          capturedAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000),
+          aiInferences: [{ field: 'category', valueJson: 'Electronics' }],
+        },
+        {
+          id: 'mem-2',
+          userId,
+          memoryType: 'product',
+          lifecycleState: 'active',
+          securityScope: 'private',
+          capturedAt: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000),
+          aiInferences: [{ field: 'category', valueJson: 'Electronics' }],
+        },
+        {
+          id: 'mem-3',
+          userId,
+          memoryType: 'product',
+          lifecycleState: 'active',
+          securityScope: 'private',
+          capturedAt: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000),
+          aiInferences: [{ field: 'category', valueJson: 'Furniture' }],
+        },
+        {
+          id: 'mem-4',
+          userId,
+          memoryType: 'product',
+          lifecycleState: 'active',
+          securityScope: 'private',
+          capturedAt: new Date(Date.now() - 25 * 24 * 60 * 60 * 1000),
+          aiInferences: [{ field: 'category', valueJson: 'Furniture' }],
+        },
+        {
+          id: 'mem-5',
+          userId,
+          memoryType: 'product',
+          lifecycleState: 'active',
+          securityScope: 'private',
+          capturedAt: new Date(Date.now() - 28 * 24 * 60 * 60 * 1000),
+          aiInferences: [{ field: 'category', valueJson: 'Furniture' }],
+        },
+        {
+          id: 'mem-6',
+          userId,
+          memoryType: 'product',
+          lifecycleState: 'active',
+          securityScope: 'private',
+          capturedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+          aiInferences: [{ field: 'category', valueJson: 'Furniture' }],
+        },
+      ];
+
+      jest.spyOn(prismaService.memory, 'findMany').mockResolvedValue(mockMemories as any);
+
+      const result = await service.getForYouSuggestions(userId);
+
+      expect(result).not.toBeNull();
+      expect(result?.category).toBe('Furniture');
+      expect(result?.count).toBe(4);
+    });
+  });
+
+  describe('getContinueSuggestions', () => {
+    it('should return topic with 2+ items from last 14 days', async () => {
+      const userId = 'user-123';
+      const mockMemories = [
+        {
+          id: 'mem-1',
+          userId,
+          lifecycleState: 'active',
+          securityScope: 'private',
+          capturedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+          aiInferences: [{ field: 'topics', valueJson: ['travel', 'planning'] }],
+          collections: [],
+        },
+        {
+          id: 'mem-2',
+          userId,
+          lifecycleState: 'active',
+          securityScope: 'private',
+          capturedAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000),
+          aiInferences: [{ field: 'topics', valueJson: ['travel', 'tips'] }],
+          collections: [],
+        },
+      ];
+
+      jest.spyOn(prismaService.memory, 'findMany').mockResolvedValue(mockMemories as any);
+
+      const result = await service.getContinueSuggestions(userId);
+
+      expect(result).not.toBeNull();
+      expect(result?.topic).toBe('travel');
+      expect(result?.count).toBe(2);
+      expect(result?.memoryIds).toContain('mem-1');
+      expect(result?.memoryIds).toContain('mem-2');
+    });
+
+    it('should return null if no topic has 2+ items (1-item threshold does not qualify)', async () => {
+      const userId = 'user-123';
+      const mockMemories = [
+        {
+          id: 'mem-1',
+          userId,
+          lifecycleState: 'active',
+          securityScope: 'private',
+          capturedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+          aiInferences: [{ field: 'topics', valueJson: ['travel'] }],
+          collections: [],
+        },
+      ];
+
+      jest.spyOn(prismaService.memory, 'findMany').mockResolvedValue(mockMemories as any);
+
+      const result = await service.getContinueSuggestions(userId);
+
+      expect(result).toBeNull();
+    });
+
+    it('regression-test: vault-scoped memories are excluded', async () => {
+      const userId = 'user-123';
+
+      jest.spyOn(prismaService.memory, 'findMany').mockResolvedValue([]);
+
+      await service.getContinueSuggestions(userId);
+
+      const callArgs = (prismaService.memory.findMany as jest.Mock).mock.calls[0][0];
+      expect(callArgs.where.userId).toBe(userId);
+      expect(callArgs.where.lifecycleState).toBe('active');
+      expect(callArgs.where.securityScope).toEqual({ not: 'vault' });
+    });
+
+    it('should exclude topic where all memories are in same collection', async () => {
+      const userId = 'user-123';
+      const collectionId = 'col-1';
+      const mockMemories = [
+        {
+          id: 'mem-1',
+          userId,
+          lifecycleState: 'active',
+          securityScope: 'private',
+          capturedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+          aiInferences: [{ field: 'topics', valueJson: ['travel'] }],
+          collections: [{ collectionId }],
+        },
+        {
+          id: 'mem-2',
+          userId,
+          lifecycleState: 'active',
+          securityScope: 'private',
+          capturedAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000),
+          aiInferences: [{ field: 'topics', valueJson: ['travel'] }],
+          collections: [{ collectionId }],
+        },
+      ];
+
+      jest.spyOn(prismaService.memory, 'findMany').mockResolvedValue(mockMemories as any);
+
+      const result = await service.getContinueSuggestions(userId);
+
+      expect(result).toBeNull();
+    });
+
+    it('should include topic if memories are in different collections', async () => {
+      const userId = 'user-123';
+      const mockMemories = [
+        {
+          id: 'mem-1',
+          userId,
+          lifecycleState: 'active',
+          securityScope: 'private',
+          capturedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+          aiInferences: [{ field: 'topics', valueJson: ['travel'] }],
+          collections: [{ collectionId: 'col-1' }],
+        },
+        {
+          id: 'mem-2',
+          userId,
+          lifecycleState: 'active',
+          securityScope: 'private',
+          capturedAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000),
+          aiInferences: [{ field: 'topics', valueJson: ['travel'] }],
+          collections: [{ collectionId: 'col-2' }],
+        },
+      ];
+
+      jest.spyOn(prismaService.memory, 'findMany').mockResolvedValue(mockMemories as any);
+
+      const result = await service.getContinueSuggestions(userId);
+
+      expect(result).not.toBeNull();
+      expect(result?.topic).toBe('travel');
+      expect(result?.count).toBe(2);
+    });
+
+    it('should include topic if one memory is uncollected (breaks "all in same collection" pattern)', async () => {
+      const userId = 'user-123';
+      const mockMemories = [
+        {
+          id: 'mem-1',
+          userId,
+          lifecycleState: 'active',
+          securityScope: 'private',
+          capturedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+          aiInferences: [{ field: 'topics', valueJson: ['travel'] }],
+          collections: [{ collectionId: 'col-1' }],
+        },
+        {
+          id: 'mem-2',
+          userId,
+          lifecycleState: 'active',
+          securityScope: 'private',
+          capturedAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000),
+          aiInferences: [{ field: 'topics', valueJson: ['travel'] }],
+          collections: [],
+        },
+      ];
+
+      jest.spyOn(prismaService.memory, 'findMany').mockResolvedValue(mockMemories as any);
+
+      const result = await service.getContinueSuggestions(userId);
+
+      expect(result).not.toBeNull();
+      expect(result?.topic).toBe('travel');
+      expect(result?.count).toBe(2);
+    });
+
+    it('should pick topic with most items when multiple topics qualify', async () => {
+      const userId = 'user-123';
+      const mockMemories = [
+        {
+          id: 'mem-1',
+          userId,
+          lifecycleState: 'active',
+          securityScope: 'private',
+          capturedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+          aiInferences: [{ field: 'topics', valueJson: ['travel'] }],
+          collections: [],
+        },
+        {
+          id: 'mem-2',
+          userId,
+          lifecycleState: 'active',
+          securityScope: 'private',
+          capturedAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000),
+          aiInferences: [{ field: 'topics', valueJson: ['cooking'] }],
+          collections: [],
+        },
+        {
+          id: 'mem-3',
+          userId,
+          lifecycleState: 'active',
+          securityScope: 'private',
+          capturedAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+          aiInferences: [{ field: 'topics', valueJson: ['cooking'] }],
+          collections: [],
+        },
+        {
+          id: 'mem-4',
+          userId,
+          lifecycleState: 'active',
+          securityScope: 'private',
+          capturedAt: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000),
+          aiInferences: [{ field: 'topics', valueJson: ['cooking'] }],
+          collections: [],
+        },
+      ];
+
+      jest.spyOn(prismaService.memory, 'findMany').mockResolvedValue(mockMemories as any);
+
+      const result = await service.getContinueSuggestions(userId);
+
+      expect(result).not.toBeNull();
+      expect(result?.topic).toBe('cooking');
+      expect(result?.count).toBe(3);
+    });
+  });
 });

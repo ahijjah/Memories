@@ -1,5 +1,5 @@
 import { useAuth } from "@clerk/clerk-expo";
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useState, useEffect } from 'react';
 import { View, Text, TextInput, ScrollView, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
@@ -8,7 +8,9 @@ import { search } from '@/src/api/client';
 export default function SearchScreen() {
   const { getToken } = useAuth();
   const router = useRouter();
-  const [searchInput, setSearchInput] = useState('');
+  const params = useLocalSearchParams();
+  const initialQuery = typeof params.q === 'string' ? params.q : '';
+  const [searchInput, setSearchInput] = useState(initialQuery);
   const [debouncedQuery, setDebouncedQuery] = useState('');
 
   useEffect(() => {
@@ -18,6 +20,12 @@ export default function SearchScreen() {
 
     return () => clearTimeout(timer);
   }, [searchInput]);
+
+  useEffect(() => {
+    if (initialQuery) {
+      setDebouncedQuery(initialQuery.trim());
+    }
+  }, []);
 
   const { data: results, isLoading, error } = useQuery({
     queryKey: ['search', debouncedQuery],

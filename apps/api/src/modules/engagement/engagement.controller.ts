@@ -27,4 +27,14 @@ export class EngagementController {
   ) {
     return this.engagementService.recordFeedback(user.sub, memoryId, body.feedback);
   }
+
+  @Get('for-you')
+  forYouSuggestions(@CurrentUser() user: CurrentUserPayload) {
+    return this.engagementService.getForYouSuggestions(user.sub);
+  }
+
+  @Get('continue')
+  continueSuggestions(@CurrentUser() user: CurrentUserPayload) {
+    return this.engagementService.getContinueSuggestions(user.sub);
+  }
 }
