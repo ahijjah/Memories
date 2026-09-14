@@ -94,11 +94,11 @@ export class EngagementService {
     }
 
     const getFieldValue = (memory: MemoryWithDatesAndTitles, field: string): string | undefined => {
-      const confirmation = memory.userConfirmations.find((c) => c.field === field);
+      const confirmation = memory.userConfirmations.find((c: typeof memory.userConfirmations[number]) => c.field === field);
       if (confirmation && confirmation.confirmedValue) {
         return String(confirmation.confirmedValue);
       }
-      const inference = memory.aiInferences.find((i) => i.field === field);
+      const inference = memory.aiInferences.find((i: typeof memory.aiInferences[number]) => i.field === field);
       if (inference && inference.valueJson) {
         return String(inference.valueJson);
       }
