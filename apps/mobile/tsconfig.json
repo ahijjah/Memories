@@ -7,5 +7,6 @@
       "@/*": ["*"]
     },
     "ignoreDeprecations": "6.0"
-  }
+  },
+  "exclude": ["**/*.test.ts", "**/*.spec.ts", "node_modules"]
 }

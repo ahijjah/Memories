@@ -372,7 +372,7 @@ export default function VaultDetailScreen() {
 
   const handleAskAbout = (action: MemoryAction) => {
     router.push({
-      pathname: '/(tabs)/ask',
+      pathname: '/(tabs)/search',
       params: { prefill: action.payload?.prefill || '' },
     });
   };

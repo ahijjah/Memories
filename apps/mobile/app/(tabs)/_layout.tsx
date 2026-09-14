@@ -18,13 +18,6 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="ask"
-        options={{
-          title: 'Ask',
-          headerShown: true,
-        }}
-      />
-      <Tabs.Screen
         name="reminders"
         options={{
           title: 'Reminders',

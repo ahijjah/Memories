@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { EmbeddingService } from '../ai/embedding.service';
 import { toVectorLiteral } from '../../common/pgvector.util';
+import { resolveTitleFromFields } from '../../common/resolve-title.util';
 
 export interface SearchResult {
   id: string;
@@ -26,8 +27,8 @@ export class SearchService {
     const queryEmbedding = await this.embeddingService.embed(query, 'query');
     const vectorLiteral = toVectorLiteral(queryEmbedding);
 
-    // Raw SQL similarity search using cosine distance, scoped to user's memories
-    const results = await this.prisma.$queryRaw<
+    // Fetch memory IDs and summaries from raw SQL similarity search
+    const rawResults = await this.prisma.$queryRaw<
       {
         id: string;
         title: string;
@@ -56,6 +57,42 @@ export class SearchService {
       ORDER BY "distance" ASC
       LIMIT ${limit}
     `;
+
+    // Fetch title inferences and confirmations for title resolution
+    const memoryIds = rawResults.map((r) => r.id);
+    const titleInferences = memoryIds.length > 0
+      ? await this.prisma.aIInference.findMany({
+          where: {
+            memoryId: { in: memoryIds },
+            field: 'title',
+          },
+        })
+      : [];
+
+    const titleConfirmations = memoryIds.length > 0
+      ? await this.prisma.userConfirmation.findMany({
+          where: {
+            memoryId: { in: memoryIds },
+            field: 'title',
+          },
+        })
+      : [];
+
+    // Resolve titles using precedence: UserConfirmation > AIInference > raw title
+    const results = rawResults.map((result) => {
+      const inferences = titleInferences.filter((inf) => inf.memoryId === result.id);
+      const confirmations = titleConfirmations.filter((conf) => conf.memoryId === result.id);
+      const resolvedTitle = resolveTitleFromFields(
+        result.title,
+        inferences,
+        confirmations,
+      );
+
+      return {
+        ...result,
+        title: resolvedTitle,
+      };
+    });
 
     return results;
   }

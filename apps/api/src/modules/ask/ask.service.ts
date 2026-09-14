@@ -3,6 +3,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { EmbeddingService } from '../ai/embedding.service';
 import { AnthropicAiProvider, ContextMemory } from '@memory-app/ai';
 import { toVectorLiteral } from '../../common/pgvector.util';
+import { resolveTitleFromFields } from '../../common/resolve-title.util';
 
 export interface AskResponse {
   answer: string;
@@ -31,7 +32,7 @@ export class AskService {
     const vectorLiteral = toVectorLiteral(questionEmbedding);
 
     // Retrieve top 5 most relevant memories, scoped to userId
-    const retrievedMemories = await this.prisma.$queryRaw<
+    const rawMemories = await this.prisma.$queryRaw<
       {
         memoryId: string;
         title: string;
@@ -58,7 +59,7 @@ export class AskService {
     `;
 
     // If no memories found, return early without calling AI provider
-    if (retrievedMemories.length === 0) {
+    if (rawMemories.length === 0) {
       return {
         answer:
           "I don't have any saved information relevant to that question yet.",
@@ -66,6 +67,38 @@ export class AskService {
         sources: [],
       };
     }
+
+    // Fetch title inferences and confirmations for title resolution
+    const memoryIds = rawMemories.map((m) => m.memoryId);
+    const titleInferences = await this.prisma.aIInference.findMany({
+      where: {
+        memoryId: { in: memoryIds },
+        field: 'title',
+      },
+    });
+
+    const titleConfirmations = await this.prisma.userConfirmation.findMany({
+      where: {
+        memoryId: { in: memoryIds },
+        field: 'title',
+      },
+    });
+
+    // Resolve titles and create final memory list
+    const retrievedMemories = rawMemories.map((mem) => {
+      const inferences = titleInferences.filter((inf) => inf.memoryId === mem.memoryId);
+      const confirmations = titleConfirmations.filter((conf) => conf.memoryId === mem.memoryId);
+      const resolvedTitle = resolveTitleFromFields(
+        mem.title,
+        inferences,
+        confirmations,
+      );
+
+      return {
+        ...mem,
+        title: resolvedTitle,
+      };
+    });
 
     // Call AI provider with context
     const apiKey = process.env.ANTHROPIC_API_KEY;

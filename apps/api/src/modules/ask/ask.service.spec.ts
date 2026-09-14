@@ -31,6 +31,12 @@ describe('AskService', () => {
           provide: PrismaService,
           useValue: {
             $queryRaw: jest.fn(),
+            aIInference: {
+              findMany: jest.fn().mockResolvedValue([]),
+            },
+            userConfirmation: {
+              findMany: jest.fn().mockResolvedValue([]),
+            },
           },
         },
         {

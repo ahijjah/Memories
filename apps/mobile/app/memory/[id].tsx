@@ -381,7 +381,7 @@ export default function MemoryDetailScreen() {
 
   const handleAskAbout = (action: MemoryAction) => {
     router.push({
-      pathname: '/(tabs)/ask',
+      pathname: '/(tabs)/search',
       params: { prefill: action.payload?.prefill || '' },
     });
   };
