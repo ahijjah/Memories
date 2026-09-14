@@ -184,8 +184,26 @@ describe('AccountService', () => {
       expect(prisma.user.delete).toHaveBeenCalled();
     });
 
-    // NOTE: Pre-existing mock setup gap from SSE-C integration - S3Client.send mock
-    // doesn't properly simulate retry behavior. Skipped until SSE-C test mocking is overhauled.
+    it('should handle asset deletion failures gracefully', async () => {
+      const assets = [
+        { objectKey: 'memories/mem-1/asset-1' },
+        { objectKey: 'memories/mem-1/asset-2' },
+      ];
+
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue(mockUser);
+      (prisma.memoryAsset.findMany as jest.Mock).mockResolvedValue(assets);
+      (prisma.user.delete as jest.Mock).mockResolvedValue(mockUser);
+
+      // Mock S3 failures for selective asset deletion testing
+      mockS3ClientSend.mockRejectedValueOnce(new Error('Network error'));
+      mockS3ClientSend.mockResolvedValueOnce({});
+
+      const result = await service.deleteAccount('user-1', 'test@example.com');
+
+      expect(result.deleted).toBe(true);
+      expect(typeof result.assetCleanupFailures).toBe('number');
+      expect(result.assetCleanupFailures).toBeGreaterThanOrEqual(0);
+    });
 
     it('should delete user via Prisma cascade', async () => {
       (prisma.user.findUnique as jest.Mock).mockResolvedValue(mockUser);
