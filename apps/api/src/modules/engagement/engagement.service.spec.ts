@@ -251,6 +251,64 @@ describe('EngagementService', () => {
 
       expect(result).toHaveLength(0);
     });
+
+    it('should resolve AI-inferred title over raw URL/placeholder title', async () => {
+      const userId = 'user-123';
+      const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+      const mockMemories = [
+        {
+          id: 'mem-with-ai-title',
+          userId,
+          title: 'https://example.com/article/123', // raw URL as fallback title
+          lifecycleState: 'active',
+          securityScope: 'private',
+          aiInferences: [
+            { field: 'date', valueJson: tomorrow.toISOString() },
+            { field: 'title', valueJson: 'AI-Extracted Article Title' },
+          ],
+          userConfirmations: [],
+        },
+      ];
+
+      jest.spyOn(prismaService.memory, 'findMany').mockResolvedValue(mockMemories as any);
+
+      const result = await service.getUpcoming(userId);
+
+      expect(result).toHaveLength(1);
+      // Should use AI-inferred title, not raw URL
+      expect(result[0].title).toBe('AI-Extracted Article Title');
+    });
+
+    it('should prefer UserConfirmation title over AIInference title', async () => {
+      const userId = 'user-123';
+      const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+      const mockMemories = [
+        {
+          id: 'mem-with-confirmed-title',
+          userId,
+          title: 'https://example.com/article/123',
+          lifecycleState: 'active',
+          securityScope: 'private',
+          aiInferences: [
+            { field: 'date', valueJson: tomorrow.toISOString() },
+            { field: 'title', valueJson: 'AI-Extracted Title' },
+          ],
+          userConfirmations: [
+            { field: 'title', confirmedValue: 'User-Confirmed Title' },
+          ],
+        },
+      ];
+
+      jest.spyOn(prismaService.memory, 'findMany').mockResolvedValue(mockMemories as any);
+
+      const result = await service.getUpcoming(userId);
+
+      expect(result).toHaveLength(1);
+      // Should use user-confirmed title over AI-inferred title
+      expect(result[0].title).toBe('User-Confirmed Title');
+    });
   });
 
   describe('recordFeedback', () => {

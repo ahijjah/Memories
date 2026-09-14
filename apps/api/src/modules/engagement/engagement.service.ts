@@ -60,7 +60,7 @@ export class EngagementService {
     const now = new Date();
     const ninetyDaysFromNow = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
 
-    type MemoryWithDates = Prisma.MemoryGetPayload<{
+    type MemoryWithDatesAndTitles = Prisma.MemoryGetPayload<{
       include: {
         aiInferences: true;
         userConfirmations: true;
@@ -75,15 +75,16 @@ export class EngagementService {
       },
       include: {
         aiInferences: {
-          where: { field: 'date' },
+          where: { field: { in: ['date', 'title'] } },
         },
         userConfirmations: {
-          where: { field: 'date' },
+          where: { field: { in: ['date', 'title'] } },
         },
       },
     });
 
     // Resolve effective date using precedence: UserConfirmation > AIInference
+    // Resolve effective title using same precedence
     // Filter to dates between now and 90 days from now
     interface UpcomingItem {
       id: string;
@@ -92,11 +93,21 @@ export class EngagementService {
       daysUntil: number;
     }
 
+    const getFieldValue = (memory: MemoryWithDatesAndTitles, field: string): string | undefined => {
+      const confirmation = memory.userConfirmations.find((c) => c.field === field);
+      if (confirmation && confirmation.confirmedValue) {
+        return String(confirmation.confirmedValue);
+      }
+      const inference = memory.aiInferences.find((i) => i.field === field);
+      if (inference && inference.valueJson) {
+        return String(inference.valueJson);
+      }
+      return undefined;
+    };
+
     const upcomingMemories = memories
-      .filter((memory: MemoryWithDates) => {
-        const userConfDate = memory.userConfirmations?.[0]?.confirmedValue;
-        const aiDate = memory.aiInferences?.[0]?.valueJson;
-        const effectiveDate = userConfDate || aiDate;
+      .filter((memory: MemoryWithDatesAndTitles) => {
+        const effectiveDate = getFieldValue(memory, 'date');
 
         if (!effectiveDate) return false;
 
@@ -107,10 +118,9 @@ export class EngagementService {
           return false;
         }
       })
-      .map((memory: MemoryWithDates) => {
-        const userConfDate = memory.userConfirmations?.[0]?.confirmedValue;
-        const aiDate = memory.aiInferences?.[0]?.valueJson;
-        const effectiveDate = userConfDate || aiDate;
+      .map((memory: MemoryWithDatesAndTitles) => {
+        const effectiveDate = getFieldValue(memory, 'date');
+        const effectiveTitle = getFieldValue(memory, 'title') || memory.title;
         const dateObj = new Date(String(effectiveDate));
         const daysUntil = Math.ceil(
           (dateObj.getTime() - now.getTime()) / (24 * 60 * 60 * 1000),
@@ -118,7 +128,7 @@ export class EngagementService {
 
         return {
           id: memory.id,
-          title: memory.title,
+          title: effectiveTitle,
           date: dateObj.toISOString(),
           daysUntil,
         };
