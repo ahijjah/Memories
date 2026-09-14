@@ -77,6 +77,7 @@ describe('AccountService', () => {
         {
           provide: ObjectStorageSseService,
           useValue: {
+            getSseParams: jest.fn().mockReturnValue({}),
             getDeleteParams: jest.fn(),
             getHeadParams: jest.fn(),
           },
@@ -195,14 +196,15 @@ describe('AccountService', () => {
       (prisma.user.delete as jest.Mock).mockResolvedValue(mockUser);
 
       // Mock S3 failures for selective asset deletion testing
+      // First asset: reject with plain Error (no AWS error properties)
+      // Second asset: resolve successfully
       mockS3ClientSend.mockRejectedValueOnce(new Error('Network error'));
       mockS3ClientSend.mockResolvedValueOnce({});
 
       const result = await service.deleteAccount('user-1', 'test@example.com');
 
       expect(result.deleted).toBe(true);
-      expect(typeof result.assetCleanupFailures).toBe('number');
-      expect(result.assetCleanupFailures).toBeGreaterThanOrEqual(0);
+      expect(result.assetCleanupFailures).toBe(1);
     });
 
     it('should delete user via Prisma cascade', async () => {
