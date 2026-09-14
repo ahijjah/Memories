@@ -68,7 +68,7 @@ describe('AccountService', () => {
                 OBJECT_STORAGE_ACCESS_KEY: 'minioadmin',
                 OBJECT_STORAGE_SECRET_KEY: 'minioadmin',
                 OBJECT_STORAGE_BUCKET: 'memories',
-                OBJECT_STORAGE_SSE_C_KEY: 'a'.repeat(64),
+                OBJECT_STORAGE_SSE_C_KEY: Buffer.alloc(32, 'a').toString('base64'),
               };
               return config[key];
             }),

@@ -12,6 +12,7 @@ describe('Module Wiring - Dependency Resolution', () => {
         OBJECT_STORAGE_ACCESS_KEY: 'test-key',
         OBJECT_STORAGE_SECRET_KEY: 'test-secret',
         OBJECT_STORAGE_BUCKET: 'test-bucket',
+        OBJECT_STORAGE_SSE_C_KEY: Buffer.alloc(32, 'a').toString('base64'),
         VOYAGE_API_KEY: 'test-voyage-key',
         VOYAGE_MODEL: 'voyage-3-lite',
         ANTHROPIC_API_KEY: 'test-anthropic-key',
