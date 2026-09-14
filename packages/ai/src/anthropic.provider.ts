@@ -50,6 +50,9 @@ Document fields (only include if explicitly present in text or visibly displayed
 - "documentNumber": string — the document's own identifying number as printed on it (e.g. a passport number, national ID number, driver's license number, insurance policy number). Only if explicitly visible in the image or text. Most relevant when the memory is a document. Do not confuse this with dates, phone numbers, or other numbers that aren't the document's own identifier.
 - "issueDate": string — ISO date string — the date the document was issued/created, as explicitly printed on the document. DISTINCT from the "date" field which is used for expiry/validity dates. Only if explicitly shown on the document.
 
+Content authorship:
+- "author": string — the article/content's byline author or credited creator. Prefer structured data (JSON-LD author field) or explicit byline/credit text in the content. Include the author name only if it's explicitly stated or prominently displayed (e.g., "By Jane Doe", visible byline, author credit line). Do not infer or guess an author from context or metadata. Only if explicitly present.
+
 Per-field confidence (only include for fields you actually included above):
 - "fieldConfidence": an object with optional properties — include ONLY for fields you populated:
   - "intent": number between 0 and 1 (how confident are you in the intent you extracted?)
@@ -69,6 +72,7 @@ Per-field confidence (only include for fields you actually included above):
   - "owner": number between 0 and 1 (how confident are you in the owner?)
   - "documentNumber": number between 0 and 1 (how confident are you in the documentNumber?)
   - "issueDate": number between 0 and 1 (how confident are you in the issueDate?)
+  - "author": number between 0 and 1 (how confident are you in the author?)
   Omit any field from fieldConfidence that you didn't include in the optional fields above. For example, if you extracted a brand, price, and discount but no original price, only include {"fieldConfidence": {"brand": 0.95, "price": 0.92, "discount": 0.88}}.
 
 INSTAGRAM POSTS: When text follows the pattern "[number] likes, [number] comments - [username] on [date]: [caption]" (Instagram's standard post-preview format), the [date] in that prefix is the POST'S PUBLISH DATE, not an event date. Do not use it to populate the date field. Only extract a date from the actual caption/content text itself, not from this metadata prefix.

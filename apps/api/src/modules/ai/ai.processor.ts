@@ -186,6 +186,24 @@ export class AiProcessor extends WorkerHost {
             inputText = `${inputText}\n\n${urlMetadata.description}`;
           }
           ogImageUrl = urlMetadata.imageUrl;
+
+          // Append structured data fields as labeled context
+          const structuredLines: string[] = [];
+          if (urlMetadata.author) structuredLines.push(`Author: ${urlMetadata.author}`);
+          if (urlMetadata.datePublished) structuredLines.push(`Published: ${urlMetadata.datePublished}`);
+          if (urlMetadata.brand) structuredLines.push(`Brand: ${urlMetadata.brand}`);
+          if (urlMetadata.price && urlMetadata.priceCurrency) {
+            structuredLines.push(`Price: ${urlMetadata.price} ${urlMetadata.priceCurrency}`);
+          } else if (urlMetadata.price) {
+            structuredLines.push(`Price: ${urlMetadata.price}`);
+          }
+          if (urlMetadata.sku) structuredLines.push(`SKU: ${urlMetadata.sku}`);
+          if (urlMetadata.availability) structuredLines.push(`Availability: ${urlMetadata.availability}`);
+
+          if (structuredLines.length > 0) {
+            inputText = `${inputText}\n\n${structuredLines.join('\n')}`;
+          }
+
           this.logger.debug(
             `URL metadata extracted for Memory ${memoryId}: title="${urlMetadata.title}", hasImage=${!!urlMetadata.imageUrl}`,
           );
@@ -507,6 +525,22 @@ export class AiProcessor extends WorkerHost {
               field: 'issueDate',
               valueJson: result.issueDate,
               confidence: result.fieldConfidence?.issueDate ?? result.confidence,
+              modelVersion: result.modelVersion,
+              provenance: 'llm_extraction',
+            },
+          }),
+        );
+      }
+
+      // P1.1: JSON-LD structured data — author extraction
+      if (result.author) {
+        inferencesToCreate.push(
+          this.prisma.aIInference.create({
+            data: {
+              memoryId,
+              field: 'author',
+              valueJson: result.author,
+              confidence: result.fieldConfidence?.author ?? result.confidence,
               modelVersion: result.modelVersion,
               provenance: 'llm_extraction',
             },

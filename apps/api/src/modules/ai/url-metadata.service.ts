@@ -7,6 +7,13 @@ interface UrlMetadata {
   title?: string;
   description?: string;
   imageUrl?: string;
+  author?: string;
+  datePublished?: string;
+  price?: string;
+  priceCurrency?: string;
+  brand?: string;
+  sku?: string;
+  availability?: string;
 }
 
 @Injectable()
@@ -395,7 +402,7 @@ export class UrlMetadataService {
 
       const metadata: UrlMetadata = {};
 
-      // Extract Open Graph tags
+      // Extract Open Graph tags (takes priority for title, description, image)
       const ogTitle = $('meta[property="og:title"]').attr('content');
       const ogDescription = $('meta[property="og:description"]').attr(
         'content',
@@ -415,6 +422,9 @@ export class UrlMetadataService {
       // Store Open Graph image URL
       metadata.imageUrl = ogImage || undefined;
 
+      // Extract JSON-LD structured data for new fields
+      this.extractJsonLd($, metadata);
+
       return metadata;
     } catch (err) {
       this.logger.warn(
@@ -422,5 +432,133 @@ export class UrlMetadataService {
       );
       return {};
     }
+  }
+
+  private extractJsonLd(
+    $: ReturnType<typeof load>,
+    metadata: UrlMetadata,
+  ): void {
+    try {
+      const jsonLdScripts = $('script[type="application/ld+json"]');
+
+      for (let i = 0; i < jsonLdScripts.length; i++) {
+        const scriptContent = $(jsonLdScripts[i]).html();
+        if (!scriptContent) continue;
+
+        let schemas: any[] = [];
+
+        try {
+          const parsed = JSON.parse(scriptContent);
+
+          // Handle @graph wrapper (array of entities)
+          if (parsed['@graph']) {
+            schemas = Array.isArray(parsed['@graph'])
+              ? parsed['@graph']
+              : [parsed['@graph']];
+          } else if (Array.isArray(parsed)) {
+            // Direct array of schemas
+            schemas = parsed;
+          } else {
+            // Single schema object
+            schemas = [parsed];
+          }
+        } catch {
+          // Skip malformed JSON-LD blocks
+          continue;
+        }
+
+        // Process each schema entity
+        for (const schema of schemas) {
+          if (!schema['@type']) continue;
+
+          const types = Array.isArray(schema['@type'])
+            ? schema['@type']
+            : [schema['@type']];
+
+          // Look for Article types
+          if (
+            types.some((t: string) =>
+              ['Article', 'NewsArticle', 'BlogPosting'].includes(t),
+            )
+          ) {
+            // Extract author (handle string, object, and array)
+            if (!metadata.author && schema.author) {
+              const author = this.extractAuthor(schema.author);
+              if (author) metadata.author = author;
+            }
+
+            // Extract datePublished
+            if (!metadata.datePublished && schema.datePublished) {
+              metadata.datePublished = String(schema.datePublished);
+            }
+          }
+
+          // Look for Product type
+          if (types.includes('Product')) {
+            // Extract brand (string or object with name)
+            if (!metadata.brand && schema.brand) {
+              metadata.brand = this.extractBrand(schema.brand);
+            }
+
+            // Extract SKU
+            if (!metadata.sku && schema.sku) {
+              metadata.sku = String(schema.sku);
+            }
+
+            // Extract price and currency from offers
+            if (schema.offers && !metadata.price) {
+              const offers = Array.isArray(schema.offers)
+                ? schema.offers[0]
+                : schema.offers;
+
+              if (offers) {
+                if (offers.price) metadata.price = String(offers.price);
+                if (offers.priceCurrency)
+                  metadata.priceCurrency = String(offers.priceCurrency);
+                if (offers.availability)
+                  metadata.availability = String(offers.availability);
+              }
+            }
+          }
+        }
+      }
+    } catch (err) {
+      this.logger.debug(
+        `Error extracting JSON-LD: ${(err as Error).message}`,
+      );
+    }
+  }
+
+  private extractAuthor(author: any): string | undefined {
+    if (typeof author === 'string') {
+      return author || undefined;
+    }
+
+    if (Array.isArray(author)) {
+      // Take first author
+      const first = author[0];
+      if (typeof first === 'string') return first || undefined;
+      if (first && typeof first === 'object' && first.name) {
+        return String(first.name) || undefined;
+      }
+    }
+
+    if (author && typeof author === 'object' && author.name) {
+      return String(author.name) || undefined;
+    }
+
+    return undefined;
+  }
+
+  private extractBrand(brand: any): string | undefined {
+    if (typeof brand === 'string') {
+      return brand || undefined;
+    }
+
+    if (brand && typeof brand === 'object' && brand.name) {
+      return String(brand.name) || undefined;
+    }
+
+    return undefined;
   }
 }

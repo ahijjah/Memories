@@ -53,6 +53,9 @@ export interface MemoryUnderstanding {
   documentNumber?: string; // the document's own identifying number (e.g. passport number, national ID number, license number, policy number). Only if explicitly visible. Most relevant when the memory is a document.
   issueDate?: string; // ISO date string — the date the document was issued/created, distinct from the expiry date in the `date` field
 
+  // P1.1: JSON-LD structured data
+  author?: string; // the article/content's byline author, from structured data or visible content
+
   // P0.2a: Per-field confidence — separate confidence for each optional field (only for fields included)
   fieldConfidence?: {
     intent?: number; // 0..1, confidence specifically for the intent field
@@ -72,6 +75,7 @@ export interface MemoryUnderstanding {
     owner?: number; // 0..1, confidence specifically for owner extraction
     documentNumber?: number; // 0..1, confidence specifically for documentNumber extraction
     issueDate?: number; // 0..1, confidence specifically for issueDate extraction
+    author?: number; // 0..1, confidence specifically for author extraction
   };
 }
 
