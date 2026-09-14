@@ -1,7 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { S3Client } from '@aws-sdk/client-s3';
 import { AccountService } from './account.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { ObjectStorageSseService } from '../../common/crypto/object-storage-sse.service';
@@ -19,7 +18,6 @@ jest.mock('@aws-sdk/client-s3', () => ({
 describe('AccountService', () => {
   let service: AccountService;
   let prisma: PrismaService;
-  let config: ConfigService;
 
   const mockUser = {
     id: 'user-1',
@@ -88,7 +86,6 @@ describe('AccountService', () => {
 
     service = module.get<AccountService>(AccountService);
     prisma = module.get<PrismaService>(PrismaService);
-    config = module.get<ConfigService>(ConfigService);
   });
 
   afterEach(() => {
