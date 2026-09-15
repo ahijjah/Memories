@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { EmbeddingService } from '../ai/embedding.service';
 import { toVectorLiteral } from '../../common/pgvector.util';
@@ -12,6 +13,18 @@ export interface SearchResult {
   distance: number;
   createdAt: Date;
 }
+
+interface RawSearchResult {
+  id: string;
+  title: string;
+  summary: string;
+  sourceUri: string | null;
+  distance: number;
+  createdAt: Date;
+}
+
+type TitleInference = Prisma.AIInferenceGetPayload<{}>;
+type TitleConfirmation = Prisma.UserConfirmationGetPayload<{}>;
 
 const MAX_DISTANCE_THRESHOLD = 0.5;
 
@@ -28,16 +41,7 @@ export class SearchService {
     const vectorLiteral = toVectorLiteral(queryEmbedding);
 
     // Fetch memory IDs and summaries from raw SQL similarity search
-    const rawResults = await this.prisma.$queryRaw<
-      {
-        id: string;
-        title: string;
-        summary: string;
-        sourceUri: string | null;
-        distance: number;
-        createdAt: Date;
-      }[]
-    >`
+    const rawResults = await this.prisma.$queryRaw<RawSearchResult[]>`
       SELECT
         m."id",
         m."title",
@@ -59,7 +63,7 @@ export class SearchService {
     `;
 
     // Fetch title inferences and confirmations for title resolution
-    const memoryIds = rawResults.map((r) => r.id);
+    const memoryIds = rawResults.map((r: RawSearchResult) => r.id);
     const titleInferences = memoryIds.length > 0
       ? await this.prisma.aIInference.findMany({
           where: {
@@ -79,9 +83,9 @@ export class SearchService {
       : [];
 
     // Resolve titles using precedence: UserConfirmation > AIInference > raw title
-    const results = rawResults.map((result) => {
-      const inferences = titleInferences.filter((inf) => inf.memoryId === result.id);
-      const confirmations = titleConfirmations.filter((conf) => conf.memoryId === result.id);
+    const results = rawResults.map((result: RawSearchResult) => {
+      const inferences = titleInferences.filter((inf: TitleInference) => inf.memoryId === result.id);
+      const confirmations = titleConfirmations.filter((conf: TitleConfirmation) => conf.memoryId === result.id);
       const resolvedTitle = resolveTitleFromFields(
         result.title,
         inferences,

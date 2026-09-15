@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { EmbeddingService } from '../ai/embedding.service';
 import { AnthropicAiProvider, ContextMemory } from '@memory-app/ai';
@@ -16,6 +17,16 @@ export interface AskResponse {
   }>;
 }
 
+interface RawMemory {
+  memoryId: string;
+  title: string;
+  summary: string;
+  sourceUri: string | null;
+}
+
+type TitleInference = Prisma.AIInferenceGetPayload<{}>;
+type TitleConfirmation = Prisma.UserConfirmationGetPayload<{}>;
+
 @Injectable()
 export class AskService {
   constructor(
@@ -32,14 +43,7 @@ export class AskService {
     const vectorLiteral = toVectorLiteral(questionEmbedding);
 
     // Retrieve top 5 most relevant memories, scoped to userId
-    const rawMemories = await this.prisma.$queryRaw<
-      {
-        memoryId: string;
-        title: string;
-        summary: string;
-        sourceUri: string | null;
-      }[]
-    >`
+    const rawMemories = await this.prisma.$queryRaw<RawMemory[]>`
       SELECT
         m."id" AS "memoryId",
         m."title",
@@ -69,7 +73,7 @@ export class AskService {
     }
 
     // Fetch title inferences and confirmations for title resolution
-    const memoryIds = rawMemories.map((m) => m.memoryId);
+    const memoryIds = rawMemories.map((m: RawMemory) => m.memoryId);
     const titleInferences = await this.prisma.aIInference.findMany({
       where: {
         memoryId: { in: memoryIds },
@@ -85,9 +89,9 @@ export class AskService {
     });
 
     // Resolve titles and create final memory list
-    const retrievedMemories = rawMemories.map((mem) => {
-      const inferences = titleInferences.filter((inf) => inf.memoryId === mem.memoryId);
-      const confirmations = titleConfirmations.filter((conf) => conf.memoryId === mem.memoryId);
+    const retrievedMemories = rawMemories.map((mem: RawMemory) => {
+      const inferences = titleInferences.filter((inf: TitleInference) => inf.memoryId === mem.memoryId);
+      const confirmations = titleConfirmations.filter((conf: TitleConfirmation) => conf.memoryId === mem.memoryId);
       const resolvedTitle = resolveTitleFromFields(
         mem.title,
         inferences,
