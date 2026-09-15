@@ -23,8 +23,8 @@ interface RawSearchResult {
   createdAt: Date;
 }
 
-type TitleInference = Prisma.AIInferenceGetPayload<{}>;
-type TitleConfirmation = Prisma.UserConfirmationGetPayload<{}>;
+type TitleInference = Prisma.AIInferenceGetPayload<Record<string, never>>;
+type TitleConfirmation = Prisma.UserConfirmationGetPayload<Record<string, never>>;
 
 const MAX_DISTANCE_THRESHOLD = 0.5;
 

@@ -24,8 +24,8 @@ interface RawMemory {
   sourceUri: string | null;
 }
 
-type TitleInference = Prisma.AIInferenceGetPayload<{}>;
-type TitleConfirmation = Prisma.UserConfirmationGetPayload<{}>;
+type TitleInference = Prisma.AIInferenceGetPayload<Record<string, never>>;
+type TitleConfirmation = Prisma.UserConfirmationGetPayload<Record<string, never>>;
 
 @Injectable()
 export class AskService {
