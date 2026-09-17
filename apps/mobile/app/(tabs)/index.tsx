@@ -1,13 +1,17 @@
 import { useAuth } from "@clerk/clerk-expo";
 import { useRouter } from 'expo-router';
-import { useQuery } from '@tanstack/react-query';
-import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
-import { fetchMemories, Memory, getUpcomingMemories, UpcomingMemory, getForYouSuggestions, ForYouSuggestion, getContinueSuggestions, ContinueSuggestion } from '@/src/api/client';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator, Alert } from 'react-native';
+import { fetchMemories, Memory, getUpcomingMemories, UpcomingMemory, getForYouSuggestions, ForYouSuggestion, getContinueSuggestions, ContinueSuggestion, createCollection, addMemoryToCollection, Collection } from '@/src/api/client';
 import { CompactCard } from '@/src/components/memory-cards/CompactCard';
+import { useState } from 'react';
 
 export default function HomeScreen() {
   const router = useRouter();
   const { getToken } = useAuth();
+  const queryClient = useQueryClient();
+  const [savingForYou, setSavingForYou] = useState(false);
+  const [savingContinue, setSavingContinue] = useState(false);
 
   const { data: memories, isLoading, error, refetch } = useQuery({
     queryKey: ['memories'],
@@ -53,6 +57,80 @@ export default function HomeScreen() {
     if (daysUntil === 0) return 'today';
     if (daysUntil === 1) return 'tomorrow';
     return `in ${daysUntil} days`;
+  };
+
+  const saveAsCollection = async (
+    name: string,
+    memoryIds: string[],
+    isForYou: boolean,
+  ) => {
+    if (isForYou) setSavingForYou(true);
+    else setSavingContinue(true);
+
+    try {
+      const token = await getToken();
+      if (!token) throw new Error('Not authenticated');
+
+      // Create the collection
+      const newCollection = await createCollection(token, { name });
+
+      // Add all memories to the collection
+      let failedMemories = 0;
+      for (const memoryId of memoryIds) {
+        try {
+          await addMemoryToCollection(token, newCollection.id, memoryId);
+        } catch (error) {
+          failedMemories++;
+        }
+      }
+
+      // Check if all memories were added successfully
+      if (failedMemories > 0) {
+        Alert.alert(
+          'Partial Error',
+          `Collection "${name}" was created, but ${failedMemories} of ${memoryIds.length} memories failed to add. Please add them manually in the collection.`,
+          [
+            {
+              text: 'View Collection',
+              onPress: () => {
+                queryClient.invalidateQueries({ queryKey: ['collections'] });
+                queryClient.invalidateQueries({ queryKey: ['forYouSuggestion'] });
+                queryClient.invalidateQueries({ queryKey: ['continueSuggestion'] });
+                router.push(`/collections/${newCollection.id}`);
+              },
+            },
+            { text: 'Cancel', style: 'cancel' },
+          ],
+        );
+      } else {
+        // Success
+        queryClient.invalidateQueries({ queryKey: ['collections'] });
+        queryClient.invalidateQueries({ queryKey: ['forYouSuggestion'] });
+        queryClient.invalidateQueries({ queryKey: ['continueSuggestion'] });
+
+        Alert.alert(
+          'Success',
+          `Created collection "${name}" with ${memoryIds.length} memories`,
+          [
+            {
+              text: 'View Collection',
+              onPress: () => {
+                router.push(`/collections/${newCollection.id}`);
+              },
+            },
+            { text: 'Done', style: 'cancel' },
+          ],
+        );
+      }
+    } catch (error) {
+      Alert.alert(
+        'Error',
+        `Failed to create collection: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+    } finally {
+      if (isForYou) setSavingForYou(false);
+      else setSavingContinue(false);
+    }
   };
 
   const recentMemories = (memories || []).slice(0, 10);
@@ -121,7 +199,7 @@ export default function HomeScreen() {
                   <Text className="text-lg font-semibold text-gray-900 mb-3">For You</Text>
                   <TouchableOpacity
                     onPress={() => handleSuggestionPress(forYouSuggestion.category)}
-                    className="bg-purple-50 border border-purple-200 rounded-lg p-4"
+                    className="bg-purple-50 border border-purple-200 rounded-lg p-4 mb-2"
                   >
                     <Text className="text-base font-semibold text-gray-900 mb-1">
                       {forYouSuggestion.category}
@@ -129,6 +207,28 @@ export default function HomeScreen() {
                     <Text className="text-sm text-gray-600">
                       {forYouSuggestion.count} item{forYouSuggestion.count > 1 ? 's' : ''} in this category
                     </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() =>
+                      saveAsCollection(
+                        forYouSuggestion.category,
+                        forYouSuggestion.memoryIds,
+                        true,
+                      )
+                    }
+                    disabled={savingForYou}
+                    className={`rounded-lg py-2 px-4 flex-row items-center justify-center ${
+                      savingForYou ? 'bg-purple-200' : 'bg-purple-600'
+                    }`}
+                  >
+                    {savingForYou ? (
+                      <>
+                        <ActivityIndicator size="small" color="white" style={{ marginRight: 8 }} />
+                        <Text className="text-white text-sm font-semibold">Saving...</Text>
+                      </>
+                    ) : (
+                      <Text className="text-white text-sm font-semibold">Save as Collection</Text>
+                    )}
                   </TouchableOpacity>
                 </View>
               )}
@@ -139,7 +239,7 @@ export default function HomeScreen() {
                   <Text className="text-lg font-semibold text-gray-900 mb-3">Continue</Text>
                   <TouchableOpacity
                     onPress={() => handleSuggestionPress(continueSuggestion.topic)}
-                    className="bg-green-50 border border-green-200 rounded-lg p-4"
+                    className="bg-green-50 border border-green-200 rounded-lg p-4 mb-2"
                   >
                     <Text className="text-base font-semibold text-gray-900 mb-1">
                       {continueSuggestion.topic}
@@ -147,6 +247,28 @@ export default function HomeScreen() {
                     <Text className="text-sm text-gray-600">
                       {continueSuggestion.count} item{continueSuggestion.count > 1 ? 's' : ''} on this topic
                     </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() =>
+                      saveAsCollection(
+                        continueSuggestion.topic,
+                        continueSuggestion.memoryIds,
+                        false,
+                      )
+                    }
+                    disabled={savingContinue}
+                    className={`rounded-lg py-2 px-4 flex-row items-center justify-center ${
+                      savingContinue ? 'bg-green-200' : 'bg-green-600'
+                    }`}
+                  >
+                    {savingContinue ? (
+                      <>
+                        <ActivityIndicator size="small" color="white" style={{ marginRight: 8 }} />
+                        <Text className="text-white text-sm font-semibold">Saving...</Text>
+                      </>
+                    ) : (
+                      <Text className="text-white text-sm font-semibold">Save as Collection</Text>
+                    )}
                   </TouchableOpacity>
                 </View>
               )}
