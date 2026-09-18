@@ -1,6 +1,7 @@
 import { Injectable, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { resolveTitleFromFields } from '../../common/resolve-title.util';
 
 @Injectable()
 export class EngagementService {
@@ -305,5 +306,100 @@ export class EngagementService {
         feedback,
       },
     });
+  }
+
+  async getNearMe(
+    userId: string,
+    latitude: number,
+    longitude: number,
+    radiusKm: number = 5,
+  ) {
+    interface NearMeRawResult {
+      id: string;
+      title: string;
+      summary: string;
+      sourceUri: string | null;
+      distance: number;
+      createdAt: Date;
+    }
+
+    type TitleInference = Prisma.AIInferenceGetPayload<Record<string, never>>;
+    type TitleConfirmation = Prisma.UserConfirmationGetPayload<Record<string, never>>;
+
+    // Haversine distance formula: distance in km
+    const rawResults = await this.prisma.$queryRaw<NearMeRawResult[]>`
+      SELECT
+        m."id",
+        m."title",
+        summary_inf."valueJson" #>> '{}' AS "summary",
+        m."sourceUri",
+        (
+          6371 * acos(
+            cos(radians(${latitude})) * cos(radians(m."latitude")) *
+            cos(radians(m."longitude") - radians(${longitude})) +
+            sin(radians(${latitude})) * sin(radians(m."latitude"))
+          )
+        ) AS "distance",
+        m."createdAt"
+      FROM "memories" m
+      LEFT JOIN LATERAL (
+        SELECT "valueJson" FROM "ai_inferences" ai
+        WHERE ai."memoryId" = m."id" AND ai."field" = 'summary'
+        ORDER BY ai."createdAt" DESC
+        LIMIT 1
+      ) AS summary_inf ON true
+      WHERE m."userId" = ${userId}
+        AND m."lifecycleState" != 'deleted'
+        AND m."securityScope" != 'vault'
+        AND m."latitude" IS NOT NULL
+        AND m."longitude" IS NOT NULL
+        AND (
+          6371 * acos(
+            cos(radians(${latitude})) * cos(radians(m."latitude")) *
+            cos(radians(m."longitude") - radians(${longitude})) +
+            sin(radians(${latitude})) * sin(radians(m."latitude"))
+          )
+        ) <= ${radiusKm}
+      ORDER BY "distance" ASC
+      LIMIT 20
+    `;
+
+    // Fetch title inferences and confirmations for title resolution
+    const memoryIds = rawResults.map((r: NearMeRawResult) => r.id);
+    const titleInferences = memoryIds.length > 0
+      ? await this.prisma.aIInference.findMany({
+          where: {
+            memoryId: { in: memoryIds },
+            field: 'title',
+          },
+        })
+      : [];
+
+    const titleConfirmations = memoryIds.length > 0
+      ? await this.prisma.userConfirmation.findMany({
+          where: {
+            memoryId: { in: memoryIds },
+            field: 'title',
+          },
+        })
+      : [];
+
+    // Resolve titles using precedence: UserConfirmation > AIInference > raw title
+    const results = rawResults.map((result: NearMeRawResult) => {
+      const inferences = titleInferences.filter((inf: TitleInference) => inf.memoryId === result.id);
+      const confirmations = titleConfirmations.filter((conf: TitleConfirmation) => conf.memoryId === result.id);
+      const resolvedTitle = resolveTitleFromFields(
+        result.title,
+        inferences,
+        confirmations,
+      );
+
+      return {
+        ...result,
+        title: resolvedTitle,
+      };
+    });
+
+    return results;
   }
 }

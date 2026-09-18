@@ -3,11 +3,32 @@ import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { View, TextInput, TouchableOpacity, Text, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import * as Location from 'expo-location';
 import { v4 as uuidv4 } from 'uuid';
 import { createMemory } from '@/src/api/client';
 import { uploadPhotoToMemory } from '@/src/utils/photo-upload';
 
 type CaptureMode = 'text' | 'url' | 'photo';
+
+const requestLocation = async (): Promise<{ latitude: number; longitude: number } | null> => {
+  try {
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== 'granted') {
+      return null; // Permission denied, proceed without location
+    }
+
+    const location = await Location.getCurrentPositionAsync({
+      accuracy: Location.Accuracy.Balanced,
+    });
+
+    return {
+      latitude: location.coords.latitude,
+      longitude: location.coords.longitude,
+    };
+  } catch (err) {
+    return null; // Error getting location, proceed without it
+  }
+};
 
 export default function CaptureScreen() {
   const { getToken } = useAuth();
@@ -30,6 +51,7 @@ export default function CaptureScreen() {
     try {
       const token = await getToken();
       const idempotencyKey = uuidv4();
+      const location = await requestLocation();
 
       const memory = await createMemory(
         token,
@@ -37,6 +59,8 @@ export default function CaptureScreen() {
         idempotencyKey,
         undefined,
         title || input.substring(0, 100),
+        location?.latitude,
+        location?.longitude,
       );
 
       router.push(`/memory/${memory.id}`);
@@ -58,6 +82,7 @@ export default function CaptureScreen() {
     try {
       const token = await getToken();
       const idempotencyKey = uuidv4();
+      const location = await requestLocation();
 
       const memory = await createMemory(
         token,
@@ -65,6 +90,8 @@ export default function CaptureScreen() {
         idempotencyKey,
         input.trim(),
         title || input.trim(),
+        location?.latitude,
+        location?.longitude,
       );
 
       router.push(`/memory/${memory.id}`);
@@ -123,12 +150,15 @@ export default function CaptureScreen() {
         throw new Error('Authentication or image data missing');
       }
 
+      const location = await requestLocation();
       const mimeType = asset.mimeType || 'image/jpeg';
       const memoryId = await uploadPhotoToMemory(
         token,
         asset.uri,
         mimeType,
         title || `Photo ${new Date().toLocaleString()}`,
+        location?.latitude,
+        location?.longitude,
       );
 
       router.push(`/memory/${memoryId}`);

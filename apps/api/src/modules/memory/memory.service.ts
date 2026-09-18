@@ -42,6 +42,8 @@ export class MemoryService {
         idempotencyKey: dto.idempotencyKey,
         processingState: 'queued',
         lifecycleState: 'active',
+        latitude: dto.latitude,
+        longitude: dto.longitude,
       },
     });
 

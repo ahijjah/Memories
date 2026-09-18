@@ -7,6 +7,8 @@ export async function uploadPhotoToMemory(
   fileUri: string,
   mimeType: string,
   title?: string,
+  latitude?: number,
+  longitude?: number,
 ): Promise<string> {
   const idempotencyKey = uuidv4();
 
@@ -16,6 +18,8 @@ export async function uploadPhotoToMemory(
     idempotencyKey,
     undefined,
     title || `Photo ${new Date().toLocaleString()}`,
+    latitude,
+    longitude,
   );
 
   const uploadTarget = await createUpload(token, memory.id, mimeType);

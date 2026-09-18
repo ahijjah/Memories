@@ -131,12 +131,16 @@ export async function createMemory(
   idempotencyKey: string,
   sourceUri?: string,
   title?: string,
+  latitude?: number,
+  longitude?: number,
 ): Promise<Memory> {
   return makeRequest('/memories', 'POST', token, {
     sourceType,
     idempotencyKey,
     sourceUri,
     title,
+    latitude,
+    longitude,
   });
 }
 
@@ -418,6 +422,30 @@ export interface ContinueSuggestion {
 
 export async function getContinueSuggestions(token: string | null): Promise<ContinueSuggestion | null> {
   return makeRequest('/engagement/continue', 'GET', token);
+}
+
+export interface NearMeResult {
+  id: string;
+  title: string;
+  summary: string;
+  sourceUri: string | null;
+  distance: number;
+  createdAt: string;
+}
+
+export async function getNearMe(
+  token: string | null,
+  latitude: number,
+  longitude: number,
+  radiusKm?: number,
+): Promise<NearMeResult[]> {
+  const params = new URLSearchParams();
+  params.append('latitude', latitude.toString());
+  params.append('longitude', longitude.toString());
+  if (radiusKm !== undefined) {
+    params.append('radiusKm', radiusKm.toString());
+  }
+  return makeRequest(`/engagement/near-me?${params.toString()}`, 'GET', token);
 }
 
 export interface AccountExportData {

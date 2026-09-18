@@ -127,6 +127,8 @@ model Memory {
   deletedAt       DateTime?
   lastViewedAt    DateTime?
   viewCount       Int              @default(0)
+  latitude        Float?
+  longitude       Float?
 
   assets            MemoryAsset[]
   aiInferences      AIInference[]

@@ -71,6 +71,14 @@ export default function TabsLayout() {
           headerShown: true,
         }}
       />
+      <Tabs.Screen
+        name="near-me"
+        options={{
+          href: null,
+          title: 'Near Me',
+          headerShown: true,
+        }}
+      />
     </Tabs>
   );
 }
