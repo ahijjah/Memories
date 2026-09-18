@@ -470,7 +470,7 @@ export default function MemoryDetailScreen() {
   // Check if banner should show: URL-sourced event with no date and no existing assets
   const shouldShowPhotoPrompt = memory
     && memory.sourceType === 'url'
-    && memory.memoryType === 'event'
+    && memory.memoryType?.toLowerCase() === 'event'
     && !aiDate
     && (!memory.assets || memory.assets.length === 0);
 

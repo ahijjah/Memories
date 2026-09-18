@@ -336,6 +336,36 @@ export class AiProcessor extends WorkerHost {
         );
       }
 
+      if (result.dateYearInferred) {
+        inferencesToCreate.push(
+          this.prisma.aIInference.create({
+            data: {
+              memoryId,
+              field: 'dateYearInferred',
+              valueJson: true,
+              confidence: result.fieldConfidence?.dateYearInferred ?? result.confidence,
+              modelVersion: result.modelVersion,
+              provenance: 'llm_extraction',
+            },
+          }),
+        );
+      }
+
+      if (result.eventTime) {
+        inferencesToCreate.push(
+          this.prisma.aIInference.create({
+            data: {
+              memoryId,
+              field: 'eventTime',
+              valueJson: result.eventTime,
+              confidence: result.fieldConfidence?.eventTime ?? result.confidence,
+              modelVersion: result.modelVersion,
+              provenance: 'llm_extraction',
+            },
+          }),
+        );
+      }
+
       // P0.3: Product/Offer/Place fields — store only when present
       if (result.brand) {
         inferencesToCreate.push(

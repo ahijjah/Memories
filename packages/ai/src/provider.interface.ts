@@ -35,6 +35,8 @@ export interface MemoryUnderstanding {
   entities?: string[]; // people/brands/orgs mentioned
   location?: string; // free-text location if applicable
   date?: string; // ISO date string — event date, expiry, publication date, etc.
+  eventTime?: string; // explicit time of an event (e.g., "6:00 PM", "18:00"). Only if explicitly present.
+  dateYearInferred?: boolean; // true if the date was partially specified (month/day) and year was deterministically resolved
 
   // P0.3: Product/Offer/Place fields — SC-P1 card types
   brand?: string; // product brand (e.g. "Apple", "Nike")
@@ -62,6 +64,8 @@ export interface MemoryUnderstanding {
     entities?: number; // 0..1, confidence specifically for entities extraction
     location?: number; // 0..1, confidence specifically for location extraction
     date?: number; // 0..1, confidence specifically for date extraction
+    eventTime?: number; // 0..1, confidence specifically for eventTime extraction
+    dateYearInferred?: number; // 0..1, confidence in the year resolution if inferred
     brand?: number; // 0..1, confidence specifically for brand extraction
     model?: number; // 0..1, confidence specifically for model extraction
     price?: number; // 0..1, confidence specifically for price extraction

@@ -17,6 +17,10 @@ const SYSTEM_PROMPT = `You extract structured metadata from a saved "Memory" for
 Respond with ONLY a JSON object, no prose, no markdown fences, with these required fields:
 {"title": string, "summary": string, "type": "GENERIC"|"EVENT"|"PLACE"|"PRODUCT"|"ARTICLE_LEARNING"|"VIDEO_SOCIAL"|"OFFER"|"DOCUMENT", "topics": string[], "confidence": number between 0 and 1}
 
+CRITICAL REQUIREMENTS FOR EXTRACTION QUALITY:
+1. Summary must always be complete, grammatically whole sentences — never truncated mid-phrase or cut off mid-word. Complete all thoughts fully.
+2. Location extraction is INDEPENDENT and must always be attempted, regardless of success or difficulty with any other field (especially date resolution). If a location is stated or displayed, extract it even if date extraction failed or was ambiguous.
+
 Type guidance (Smart Memory Card Framework):
 - "EVENT": A specific event, occasion, or gathering (conference, concert, meetup, party, holiday, birthday)
 - "PLACE": A location, venue, restaurant, attraction, or destination
@@ -31,7 +35,8 @@ OPTIONAL fields (only include if genuinely present/inferable, NEVER hallucinate)
 - "intent": "visit"|"buy"|"read"|"attend"|"reference" — user's likely action with this memory
 - "entities": string[] — people, brands, organizations mentioned in text or visibly displayed in images (empty array if none). Read any visible text within attached images (e.g., names on a poster, credits on a document) carefully, just as you would read caption text.
 - "location": string — geographic location if mentioned in text or visibly labeled in images (e.g., text on a map, location name printed on an event flyer). Only extract locations that are explicitly stated or displayed, never infer from context. Omit if not present.
-- "date": string — ISO date string ONLY if an explicit date or clearly identifiable date reference (e.g., "November 13", "next Friday", a specific day/month/year) appears in the text OR is visibly printed/displayed within an attached image (e.g., a date on an event flyer, poster, ticket, or document). CRITICAL: If no explicit date is visible in either text or images, DO NOT include a date field — omit it entirely. Never infer, estimate, or guess a date from context, tone, or unrelated numbers.
+- "date": string — ISO date string if an explicit date or clearly identifiable date reference appears in text or images. If only month and day (and optionally day-of-week) are explicitly stated but the year is absent, resolve the year deterministically: use the nearest future occurrence of that month/day relative to the memory's capture date, then include a "dateYearInferred": true field. For example: if source says "Sunday, September 20" and today is 2026-09-18, resolve to 2026-09-20. If today is 2026-09-22, resolve to 2027-09-20. Only omit the date field if no explicit date, month/day, or day-of-week reference is present in text or images.
+- "eventTime": string — the explicit time of an event (e.g., "6:00 PM", "18:00", "3:30 PM"). Only if an explicit time is clearly stated in text or visibly displayed in images (e.g., on an event flyer, ticket, or document). Never invent a time. Omit if no explicit time is present.
 
 Product/Offer/Place fields (only include if explicitly present in text or visibly displayed in images, NEVER infer or estimate):
 - "brand": string — product brand (e.g. "Apple", "Nike"). Only if explicitly mentioned or visibly displayed.
@@ -59,6 +64,8 @@ Per-field confidence (only include for fields you actually included above):
   - "entities": number between 0 and 1 (how confident are you in the entities/people you identified?)
   - "location": number between 0 and 1 (how confident are you in the location you extracted?)
   - "date": number between 0 and 1 (how confident are you in the date you extracted?)
+  - "eventTime": number between 0 and 1 (how confident are you in the event time you extracted?)
+  - "dateYearInferred": number between 0 and 1 (how confident are you in the year resolution if date year was inferred?)
   - "brand": number between 0 and 1 (how confident are you in the brand?)
   - "model": number between 0 and 1 (how confident are you in the model?)
   - "price": number between 0 and 1 (how confident are you in the price?)
