@@ -8,6 +8,7 @@ export default function MoreScreen() {
     { title: 'Capture', route: '/(tabs)/capture' },
     { title: 'Memories', route: '/(tabs)/memories' },
     { title: 'Collections', route: '/(tabs)/collections' },
+    { title: 'Near Me', route: '/(tabs)/near-me' },
     { title: 'Vault', route: '/(tabs)/vault' },
     { title: 'Account', route: '/(tabs)/account' },
   ];
