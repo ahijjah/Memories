@@ -58,6 +58,19 @@
         {
           "faceIDPermission": "Allow Memories to use Face ID to secure your Vault."
         }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Memories needs camera access to capture photos of your memories."
+        }
+      ],
+      "expo-screen-capture",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Memories uses your location to save where memories were captured and show you nearby memories."
+        }
       ]
     ],
     "extra": {
