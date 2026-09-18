@@ -65,7 +65,6 @@
           "cameraPermission": "Memories needs camera access to capture photos of your memories."
         }
       ],
-      "expo-screen-capture",
       [
         "expo-location",
         {
