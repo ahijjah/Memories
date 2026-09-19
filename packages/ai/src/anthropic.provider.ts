@@ -107,18 +107,29 @@ export class AnthropicAiProvider implements AiProvider {
   }
 
   async understand(input: UnderstandInput): Promise<MemoryUnderstanding> {
+    // Build reference date context for date resolution
+    const referenceContext = `Reference date for date resolution: ${input.capturedAt}\n(Use this as "today" when resolving partial dates like "next Friday" or "September 20" without a year)`;
+
     // Build multimodal content when images are present
     let content: string | any[];
     if (input.images && input.images.length > 0) {
       // Build one image block per entry in the images array
-      const blocks: any[] = input.images.map((img) => ({
-        type: 'image',
-        source: {
-          type: 'base64',
-          media_type: img.mediaType,
-          data: img.base64,
+      const blocks: any[] = [
+        // Add reference date context first
+        {
+          type: 'text',
+          text: referenceContext,
         },
-      }));
+        // Then add images
+        ...input.images.map((img) => ({
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: img.mediaType,
+            data: img.base64,
+          },
+        })),
+      ];
 
       // Add text block at the end
       blocks.push({
@@ -131,9 +142,11 @@ export class AnthropicAiProvider implements AiProvider {
       content = blocks;
     } else {
       // Text-only content
-      content = input.sourceUri
+      const sourceAndContent = input.sourceUri
         ? `Source: ${input.sourceUri}\n\nContent:\n${input.text}`
         : input.text;
+
+      content = `${referenceContext}\n\n${sourceAndContent}`;
     }
 
     const response = await this.client.messages.create({

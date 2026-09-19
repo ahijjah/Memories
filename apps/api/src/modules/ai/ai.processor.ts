@@ -238,6 +238,7 @@ export class AiProcessor extends WorkerHost {
         text: inputText,
         sourceUri: memory.sourceUri ?? undefined,
         images: images.length > 0 ? images : undefined,
+        capturedAt: memory.capturedAt.toISOString(),
       });
 
       // Store as AIInference records, never overwriting the original capture

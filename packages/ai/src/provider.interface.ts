@@ -89,6 +89,8 @@ export interface UnderstandInput {
   sourceUri?: string;
   /** Array of images for vision analysis (e.g. for multi-page documents). */
   images?: { base64: string; mediaType: string }[];
+  /** ISO date when the memory was captured — used as reference for resolving partial/relative dates. */
+  capturedAt: string;
 }
 
 export interface ContextMemory {
