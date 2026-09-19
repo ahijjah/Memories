@@ -57,6 +57,7 @@ export interface MemoryUnderstanding {
 
   // P1.1: JSON-LD structured data
   author?: string; // the article/content's byline author, from structured data or visible content
+  publishedDate?: string; // ISO date string — when content was originally published (articles, blog posts), distinct from `date` which covers events/expiry/document-issue semantics
 
   // P0.2a: Per-field confidence — separate confidence for each optional field (only for fields included)
   fieldConfidence?: {
@@ -80,6 +81,7 @@ export interface MemoryUnderstanding {
     documentNumber?: number; // 0..1, confidence specifically for documentNumber extraction
     issueDate?: number; // 0..1, confidence specifically for issueDate extraction
     author?: number; // 0..1, confidence specifically for author extraction
+    publishedDate?: number; // 0..1, confidence specifically for publishedDate extraction
   };
 }
 

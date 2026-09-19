@@ -579,6 +579,22 @@ export class AiProcessor extends WorkerHost {
         );
       }
 
+      // P1.1: JSON-LD structured data — publishedDate extraction (articles/blog posts)
+      if (result.publishedDate) {
+        inferencesToCreate.push(
+          this.prisma.aIInference.create({
+            data: {
+              memoryId,
+              field: 'publishedDate',
+              valueJson: result.publishedDate,
+              confidence: result.fieldConfidence?.publishedDate ?? result.confidence,
+              modelVersion: result.modelVersion,
+              provenance: 'llm_extraction',
+            },
+          }),
+        );
+      }
+
       inferencesToCreate.push(
         this.prisma.memory.update({
           where: { id: memoryId },

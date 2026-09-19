@@ -5,6 +5,8 @@ interface ArticleLearningCardProps {
   aiTopics: any;
   aiIntent: any;
   aiEntities: any;
+  aiAuthor?: any;
+  aiPublishedDate?: any;
 }
 
 export function ArticleLearningCard({
@@ -12,9 +14,30 @@ export function ArticleLearningCard({
   aiTopics,
   aiIntent,
   aiEntities,
+  aiAuthor,
+  aiPublishedDate,
 }: ArticleLearningCardProps) {
   return (
     <>
+      {/* Article metadata (author + publication date) */}
+      {(aiAuthor || aiPublishedDate) ? (
+        <View className="mb-6">
+          <Text className="text-sm text-gray-600">
+            {aiAuthor && aiPublishedDate ? (
+              <>
+                <Text className="font-medium">By {aiAuthor}</Text>
+                <Text className="text-gray-500"> · </Text>
+                <Text className="text-gray-500">{aiPublishedDate}</Text>
+              </>
+            ) : aiAuthor ? (
+              <Text className="font-medium">By {aiAuthor}</Text>
+            ) : (
+              <Text className="text-gray-500">{aiPublishedDate}</Text>
+            )}
+          </Text>
+        </View>
+      ) : null}
+
       {/* Summary (prominent) */}
       {aiSummary ? (
         <View className="mb-6">

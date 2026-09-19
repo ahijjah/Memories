@@ -522,6 +522,8 @@ export default function VaultDetailScreen() {
   const aiOfferPrice = getFieldValue('offerPrice');
   const aiDiscount = getFieldValue('discount');
   const aiPromoCode = getFieldValue('promoCode');
+  const aiAuthor = getFieldValue('author');
+  const aiPublishedDate = getFieldValue('publishedDate');
 
   // Check if banner should show: URL-sourced event with no date and no existing assets (vault memories are excluded since reprocessing is blocked for vault content)
   const shouldShowPhotoPrompt = memory
@@ -824,6 +826,8 @@ export default function VaultDetailScreen() {
                   aiTopics={aiTopics}
                   aiIntent={aiIntent}
                   aiEntities={aiEntities}
+                  aiAuthor={aiAuthor}
+                  aiPublishedDate={aiPublishedDate}
                 />
               );
             case 'video_social':
