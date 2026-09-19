@@ -595,6 +595,20 @@ export class AiProcessor extends WorkerHost {
         );
       }
 
+      // P0.2a: Classification type confidence — store as AIInference for frontend action gating
+      inferencesToCreate.push(
+        this.prisma.aIInference.create({
+          data: {
+            memoryId,
+            field: 'type',
+            valueJson: result.type,
+            confidence: result.confidence,
+            modelVersion: result.modelVersion,
+            provenance: 'llm_extraction',
+          },
+        }),
+      );
+
       inferencesToCreate.push(
         this.prisma.memory.update({
           where: { id: memoryId },

@@ -22,7 +22,20 @@ export function getActionsForMemory(
     return inferences[0].valueJson;
   };
 
-  const memoryType = getFieldValue('type') || memory.memoryType || 'other';
+  // Helper to extract field confidence
+  const getFieldConfidence = (field: string): number | null => {
+    if (!aiInferences) return null;
+    const inference = aiInferences.find((inf) => inf.field === field);
+    return inference?.confidence ?? null;
+  };
+
+  // Get type with confidence threshold check: treat missing/low confidence as unreliable
+  const typeInferenceValue = getFieldValue('type');
+  const typeConfidence = getFieldConfidence('type');
+  const hasHighConfidenceType = typeConfidence !== null && typeConfidence >= 0.7;
+  // Use high-confidence type, fallback to memory.memoryType if available, otherwise 'other'
+  const memoryType = hasHighConfidenceType ? typeInferenceValue : (memory.memoryType || 'other');
+
   const location = getFieldValue('location');
   const date = getFieldValue('date');
 
@@ -46,6 +59,12 @@ export function getActionsForMemory(
       kind: 'maps',
       payload: { location },
     });
+  }
+
+  // Type-specific actions: only if classification confidence is high (>= 0.7)
+  // Low-confidence classifications skip type-specific actions, preserving generic field-based actions
+  if (!hasHighConfidenceType) {
+    return actions;
   }
 
   // Type-specific actions (handles both legacy lowercase and new uppercase taxonomy)
