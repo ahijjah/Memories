@@ -71,6 +71,36 @@ describe('getActionsForMemory', () => {
       expect(calendarAction?.kind).toBe('calendar');
     });
 
+    it('should show neutral "Add to Calendar" label (not Expiry Reminder) for low-confidence DOCUMENT with date', () => {
+      const memory = createMemory({ memoryType: 'DOCUMENT' });
+      const inferences = [
+        createInference('type', 'DOCUMENT', 0.5), // Low confidence
+        createInference('date', '2026-12-31', 0.9),
+      ];
+
+      const actions = getActionsForMemory(memory, inferences);
+      const calendarAction = actions.find((a) => a.kind === 'calendar');
+      const expiryAction = actions.find((a) => a.label === 'Expiry Reminder');
+
+      expect(calendarAction).toBeDefined();
+      expect(calendarAction?.label).toBe('Add to Calendar'); // Neutral label when confidence is low
+      expect(expiryAction).toBeUndefined(); // No Expiry Reminder for low-confidence DOCUMENT
+    });
+
+    it('should show neutral "Open Map" label (not Open Location) for low-confidence EVENT with location', () => {
+      const memory = createMemory({ memoryType: 'EVENT' });
+      const inferences = [
+        createInference('type', 'EVENT', 0.4), // Low confidence
+        createInference('location', 'San Francisco, CA', 0.9),
+      ];
+
+      const actions = getActionsForMemory(memory, inferences);
+      const mapAction = actions.find((a) => a.kind === 'maps');
+
+      expect(mapAction).toBeDefined();
+      expect(mapAction?.label).toBe('Open Map'); // Neutral label when confidence is low, not "Open Location"
+    });
+
     it('should treat missing type confidence as low-confidence (no type-specific actions)', () => {
       const memory = createMemory({ memoryType: 'event' });
       // No type inference provided
@@ -84,7 +114,7 @@ describe('getActionsForMemory', () => {
       expect(shareEventAction).toBeUndefined();
     });
 
-    it('should show location-based actions (Open Location) even with low-confidence classification', () => {
+    it('should show neutral "Open Map" label (not Open Location) for low-confidence EVENT with location', () => {
       const memory = createMemory({ memoryType: 'EVENT' });
       const inferences = [
         createInference('type', 'EVENT', 0.4),
@@ -92,10 +122,11 @@ describe('getActionsForMemory', () => {
       ];
 
       const actions = getActionsForMemory(memory, inferences);
-      const locationAction = actions.find((a) => a.label === 'Open Location');
+      const mapAction = actions.find((a) => a.kind === 'maps');
 
-      expect(locationAction).toBeDefined();
-      expect(locationAction?.kind).toBe('maps');
+      expect(mapAction).toBeDefined();
+      expect(mapAction?.label).toBe('Open Map'); // Neutral label when confidence is low, not "Open Location"
+      expect(mapAction?.kind).toBe('maps');
     });
 
     it('should show Save for Trip when memoryType is PLACE with confidence >= 0.7', () => {

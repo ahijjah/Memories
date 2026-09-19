@@ -33,14 +33,19 @@ export function getActionsForMemory(
   const typeInferenceValue = getFieldValue('type');
   const typeConfidence = getFieldConfidence('type');
   const hasHighConfidenceType = typeConfidence !== null && typeConfidence >= 0.7;
-  // Use high-confidence type, fallback to memory.memoryType if available, otherwise 'other'
-  const memoryType = hasHighConfidenceType ? typeInferenceValue : (memory.memoryType || 'other');
+  // Use high-confidence type only; low confidence uses neutral 'other' (never memory.memoryType,
+  // which is the same untrusted source as the low-confidence inference). This ensures
+  // generic action labels (Add to Calendar vs Expiry Reminder, Open Location vs Open Map)
+  // don't leak the untrusted classification.
+  const memoryType = hasHighConfidenceType ? typeInferenceValue : 'other';
 
   const location = getFieldValue('location');
   const date = getFieldValue('date');
 
   // Field-based actions: these apply across all types based on field presence
   // For date: add "Add to Calendar" unless it's a document (which gets "Expiry Reminder" instead)
+  // isDocumentType uses confidence-gated memoryType, so low-confidence classifications
+  // default to 'other' (neutral) instead of showing "Expiry Reminder"
   const isDocumentType = memoryType === 'document' || memoryType === 'DOCUMENT';
   if (date && !isDocumentType) {
     actions.push({
@@ -52,6 +57,8 @@ export function getActionsForMemory(
 
   // For location: offer "Open Map" for any type that has a location
   // (events call it "Open Location", places call it "Open Map", but the action is the same)
+  // isEventType uses confidence-gated memoryType, so low-confidence EVENT classifications
+  // default to 'other' and show "Open Map" instead of "Open Location"
   const isEventType = memoryType === 'event' || memoryType === 'EVENT';
   if (location) {
     actions.push({
