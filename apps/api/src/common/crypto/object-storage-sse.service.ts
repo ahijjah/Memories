@@ -30,7 +30,10 @@ export class ObjectStorageSseService {
   getSseParams() {
     return {
       SSECustomerAlgorithm: this.algorithm,
-      SSECustomerKey: this.keyBase64,
+      // AWS SDK v3 expects raw bytes (Uint8Array/Buffer) for SSECustomerKey, not base64-encoded string.
+      // It does its own base64 encoding for the signature computation. TypeScript types are overly strict
+      // and claim string-only, but runtime accepts Uint8Array (Buffer is a Uint8Array).
+      SSECustomerKey: this.key as any,
       SSECustomerKeyMD5: this.keyMd5Base64,
     };
   }
