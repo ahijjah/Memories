@@ -278,6 +278,72 @@ describe('getActionsForMemory', () => {
     });
   });
 
+  describe('Phone-based actions (field-based, not type-gated)', () => {
+    it('should show Call and WhatsApp when phone is present', () => {
+      const memory = createMemory({ memoryType: 'PRODUCT' });
+      const inferences = [
+        createInference('type', 'PRODUCT', 0.3), // Low confidence
+        createInference('phone', '555-0100', 0.9),
+      ];
+
+      const actions = getActionsForMemory(memory, inferences);
+      const callAction = actions.find((a) => a.label === 'Call');
+      const whatsappAction = actions.find((a) => a.label === 'WhatsApp');
+
+      expect(callAction).toBeDefined();
+      expect(callAction?.kind).toBe('call');
+      expect(callAction?.payload?.phone).toBe('555-0100');
+
+      expect(whatsappAction).toBeDefined();
+      expect(whatsappAction?.kind).toBe('whatsapp');
+      expect(whatsappAction?.payload?.phone).toBe('555-0100');
+    });
+
+    it('should NOT show Call or WhatsApp when phone is absent', () => {
+      const memory = createMemory({ memoryType: 'PRODUCT' });
+      const inferences = [
+        createInference('type', 'PRODUCT', 0.9),
+      ];
+
+      const actions = getActionsForMemory(memory, inferences);
+      const callAction = actions.find((a) => a.label === 'Call');
+      const whatsappAction = actions.find((a) => a.label === 'WhatsApp');
+
+      expect(callAction).toBeUndefined();
+      expect(whatsappAction).toBeUndefined();
+    });
+
+    it('should show Open Map when serviceArea is present (location absent)', () => {
+      const memory = createMemory({ memoryType: 'PLACE' });
+      const inferences = [
+        createInference('type', 'PLACE', 0.85),
+        createInference('serviceArea', 'Ramallah and surrounding areas', 0.9),
+      ];
+
+      const actions = getActionsForMemory(memory, inferences);
+      const mapAction = actions.find((a) => a.kind === 'maps');
+
+      expect(mapAction).toBeDefined();
+      expect(mapAction?.label).toBe('Open Map');
+      expect(mapAction?.payload?.location).toBe('Ramallah and surrounding areas');
+    });
+
+    it('should prefer location over serviceArea when both present', () => {
+      const memory = createMemory({ memoryType: 'PLACE' });
+      const inferences = [
+        createInference('type', 'PLACE', 0.85),
+        createInference('location', 'Specific Cafe, Ramallah', 0.9),
+        createInference('serviceArea', 'Ramallah and surrounding areas', 0.9),
+      ];
+
+      const actions = getActionsForMemory(memory, inferences);
+      const mapAction = actions.find((a) => a.kind === 'maps');
+
+      expect(mapAction).toBeDefined();
+      expect(mapAction?.payload?.location).toBe('Specific Cafe, Ramallah'); // Specific location preferred
+    });
+  });
+
   describe('Edge cases around 0.7 threshold', () => {
     it('should include type-specific actions at exactly 0.7 confidence', () => {
       const memory = createMemory({ memoryType: 'EVENT' });

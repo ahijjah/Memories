@@ -394,6 +394,19 @@ export default function VaultDetailScreen() {
       case 'ask':
         handleAskAbout(action);
         break;
+      case 'call':
+        Linking.openURL(`tel:${action.payload?.phone}`);
+        break;
+      case 'whatsapp':
+        try {
+          const phone = action.payload?.phone;
+          if (!phone) return;
+          const sanitized = phone.replace(/[^\d+]/g, '');
+          Linking.openURL(`https://wa.me/${sanitized}`);
+        } catch {
+          Alert.alert('Cannot Open', 'Unable to open WhatsApp');
+        }
+        break;
       case 'comingSoon':
         Alert.alert('Coming Soon', action.payload?.message || 'This feature is coming soon');
         break;

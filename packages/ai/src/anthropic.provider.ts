@@ -59,6 +59,10 @@ Content authorship and publication:
 - "author": string — the article/content's byline author or credited creator. Prefer structured data (JSON-LD author field) or explicit byline/credit text in the content. Include the author name only if it's explicitly stated or prominently displayed (e.g., "By Jane Doe", visible byline, author credit line). Do not infer or guess an author from context or metadata. Only if explicitly present.
 - "publishedDate": string — ISO date string — when content was originally published (articles, blog posts, news). Only if explicitly stated (e.g., "Published: January 15, 2026", "Posted on March 3, 2025"). Prefer JSON-LD datePublished field or explicit "Published" text in content. This is DISTINCT from the generic "date" field. Only if explicitly present.
 
+Contact information for services/businesses:
+- "phone": string — explicit contact phone number for a service or business. Include in any format as written/spoken in the source (no normalization). Only if explicitly visible or stated (e.g., "Call 555-0100", "WhatsApp: +1-555-0100", a phone number printed on a business card or flyer). Do not infer or guess a phone number.
+- "serviceArea": string — free-text description of where a service operates or covers (e.g., "Ramallah and surrounding areas", "all of North County", "delivery within 5km radius"). Include only if explicitly stated. DISTINCT from "location" which is a specific place/venue. Do not infer.
+
 Per-field confidence (only include for fields you actually included above):
 - "fieldConfidence": an object with optional properties — include ONLY for fields you populated:
   - "intent": number between 0 and 1 (how confident are you in the intent you extracted?)
@@ -82,6 +86,8 @@ Per-field confidence (only include for fields you actually included above):
   - "issueDate": number between 0 and 1 (how confident are you in the issueDate?)
   - "author": number between 0 and 1 (how confident are you in the author?)
   - "publishedDate": number between 0 and 1 (how confident are you in the publishedDate?)
+  - "phone": number between 0 and 1 (how confident are you in the phone number?)
+  - "serviceArea": number between 0 and 1 (how confident are you in the serviceArea description?)
   Omit any field from fieldConfidence that you didn't include in the optional fields above. For example, if you extracted a brand, price, and discount but no original price, only include {"fieldConfidence": {"brand": 0.95, "price": 0.92, "discount": 0.88}}.
 
 INSTAGRAM POSTS: When text follows the pattern "[number] likes, [number] comments - [username] on [date]: [caption]" (Instagram's standard post-preview format), the [date] in that prefix is the POST'S PUBLISH DATE, not an event date. Do not use it to populate the date field. Only extract a date from the actual caption/content text itself, not from this metadata prefix.

@@ -595,6 +595,38 @@ export class AiProcessor extends WorkerHost {
         );
       }
 
+      // P1.2: Contact information — phone extraction
+      if (result.phone) {
+        inferencesToCreate.push(
+          this.prisma.aIInference.create({
+            data: {
+              memoryId,
+              field: 'phone',
+              valueJson: result.phone,
+              confidence: result.fieldConfidence?.phone ?? result.confidence,
+              modelVersion: result.modelVersion,
+              provenance: 'llm_extraction',
+            },
+          }),
+        );
+      }
+
+      // P1.2: Contact information — serviceArea extraction
+      if (result.serviceArea) {
+        inferencesToCreate.push(
+          this.prisma.aIInference.create({
+            data: {
+              memoryId,
+              field: 'serviceArea',
+              valueJson: result.serviceArea,
+              confidence: result.fieldConfidence?.serviceArea ?? result.confidence,
+              modelVersion: result.modelVersion,
+              provenance: 'llm_extraction',
+            },
+          }),
+        );
+      }
+
       // P0.2a: Classification type confidence — store as AIInference for frontend action gating
       inferencesToCreate.push(
         this.prisma.aIInference.create({

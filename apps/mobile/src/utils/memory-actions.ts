@@ -1,6 +1,6 @@
 import { Memory, AIInference } from '@/src/api/client';
 
-export type ActionKind = 'calendar' | 'maps' | 'share' | 'openUrl' | 'ask' | 'collection' | 'summarize' | 'keyPoints' | 'compare' | 'comingSoon';
+export type ActionKind = 'calendar' | 'maps' | 'share' | 'openUrl' | 'ask' | 'collection' | 'summarize' | 'keyPoints' | 'compare' | 'call' | 'whatsapp' | 'comingSoon';
 
 export interface MemoryAction {
   label: string;
@@ -41,6 +41,8 @@ export function getActionsForMemory(
 
   const location = getFieldValue('location');
   const date = getFieldValue('date');
+  const phone = getFieldValue('phone');
+  const serviceArea = getFieldValue('serviceArea');
 
   // Field-based actions: these apply across all types based on field presence
   // For date: add "Add to Calendar" unless it's a document (which gets "Expiry Reminder" instead)
@@ -55,16 +57,33 @@ export function getActionsForMemory(
     });
   }
 
-  // For location: offer "Open Map" for any type that has a location
+  // For location or service area: offer "Open Map" for any type that has a location or service area
   // (events call it "Open Location", places call it "Open Map", but the action is the same)
   // isEventType uses confidence-gated memoryType, so low-confidence EVENT classifications
   // default to 'other' and show "Open Map" instead of "Open Location"
+  // serviceArea enables map actions even when only a coverage area (not a specific venue) is present
+  const effectiveLocation = location || serviceArea;
   const isEventType = memoryType === 'event' || memoryType === 'EVENT';
-  if (location) {
+  if (effectiveLocation) {
     actions.push({
       label: isEventType ? 'Open Location' : 'Open Map',
       kind: 'maps',
-      payload: { location },
+      payload: { location: effectiveLocation },
+    });
+  }
+
+  // Phone-based actions: field-based, not gated by classification confidence
+  // Presence of phone is the relevant signal, not the memory type
+  if (phone) {
+    actions.push({
+      label: 'Call',
+      kind: 'call',
+      payload: { phone },
+    });
+    actions.push({
+      label: 'WhatsApp',
+      kind: 'whatsapp',
+      payload: { phone },
     });
   }
 

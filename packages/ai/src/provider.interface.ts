@@ -59,6 +59,10 @@ export interface MemoryUnderstanding {
   author?: string; // the article/content's byline author, from structured data or visible content
   publishedDate?: string; // ISO date string — when content was originally published (articles, blog posts), distinct from `date` which covers events/expiry/document-issue semantics
 
+  // P1.2: Contact information for services/businesses
+  phone?: string; // explicit contact phone number — any format as written in the source (no normalization at extraction time). Only if explicitly visible or stated in content.
+  serviceArea?: string; // free-text description of where a service operates (e.g. "Ramallah and surrounding areas", "all of North County"). Distinct from `location` which is a specific place/venue. Only if explicitly stated.
+
   // P0.2a: Per-field confidence — separate confidence for each optional field (only for fields included)
   fieldConfidence?: {
     intent?: number; // 0..1, confidence specifically for the intent field
@@ -82,6 +86,8 @@ export interface MemoryUnderstanding {
     issueDate?: number; // 0..1, confidence specifically for issueDate extraction
     author?: number; // 0..1, confidence specifically for author extraction
     publishedDate?: number; // 0..1, confidence specifically for publishedDate extraction
+    phone?: number; // 0..1, confidence specifically for phone extraction
+    serviceArea?: number; // 0..1, confidence specifically for serviceArea extraction
   };
 }
 
