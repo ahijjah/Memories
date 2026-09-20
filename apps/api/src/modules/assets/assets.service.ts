@@ -38,6 +38,12 @@ export class AssetsService {
       region: 'us-east-1',
       credentials: { accessKeyId, secretAccessKey },
       forcePathStyle: true,
+      // Disable automatic checksum calculation for presigned URLs.
+      // The mobile client (expo-file-system.FileSystem.uploadAsync) is a non-SDK HTTP client
+      // that cannot compute or send AWS SDK checksums. MinIO validates checksums and rejects
+      // mismatches with 400. Setting requestChecksumCalculation to 'WHEN_REQUIRED' ensures
+      // checksums are only added if the service explicitly requires them, not by default.
+      requestChecksumCalculation: 'WHEN_REQUIRED',
     });
   }
 
