@@ -36,10 +36,9 @@ export async function uploadPhotoToMemory(
   });
 
   if (uploadResult.status !== 200) {
-    const bodyText = uploadResult.body || '(empty)';
-    console.error(`[photo-upload] Asset upload failed: status=${uploadResult.status}, body=${bodyText}`);
+    console.error(`[photo-upload] uploadPhotoToMemory failed: status ${uploadResult.status}`);
     Alert.alert('Upload Error', `Status ${uploadResult.status}: Check logs for details`);
-    throw new Error(`Asset upload failed: status=${uploadResult.status}`);
+    throw new Error(`Upload failed: ${uploadResult.status}`);
   }
 
   const fileInfo = await FileSystem.getInfoAsync(fileUri, { md5: true });
@@ -76,10 +75,9 @@ export async function uploadPhotoToExistingMemory(
   });
 
   if (uploadResult.status !== 200) {
-    const bodyText = uploadResult.body || '(empty)';
-    console.error(`[photo-upload] Asset upload failed: status=${uploadResult.status}, body=${bodyText}`);
+    console.error(`[photo-upload] uploadPhotoToExistingMemory failed: status ${uploadResult.status}`);
     Alert.alert('Upload Error', `Status ${uploadResult.status}: Check logs for details`);
-    throw new Error(`Asset upload failed: status=${uploadResult.status}`);
+    throw new Error(`Upload failed: ${uploadResult.status}`);
   }
 
   const fileInfo = await FileSystem.getInfoAsync(fileUri, { md5: true });

@@ -62,7 +62,11 @@ export class AssetsService {
       ...sseParams,
     });
 
-    const uploadUrl = await getSignedUrl(this.s3PublicClient, command, { expiresIn: expiresInSeconds });
+    const signedUrl = await getSignedUrl(this.s3PublicClient, command, { expiresIn: expiresInSeconds });
+    // Rewrite signed URL to include /storage/ prefix for public reverse proxy routing.
+    // nginx will strip /storage/ before forwarding to MinIO, so the signature remains valid.
+    // Regex safely inserts /storage after the host without touching the query string.
+    const uploadUrl = signedUrl.replace(/^(https?:\/\/[^/]+)(\/)/, '$1/storage$2');
     const uploadHeaders = this.sseCrypto.getSseHeaders();
 
     return { objectKey, uploadUrl, mimeType, expiresInSeconds, uploadHeaders };
