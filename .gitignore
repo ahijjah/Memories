@@ -38,3 +38,7 @@ Thumbs.db
 
 # Production secrets (belt-and-suspenders, on top of .env* above)
 infra/.env.production
+
+# TLS certificates and private keys (VPS-only, never committed)
+infra/certs/*.key
+infra/certs/internal-ca.crt
