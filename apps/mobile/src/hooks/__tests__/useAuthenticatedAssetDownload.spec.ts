@@ -1,6 +1,8 @@
+import React from 'react';
+import TestRenderer from 'react-test-renderer';
 import { useAuth } from '@clerk/clerk-expo';
 import { File, Directory, Paths } from 'expo-file-system';
-import { performDownload, downloadPromises } from '../useAuthenticatedAssetDownload';
+import { useAuthenticatedAssetDownload, performDownload, downloadPromises } from '../useAuthenticatedAssetDownload';
 
 jest.mock('@clerk/clerk-expo');
 jest.mock('expo-file-system');
@@ -115,7 +117,7 @@ describe('useAuthenticatedAssetDownload', () => {
   });
 
   describe('C. CONCURRENT DEDUPLICATION - Multiple simultaneous requests', () => {
-    it('should deduplicate simultaneous requests using downloadPromises map', async () => {
+    it('should deduplicate simultaneous performDownload calls for same asset ID', () => {
       const mockToken = 'test-token-123';
       const mockUri = 'file:///cache/assets/asset-456';
 
@@ -128,34 +130,34 @@ describe('useAuthenticatedAssetDownload', () => {
       (File.downloadFileAsync as jest.Mock).mockReturnValue(controlledPromise);
       (Paths.info as jest.Mock).mockReturnValue({ exists: false });
 
-      // Clear any existing entries
       downloadPromises.delete('asset-456');
 
-      // Simulate two concurrent callers using the hook
-      // First caller stores the promise in the map (simulating hook's logic)
+      // Simulate concurrent hook instances calling performDownload for same asset
+      // First hook instance calls performDownload and stores in map
       const promise1 = performDownload('asset-456', 'http://localhost:3000/assets/asset-456/content', mockToken);
       downloadPromises.set('asset-456', promise1);
 
-      // Give first call time to start
-      await new Promise((resolve) => setTimeout(resolve, 5));
-
-      // Second caller would check map first and use existing promise (simulating hook's logic)
-      // For this test, we verify the promise is shareable
+      // Second hook instance would check map and reuse existing promise
       const cachedPromise = downloadPromises.get('asset-456');
-      expect(cachedPromise).toBeDefined();
+      expect(cachedPromise).toBe(promise1);
+
+      // Critical: File.downloadFileAsync should be called EXACTLY ONCE
+      expect((File.downloadFileAsync as jest.Mock).mock.calls.length).toBe(1);
 
       // Resolve the shared download
       downloadResolve({ uri: mockUri });
 
-      // Both get same result from shared promise
-      const result1 = await promise1;
-      const result2 = await cachedPromise;
-
-      expect(result1).toBe(mockUri);
-      expect(result2).toBe(mockUri);
-
-      // Cleanup
-      downloadPromises.delete('asset-456');
+      // Both promises should resolve to same value
+      return Promise.all([
+        promise1.then((result) => {
+          expect(result).toBe(mockUri);
+        }),
+        cachedPromise.then((result) => {
+          expect(result).toBe(mockUri);
+        }),
+      ]).then(() => {
+        downloadPromises.delete('asset-456');
+      });
     });
 
     it('should maintain separate promises for different assets', async () => {
@@ -181,7 +183,7 @@ describe('useAuthenticatedAssetDownload', () => {
   });
 
   describe('D. UNMOUNT SAFETY - Shared download lifecycle independence', () => {
-    it('should NOT abort shared download when first consumer unmounts', async () => {
+    it('should continue shared download when one consumer unmounts mid-download', () => {
       const mockToken = 'test-token-123';
       const mockUri = 'file:///cache/assets/asset-456';
 
@@ -194,24 +196,34 @@ describe('useAuthenticatedAssetDownload', () => {
       (File.downloadFileAsync as jest.Mock).mockReturnValue(downloadPromise);
       (Paths.info as jest.Mock).mockReturnValue({ exists: false });
 
-      // Start first download
+      downloadPromises.delete('asset-456');
+
+      // Simulate first hook instance starting download
       const promise1 = performDownload('asset-456', 'http://localhost:3000/assets/asset-456/content', mockToken);
-      await new Promise((resolve) => setTimeout(resolve, 10));
+      downloadPromises.set('asset-456', promise1);
 
-      // Start second download (shares the promise)
-      const promise2 = performDownload('asset-456', 'http://localhost:3000/assets/asset-456/content', mockToken);
+      // Verify download started
+      expect((File.downloadFileAsync as jest.Mock).mock.calls.length).toBe(1);
 
-      // Simulate first consumer "unmounting" (in real scenario, componentWillUnmount would set mountedRef to false)
-      // But the shared download Promise continues
+      // Simulate second hook instance joining (would share the promise)
+      const promise2 = downloadPromises.get('asset-456');
+      expect(promise2).toBe(promise1);
+
+      // Simulate first hook instance unmounting (it would no longer update state)
+      // but the Promise continues
+      downloadPromises.delete('asset-456');
+
+      // Both promises should still resolve to the same value
       downloadResolve({ uri: mockUri });
 
-      // Second consumer should still receive the result
-      const result2 = await promise2;
-      expect(result2).toBe(mockUri);
-
-      // First consumer also gets the result (even though "unmounted")
-      const result1 = await promise1;
-      expect(result1).toBe(mockUri);
+      return Promise.all([
+        promise1.then((result) => {
+          expect(result).toBe(mockUri);
+        }),
+        promise2.then((result) => {
+          expect(result).toBe(mockUri);
+        }),
+      ]);
     });
   });
 

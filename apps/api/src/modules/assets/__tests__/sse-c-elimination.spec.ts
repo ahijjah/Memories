@@ -48,18 +48,23 @@ describe('SSE-C Header Elimination from Read Responses', () => {
     securityScope: 'vault',
   };
 
+  // Helper function that mimics the actual enrichWithAssetUrls behavior
+  function enrichWithAssetUrls(memory: any): any {
+    return {
+      ...memory,
+      assets: memory.assets?.map((asset: any) => ({
+        ...asset,
+        url: `/assets/${asset.id}/content`,
+      })) || [],
+    };
+  }
+
   describe('enrichWithAssetUrls method', () => {
     it('should return assets with url property and WITHOUT headers field', () => {
-      const enriched = { ...mockMemory };
-      if (enriched.assets) {
-        enriched.assets = enriched.assets.map((asset: any) => ({
-          ...asset,
-          url: `/assets/${asset.id}/content`,
-        }));
-      }
+      const enriched = enrichWithAssetUrls(mockMemory);
 
       if (enriched.assets && enriched.assets.length > 0) {
-        const asset = enriched.assets[0] as any;
+        const asset = enriched.assets[0];
         expect(asset).toHaveProperty('url');
         expect(asset.url).toBe(`/assets/${mockAssetId}/content`);
         expect(asset).not.toHaveProperty('headers');
@@ -67,25 +72,13 @@ describe('SSE-C Header Elimination from Read Responses', () => {
     });
 
     it('should NOT contain SSE-C algorithm header in stringified response', () => {
-      const enriched = { ...mockMemory };
-      if (enriched.assets) {
-        enriched.assets = enriched.assets.map((asset: any) => ({
-          ...asset,
-          url: `/assets/${asset.id}/content`,
-        }));
-      }
+      const enriched = enrichWithAssetUrls(mockMemory);
       const assetJson = JSON.stringify(enriched);
       expect(assetJson).not.toContain('x-amz-server-side-encryption-customer-algorithm');
     });
 
     it('should NOT contain SSE-C key material in stringified response', () => {
-      const enriched = { ...mockMemory };
-      if (enriched.assets) {
-        enriched.assets = enriched.assets.map((asset: any) => ({
-          ...asset,
-          url: `/assets/${asset.id}/content`,
-        }));
-      }
+      const enriched = enrichWithAssetUrls(mockMemory);
       const assetJson = JSON.stringify(enriched);
       expect(assetJson).not.toContain('x-amz-server-side-encryption-customer-key');
     });
