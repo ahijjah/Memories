@@ -73,9 +73,11 @@ export class AssetsService {
   }
 
   async completeUpload(memoryId: string, objectKey: string, mimeType: string, checksum?: string, pageIndex?: number) {
+    const sseParams = this.sseCrypto.getSseParams();
     const headCommand = new HeadObjectCommand({
       Bucket: this.bucket,
       Key: objectKey,
+      ...sseParams,
     });
 
     try {
