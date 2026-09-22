@@ -47,6 +47,10 @@ export class AssetsService {
     });
   }
 
+  private addStorageRoutingPrefix(signedUrl: string): string {
+    return signedUrl.replace(/^(https?:\/\/[^/]+)(\/)/, '$1/storage$2');
+  }
+
   async createUploadTarget(memoryId: string, mimeType: string) {
     const memory = await this.prisma.memory.findUnique({ where: { id: memoryId } });
     if (!memory) throw new NotFoundException('Memory not found');
@@ -65,8 +69,7 @@ export class AssetsService {
     const signedUrl = await getSignedUrl(this.s3PublicClient, command, { expiresIn: expiresInSeconds });
     // Rewrite signed URL to include /storage/ prefix for public reverse proxy routing.
     // nginx will strip /storage/ before forwarding to MinIO, so the signature remains valid.
-    // Regex safely inserts /storage after the host without touching the query string.
-    const uploadUrl = signedUrl.replace(/^(https?:\/\/[^/]+)(\/)/, '$1/storage$2');
+    const uploadUrl = this.addStorageRoutingPrefix(signedUrl);
     const uploadHeaders = this.sseCrypto.getSseHeaders();
 
     return { objectKey, uploadUrl, mimeType, expiresInSeconds, uploadHeaders };
@@ -154,14 +157,14 @@ export class AssetsService {
       });
       const url = await getSignedUrl(this.s3PublicClient, command, { expiresIn: expiresInSeconds });
       const headers = this.sseCrypto.getSseHeaders();
-      return { url, headers };
+      return { url: this.addStorageRoutingPrefix(url), headers };
     } else {
       const command = new GetObjectCommand({
         Bucket: this.bucket,
         Key: objectKey,
       });
       const url = await getSignedUrl(this.s3PublicClient, command, { expiresIn: expiresInSeconds });
-      return { url, headers: {} };
+      return { url: this.addStorageRoutingPrefix(url), headers: {} };
     }
   }
 }
