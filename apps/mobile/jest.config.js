@@ -18,6 +18,10 @@ module.exports = {
     '^@clerk/clerk-expo$': '<rootDir>/src/hooks/__tests__/__mocks__/@clerk/clerk-expo.js',
   },
   transformIgnorePatterns: [
-    'node_modules/(?!(@babel)/)',
+    'node_modules/(?!(@babel|@clerk|react-native|expo-file-system)/)',
   ],
+  // Suppress react-test-renderer act() warnings in node environment
+  testEnvironmentOptions: {
+    url: 'http://localhost',
+  },
 };
