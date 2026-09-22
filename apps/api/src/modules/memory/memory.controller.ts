@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
@@ -30,6 +30,19 @@ export class MemoryController {
   @Get(':id')
   async findOne(@CurrentUser() user: CurrentUserPayload, @Param('id') id: string) {
     return this.memoryService.findOneForUser(user.sub, id);
+  }
+
+  @Get(':id/related')
+  async findRelated(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id') id: string,
+    @Query('limit') limit?: string,
+  ) {
+    let parsedLimit = limit ? Math.min(parseInt(limit, 10), 10) : 5;
+    if (isNaN(parsedLimit) || parsedLimit < 1) {
+      parsedLimit = 5;
+    }
+    return this.memoryService.findRelatedForUser(user.sub, id, parsedLimit);
   }
 
   @Get(':id/processing-status')

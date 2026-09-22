@@ -42,6 +42,13 @@ describe('MemoryService', () => {
       findMany: jest.fn(),
       update: jest.fn(),
     },
+    aIInference: {
+      findMany: jest.fn(),
+    },
+    userConfirmation: {
+      findMany: jest.fn(),
+    },
+    $queryRaw: jest.fn(),
   };
   const aiQueueMock = { enqueueUnderstanding: jest.fn() };
   const assetsMock = { getViewUrl: jest.fn().mockReturnValue('http://mock-url') };
@@ -304,15 +311,6 @@ describe('MemoryService', () => {
     // Since we're testing memory.service, we simply verify the code pattern by
     // checking that only non-vault memories get view tracking in memory.service.
     jest.clearAllMocks();
-    const nonVaultMemory = {
-      id: 'mem-1',
-      userId: 'user-1',
-      title: 'Public Memory',
-      securityScope: 'private',
-      assets: [],
-      aiInferences: [],
-      userConfirmations: [],
-    };
 
     // Verify vault-scoped memories are rejected before view tracking
     const vaultMemory = {
@@ -331,5 +329,177 @@ describe('MemoryService', () => {
 
     // Verify update was never called (view tracking never happened for vault)
     expect(prismaMock.memory.update).not.toHaveBeenCalled();
+  });
+
+  describe('findRelatedForUser (P2.1 Related Memories)', () => {
+    it('returns empty array when source memory has no embedding', async () => {
+      const sourceMemory = {
+        id: 'mem-1',
+        userId: 'user-1',
+        title: 'Article',
+        securityScope: 'private',
+        assets: [],
+        aiInferences: [],
+        userConfirmations: [],
+      };
+      prismaMock.memory.findUnique.mockResolvedValueOnce(sourceMemory);
+      (prismaMock.$queryRaw as jest.Mock).mockResolvedValueOnce([]);
+
+      const result = await service.findRelatedForUser('user-1', 'mem-1', 5);
+
+      expect(result).toEqual([]);
+    });
+
+    it('rejects access to related memories when source is not owned by user', async () => {
+      const sourceMemory = {
+        id: 'mem-1',
+        userId: 'someone-else',
+        title: 'Article',
+        securityScope: 'private',
+        assets: [],
+        aiInferences: [],
+        userConfirmations: [],
+      };
+      prismaMock.memory.findUnique.mockResolvedValueOnce(sourceMemory);
+
+      await expect(
+        service.findRelatedForUser('user-1', 'mem-1', 5),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('rejects related memories query for vault-scoped source memory', async () => {
+      const sourceMemory = {
+        id: 'mem-1',
+        userId: 'user-1',
+        title: 'Secret Document',
+        securityScope: 'vault',
+        assets: [],
+        aiInferences: [],
+        userConfirmations: [],
+      };
+      prismaMock.memory.findUnique.mockResolvedValueOnce(sourceMemory);
+
+      await expect(
+        service.findRelatedForUser('user-1', 'mem-1', 5),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('returns related private memories with correct structure', async () => {
+      const sourceMemory = {
+        id: 'mem-1',
+        userId: 'user-1',
+        title: 'Source Article',
+        securityScope: 'private',
+        assets: [],
+        aiInferences: [],
+        userConfirmations: [],
+      };
+      const rawResult = {
+        id: 'mem-2',
+        title: 'Related Article',
+        memoryType: 'url',
+        capturedAt: new Date('2026-09-01'),
+        securityScope: 'private',
+        distance: 0.15,
+      };
+      const relatedMemory = {
+        id: 'mem-2',
+        assets: [{ id: 'asset-1', mimeType: 'text/plain', variant: 'original' }],
+      };
+
+      prismaMock.memory.findUnique.mockResolvedValueOnce(sourceMemory);
+      (prismaMock.$queryRaw as jest.Mock)
+        .mockResolvedValueOnce([{ vector: [0.1, 0.2, 0.3] }])
+        .mockResolvedValueOnce([rawResult]);
+      (prismaMock.aIInference.findMany as jest.Mock).mockResolvedValueOnce([]);
+      (prismaMock.userConfirmation.findMany as jest.Mock).mockResolvedValueOnce([]);
+      (prismaMock.memory.findMany as jest.Mock).mockResolvedValueOnce([relatedMemory]);
+
+      const result = await service.findRelatedForUser('user-1', 'mem-1', 5);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].id).toBe('mem-2');
+      expect(result[0].title).toBe('Related Article');
+      expect(result[0].securityScope).toBe('private');
+      expect(result[0].similarity).toBeDefined();
+      expect(Array.isArray(result[0].assets)).toBe(true);
+    });
+
+    it('applies vault isolation: vault source rejects query', async () => {
+      const sourceMemory = {
+        id: 'mem-vault-1',
+        userId: 'user-1',
+        title: 'Vault Document',
+        securityScope: 'vault',
+        assets: [],
+        aiInferences: [],
+        userConfirmations: [],
+      };
+
+      prismaMock.memory.findUnique.mockResolvedValueOnce(sourceMemory);
+
+      await expect(
+        service.findRelatedForUser('user-1', 'mem-vault-1', 5),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('filters out deleted memories from results', async () => {
+      const sourceMemory = {
+        id: 'mem-1',
+        userId: 'user-1',
+        title: 'Source',
+        securityScope: 'private',
+        assets: [],
+        aiInferences: [],
+        userConfirmations: [],
+      };
+
+      prismaMock.memory.findUnique.mockResolvedValueOnce(sourceMemory);
+      (prismaMock.$queryRaw as jest.Mock)
+        .mockResolvedValueOnce([{ vector: [0.1, 0.2, 0.3] }])
+        .mockResolvedValueOnce([]);
+
+      const result = await service.findRelatedForUser('user-1', 'mem-1', 5);
+
+      expect(result).toEqual([]);
+    });
+
+    it('returns related memories with proper title resolution', async () => {
+      const sourceMemory = {
+        id: 'mem-1',
+        userId: 'user-1',
+        title: 'Original Title',
+        securityScope: 'private',
+        assets: [],
+        aiInferences: [],
+        userConfirmations: [],
+      };
+      const rawResult = {
+        id: 'mem-2',
+        title: 'Related Title',
+        memoryType: 'url',
+        capturedAt: new Date(),
+        securityScope: 'private',
+        distance: 0.2,
+      };
+      const relatedMemory = {
+        id: 'mem-2',
+        assets: [],
+      };
+
+      prismaMock.memory.findUnique.mockResolvedValueOnce(sourceMemory);
+      (prismaMock.$queryRaw as jest.Mock)
+        .mockResolvedValueOnce([{ vector: [0.1, 0.2, 0.3] }])
+        .mockResolvedValueOnce([rawResult]);
+      (prismaMock.aIInference.findMany as jest.Mock).mockResolvedValueOnce([]);
+      (prismaMock.userConfirmation.findMany as jest.Mock).mockResolvedValueOnce([]);
+      (prismaMock.memory.findMany as jest.Mock).mockResolvedValueOnce([relatedMemory]);
+
+      const result = await service.findRelatedForUser('user-1', 'mem-1', 5);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].title).toBeDefined();
+      expect(result[0].similarity).toBeLessThanOrEqual(1);
+    });
   });
 });
