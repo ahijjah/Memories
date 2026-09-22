@@ -5,6 +5,8 @@ import { AnthropicAiProvider } from '@memory-app/ai';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { FieldEncryptionService } from '../../common/crypto/field-encryption.service';
 import { isSensitiveField } from '../../common/crypto/sensitive-fields';
+import { toVectorLiteral } from '../../common/pgvector.util';
+import { resolveTitleFromFields } from '../../common/resolve-title.util';
 import { AiQueueService } from '../ai/ai-queue.service';
 import { AssetsService } from '../assets/assets.service';
 import { CreateMemoryDto } from './dto/create-memory.dto';
@@ -397,7 +399,9 @@ export class MemoryService {
 
     if (!sourceMemory) throw new NotFoundException('Memory not found');
     this.assertOwnership(sourceMemory.userId, userId);
-    if (sourceMemory.securityScope === 'vault') {
+
+    // Reject deleted/deleted_pending source memories (consistent with Memory read semantics)
+    if (['deleted', 'deleted_pending'].includes(sourceMemory.lifecycleState)) {
       throw new NotFoundException('Memory not found');
     }
 
@@ -414,8 +418,6 @@ export class MemoryService {
       return [];
     }
 
-    // Import here to avoid circular dependency at module init
-    const { toVectorLiteral } = await import('../../common/pgvector.util');
     const vectorLiteral = toVectorLiteral(sourceEmbeddingRows[0].vector as number[]);
     const MAX_DISTANCE_THRESHOLD = 0.5;
 
@@ -447,7 +449,7 @@ export class MemoryService {
         AND m."lifecycleState" NOT IN ('deleted', 'deleted_pending')
         AND m."securityScope" = ${sourceMemory.securityScope}
         AND e."vector" <=> ${vectorLiteral}::"vector"(1024) < ${MAX_DISTANCE_THRESHOLD}
-      ORDER BY "distance" ASC
+      ORDER BY "distance" ASC, m."id" ASC
       LIMIT ${limit}
     `;
 
@@ -480,7 +482,6 @@ export class MemoryService {
       : [];
 
     // Build result set with title resolution and asset URL enrichment
-    const { resolveTitleFromFields } = await import('../../common/resolve-title.util');
     const results = rawResults.map((result: RawRelatedResult) => {
       const inferences = titleInferences.filter((inf) => inf.memoryId === result.id);
       const confirmations = titleConfirmations.filter((conf) => conf.memoryId === result.id);
