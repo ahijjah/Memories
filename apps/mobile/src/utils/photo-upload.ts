@@ -49,7 +49,11 @@ export async function uploadPhotoToMemory(
 
   if (uploadResult.status !== 200) {
     // Enhanced logging for failed uploads
-    const sseHeaderNames = ['x-amz-sse-c', 'x-amz-sse-c-alg', 'x-amz-sse-c-key-md5'];
+    const sseHeaderNames = [
+      'x-amz-server-side-encryption-customer-algorithm',
+      'x-amz-server-side-encryption-customer-key',
+      'x-amz-server-side-encryption-customer-key-md5',
+    ];
     const sentSSEHeaders = sseHeaderNames.filter((name) => name in headers).length;
     const expectedSSEHeaders = 3;
     const allSSEHeadersSent = sentSSEHeaders === expectedSSEHeaders;
@@ -105,7 +109,11 @@ export async function uploadPhotoToExistingMemory(
 
   if (uploadResult.status !== 200) {
     // Enhanced logging for failed uploads
-    const sseHeaderNames = ['x-amz-sse-c', 'x-amz-sse-c-alg', 'x-amz-sse-c-key-md5'];
+    const sseHeaderNames = [
+      'x-amz-server-side-encryption-customer-algorithm',
+      'x-amz-server-side-encryption-customer-key',
+      'x-amz-server-side-encryption-customer-key-md5',
+    ];
     const sentSSEHeaders = sseHeaderNames.filter((name) => name in headers).length;
     const expectedSSEHeaders = 3;
     const allSSEHeadersSent = sentSSEHeaders === expectedSSEHeaders;
