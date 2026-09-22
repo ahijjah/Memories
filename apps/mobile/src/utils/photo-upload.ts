@@ -3,18 +3,6 @@ import { v4 as uuidv4 } from 'uuid';
 import { createMemory, createUpload, completeUpload } from '@/src/api/client';
 import { Alert } from 'react-native';
 
-// Redact sensitive parts of URL/headers for logging
-function redactSensitiveData(text: string): string {
-  if (!text) return text;
-  // Redact the signature part of presigned URLs (everything after X-Amz-Signature=)
-  text = text.replace(/X-Amz-Signature=[^&]*/gi, 'X-Amz-Signature=REDACTED');
-  // Redact SSE-C key header value
-  text = text.replace(/x-amz-sse-c:\s*[^\n]*/gi, 'x-amz-sse-c: REDACTED');
-  // Redact SSE-C key MD5 (just log presence)
-  text = text.replace(/x-amz-sse-c-key-md5:\s*[^\n]*/gi, 'x-amz-sse-c-key-md5: REDACTED');
-  return text;
-}
-
 export async function uploadPhotoToMemory(
   token: string,
   fileUri: string,
@@ -48,30 +36,10 @@ export async function uploadPhotoToMemory(
   });
 
   if (uploadResult.status !== 200) {
-    // Enhanced logging for failed uploads
-    const sseHeaderNames = [
-      'x-amz-server-side-encryption-customer-algorithm',
-      'x-amz-server-side-encryption-customer-key',
-      'x-amz-server-side-encryption-customer-key-md5',
-    ];
-    const sentSSEHeaders = sseHeaderNames.filter((name) => name in headers).length;
-    const expectedSSEHeaders = 3;
-    const allSSEHeadersSent = sentSSEHeaders === expectedSSEHeaders;
-
-    const errorDetails = {
-      status: uploadResult.status,
-      contentTypeSent: headers['Content-Type'],
-      sseHeadersSent: `${sentSSEHeaders}/${expectedSSEHeaders}`,
-      allSSEHeadersSent,
-      responseHeaders: uploadResult.headers ? Object.entries(uploadResult.headers).map(([k, v]) => `${k}: ${redactSensitiveData(String(v))}`).join('\n') : 'none',
-      responseBody: uploadResult.body ? redactSensitiveData(uploadResult.body) : 'no body',
-      requestUrl: redactSensitiveData(uploadTarget.uploadUrl),
-    };
-
-    const errorMessage = `Upload failed: ${JSON.stringify(errorDetails, null, 2)}`;
-    console.error('[photo-upload] uploadPhotoToMemory error:', errorMessage);
+    const bodyText = uploadResult.body || '(empty)';
+    console.error(`[photo-upload] Asset upload failed: status=${uploadResult.status}, body=${bodyText}`);
     Alert.alert('Upload Error', `Status ${uploadResult.status}: Check logs for details`);
-    throw new Error(errorMessage);
+    throw new Error(`Asset upload failed: status=${uploadResult.status}`);
   }
 
   const fileInfo = await FileSystem.getInfoAsync(fileUri, { md5: true });
@@ -108,30 +76,10 @@ export async function uploadPhotoToExistingMemory(
   });
 
   if (uploadResult.status !== 200) {
-    // Enhanced logging for failed uploads
-    const sseHeaderNames = [
-      'x-amz-server-side-encryption-customer-algorithm',
-      'x-amz-server-side-encryption-customer-key',
-      'x-amz-server-side-encryption-customer-key-md5',
-    ];
-    const sentSSEHeaders = sseHeaderNames.filter((name) => name in headers).length;
-    const expectedSSEHeaders = 3;
-    const allSSEHeadersSent = sentSSEHeaders === expectedSSEHeaders;
-
-    const errorDetails = {
-      status: uploadResult.status,
-      contentTypeSent: headers['Content-Type'],
-      sseHeadersSent: `${sentSSEHeaders}/${expectedSSEHeaders}`,
-      allSSEHeadersSent,
-      responseHeaders: uploadResult.headers ? Object.entries(uploadResult.headers).map(([k, v]) => `${k}: ${redactSensitiveData(String(v))}`).join('\n') : 'none',
-      responseBody: uploadResult.body ? redactSensitiveData(uploadResult.body) : 'no body',
-      requestUrl: redactSensitiveData(uploadTarget.uploadUrl),
-    };
-
-    const errorMessage = `Upload failed: ${JSON.stringify(errorDetails, null, 2)}`;
-    console.error('[photo-upload] uploadPhotoToExistingMemory error:', errorMessage);
+    const bodyText = uploadResult.body || '(empty)';
+    console.error(`[photo-upload] Asset upload failed: status=${uploadResult.status}, body=${bodyText}`);
     Alert.alert('Upload Error', `Status ${uploadResult.status}: Check logs for details`);
-    throw new Error(errorMessage);
+    throw new Error(`Asset upload failed: status=${uploadResult.status}`);
   }
 
   const fileInfo = await FileSystem.getInfoAsync(fileUri, { md5: true });
