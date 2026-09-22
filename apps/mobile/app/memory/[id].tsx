@@ -27,6 +27,7 @@ import { VideoSocialCard } from '@/src/components/memory-cards/VideoSocialCard';
 import { DocumentCard } from '@/src/components/memory-cards/DocumentCard';
 import { resolveCardType } from '@/src/components/memory-cards/cardTypeResolver';
 import { ShareCardView } from '@/src/components/memory-cards/ShareCardView';
+import { AuthenticatedAssetImage } from '@/src/components/AuthenticatedAssetImage';
 
 export default function MemoryDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -701,8 +702,9 @@ export default function MemoryDetailScreen() {
                 return (
                   <View key={asset.id} className="mb-3">
                     {isImageMimeType && asset.url ? (
-                      <Image
-                        source={{ uri: asset.url, headers: asset.headers }}
+                      <AuthenticatedAssetImage
+                        assetId={asset.id}
+                        contentUrl={asset.url}
                         style={{ width: '100%', resizeMode: 'contain', aspectRatio: 1 }}
                       />
                     ) : (

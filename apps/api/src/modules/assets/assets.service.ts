@@ -1,7 +1,8 @@
-import { Injectable, NotFoundException, InternalServerErrorException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, InternalServerErrorException, ForbiddenException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { S3Client, PutObjectCommand, HeadObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { Readable } from 'stream';
 import { nanoid } from 'nanoid';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AiQueueService } from '../ai/ai-queue.service';
@@ -49,6 +50,51 @@ export class AssetsService {
 
   private addStorageRoutingPrefix(signedUrl: string): string {
     return signedUrl.replace(/^(https?:\/\/[^/]+)(\/)/, '$1/storage$2');
+  }
+
+  async getAssetContentStream(
+    assetId: string,
+    userId: string,
+  ): Promise<{ body: Readable; mimeType: string; size?: number }> {
+    const asset = await this.prisma.memoryAsset.findUnique({
+      where: { id: assetId },
+      include: { memory: true },
+    });
+
+    if (!asset) {
+      throw new NotFoundException(`Asset ${assetId} not found`);
+    }
+
+    if (asset.memory.userId !== userId) {
+      throw new ForbiddenException('You do not have access to this Memory');
+    }
+
+    if (['deleted_pending', 'deleted'].includes(asset.memory.lifecycleState)) {
+      throw new NotFoundException('Memory is no longer available');
+    }
+
+    const sseParams = this.sseCrypto.getSseParams();
+    const command = new GetObjectCommand({
+      Bucket: this.bucket,
+      Key: asset.objectKey,
+      ...sseParams,
+    });
+
+    try {
+      const response = await this.s3Client.send(command);
+      return {
+        body: response.Body as Readable,
+        mimeType: asset.mimeType,
+        size: response.ContentLength,
+      };
+    } catch (error) {
+      this.logger.error(
+        `Failed to retrieve asset ${assetId} from storage: ${(error as Error).message}`,
+      );
+      throw new InternalServerErrorException(
+        'Failed to retrieve asset content from storage',
+      );
+    }
   }
 
   async createUploadTarget(memoryId: string, mimeType: string) {
@@ -118,53 +164,5 @@ export class AssetsService {
     }
 
     return asset;
-  }
-
-  async getViewUrl(objectKey: string): Promise<{ url: string; headers: Record<string, string> }> {
-    const expiresInSeconds = 3600;
-    const sseParams = this.sseCrypto.getSseParams();
-
-    // Check if object is actually SSE-C encrypted by attempting HeadObjectCommand with SSE-C params
-    let isEncrypted = true;
-    try {
-      await this.s3Client.send(
-        new HeadObjectCommand({
-          Bucket: this.bucket,
-          Key: objectKey,
-          ...sseParams,
-        })
-      );
-      // HEAD succeeded with SSE-C params → object is genuinely encrypted
-      isEncrypted = true;
-    } catch (error) {
-      // HEAD failed with SSE-C params → object is not SSE-C encrypted (or key mismatch, but assume unencrypted for backward compat)
-      const err = error as any;
-      if (err.Code === 'InvalidArgument' || err.$metadata?.httpStatusCode === 400) {
-        this.logger.debug(`Object ${objectKey} is not SSE-C encrypted, will sign URL without SSE-C params`);
-        isEncrypted = false;
-      } else {
-        // Unexpected error (object not found, network error, etc.) — re-throw
-        throw error;
-      }
-    }
-
-    // Sign presigned URL with or without SSE-C params based on actual encryption state
-    if (isEncrypted) {
-      const command = new GetObjectCommand({
-        Bucket: this.bucket,
-        Key: objectKey,
-        ...sseParams,
-      });
-      const url = await getSignedUrl(this.s3PublicClient, command, { expiresIn: expiresInSeconds });
-      const headers = this.sseCrypto.getSseHeaders();
-      return { url: this.addStorageRoutingPrefix(url), headers };
-    } else {
-      const command = new GetObjectCommand({
-        Bucket: this.bucket,
-        Key: objectKey,
-      });
-      const url = await getSignedUrl(this.s3PublicClient, command, { expiresIn: expiresInSeconds });
-      return { url: this.addStorageRoutingPrefix(url), headers: {} };
-    }
   }
 }

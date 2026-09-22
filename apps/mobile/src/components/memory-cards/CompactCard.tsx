@@ -1,6 +1,7 @@
 import { View, Text, Image } from 'react-native';
 import { Memory } from '@/src/api/client';
 import { resolveCardType } from './cardTypeResolver';
+import { AuthenticatedAssetImage } from '../AuthenticatedAssetImage';
 
 interface CompactCardProps {
   memory: Memory;
@@ -161,8 +162,9 @@ export function CompactCard({ memory }: CompactCardProps) {
     <View className="flex-row items-center gap-3 px-4 py-3 bg-white border-b border-gray-200">
       {/* Thumbnail or Type badge */}
       {imageAsset && imageAsset.url ? (
-        <Image
-          source={{ uri: imageAsset.url, headers: imageAsset.headers }}
+        <AuthenticatedAssetImage
+          assetId={imageAsset.id}
+          contentUrl={imageAsset.url}
           style={{ width: 48, height: 48, borderRadius: 6 }}
         />
       ) : (

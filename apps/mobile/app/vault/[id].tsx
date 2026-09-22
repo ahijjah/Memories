@@ -21,6 +21,7 @@ import { VideoSocialCard } from '@/src/components/memory-cards/VideoSocialCard';
 import { DocumentCard } from '@/src/components/memory-cards/DocumentCard';
 import { resolveCardType } from '@/src/components/memory-cards/cardTypeResolver';
 import { checkBiometricEnrollment, authenticateVault, useVaultAutoLock, useVaultScreenProtection, type VaultAuthState } from '@/src/utils/vault-auth';
+import { AuthenticatedAssetImage } from '@/src/components/AuthenticatedAssetImage';
 
 export default function VaultDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -915,8 +916,9 @@ export default function VaultDetailScreen() {
                 return (
                   <View key={asset.id} className="mb-3">
                     {isImageMimeType && asset.url ? (
-                      <Image
-                        source={{ uri: asset.url, headers: asset.headers }}
+                      <AuthenticatedAssetImage
+                        assetId={asset.id}
+                        contentUrl={asset.url}
                         style={{ width: '100%', resizeMode: 'contain', aspectRatio: 1 }}
                       />
                     ) : (

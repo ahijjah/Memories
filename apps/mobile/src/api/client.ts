@@ -33,7 +33,6 @@ export interface MemoryAsset {
   pageIndex?: number;
   variant?: string;
   url?: string;
-  headers?: Record<string, string>;
   createdAt: string;
 }
 

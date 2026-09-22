@@ -141,20 +141,14 @@ export class CollectionsService {
     return { success: true };
   }
 
-  private async enrichWithAssetUrls(memory: any) {
+  private enrichWithAssetUrls(memory: any) {
     if (!memory.assets || memory.assets.length === 0) {
       return memory;
     }
-    const enrichedAssets = await Promise.all(
-      memory.assets.map(async (asset: any) => {
-        const viewData = await this.assetsService.getViewUrl(asset.objectKey);
-        return {
-          ...asset,
-          url: viewData.url,
-          headers: viewData.headers,
-        };
-      }),
-    );
+    const enrichedAssets = memory.assets.map((asset: any) => ({
+      ...asset,
+      url: `/assets/${asset.id}/content`,
+    }));
     return { ...memory, assets: enrichedAssets };
   }
 
