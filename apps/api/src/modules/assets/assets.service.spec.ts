@@ -103,5 +103,98 @@ describe('AssetsService', () => {
       );
       expect(hasChecksumParams).toBe(false);
     });
+
+    it('should add /storage routing prefix to PUT presigned URL', async () => {
+      const result = await service.createUploadTarget('mem-123', 'image/jpeg');
+
+      const url = new URL(result.uploadUrl);
+      expect(url.hostname).toBe('minio.example.com');
+      expect(url.pathname).toMatch(/^\/storage\/memory-app-assets\//);
+      expect(url.pathname).not.toMatch(/storage\/storage/);
+    });
+
+    it('should preserve query string after adding /storage prefix', async () => {
+      const result = await service.createUploadTarget('mem-123', 'image/jpeg');
+
+      const url = new URL(result.uploadUrl);
+      const params = new URLSearchParams(url.search);
+
+      // Verify SigV4 parameters are intact after transformation
+      expect(params.has('X-Amz-Algorithm')).toBe(true);
+      expect(params.has('X-Amz-Signature')).toBe(true);
+
+      // Extract signature before and after to confirm it wasn't re-serialized
+      const signatureParam = params.get('X-Amz-Signature');
+      expect(signatureParam).toBeDefined();
+      expect(signatureParam?.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('getViewUrl routing', () => {
+    it('should add /storage prefix to encrypted object GET URL', async () => {
+      // Mock S3Client send to succeed (object is encrypted)
+      const sendSpy = jest.spyOn(service['s3Client'], 'send' as any).mockResolvedValueOnce({});
+
+      const result = await service.getViewUrl('memories/mem-123/asset-key');
+
+      const url = new URL(result.url);
+      expect(url.hostname).toBe('minio.example.com');
+      expect(url.pathname).toMatch(/^\/storage\/memory-app-assets\//);
+      expect(url.pathname).not.toMatch(/storage\/storage/);
+
+      sendSpy.mockRestore();
+    });
+
+    it('should add /storage prefix to unencrypted fallback GET URL', async () => {
+      // Mock S3Client send to fail with 400 (unencrypted fallback)
+      const error: any = new Error('InvalidArgument');
+      error.Code = 'InvalidArgument';
+      error.$metadata = { httpStatusCode: 400 };
+      const sendSpy = jest.spyOn(service['s3Client'], 'send' as any).mockRejectedValueOnce(error);
+
+      const result = await service.getViewUrl('memories/mem-123/asset-key');
+
+      const url = new URL(result.url);
+      expect(url.hostname).toBe('minio.example.com');
+      expect(url.pathname).toMatch(/^\/storage\/memory-app-assets\//);
+      expect(url.pathname).not.toMatch(/storage\/storage/);
+
+      sendSpy.mockRestore();
+    });
+
+    it('should preserve query string in encrypted GET URL after routing prefix', async () => {
+      const sendSpy = jest.spyOn(service['s3Client'], 'send' as any).mockResolvedValueOnce({});
+
+      const result = await service.getViewUrl('memories/mem-123/asset-key');
+
+      const url = new URL(result.url);
+      const params = new URLSearchParams(url.search);
+
+      // Verify SigV4 parameters are intact
+      expect(params.has('X-Amz-Algorithm')).toBe(true);
+      expect(params.has('X-Amz-Signature')).toBe(true);
+      expect(params.get('X-Amz-Signature')).toBeDefined();
+
+      sendSpy.mockRestore();
+    });
+
+    it('should preserve query string in unencrypted GET URL after routing prefix', async () => {
+      const error: any = new Error('InvalidArgument');
+      error.Code = 'InvalidArgument';
+      error.$metadata = { httpStatusCode: 400 };
+      const sendSpy = jest.spyOn(service['s3Client'], 'send' as any).mockRejectedValueOnce(error);
+
+      const result = await service.getViewUrl('memories/mem-123/asset-key');
+
+      const url = new URL(result.url);
+      const params = new URLSearchParams(url.search);
+
+      // Verify SigV4 parameters are intact
+      expect(params.has('X-Amz-Algorithm')).toBe(true);
+      expect(params.has('X-Amz-Signature')).toBe(true);
+      expect(params.get('X-Amz-Signature')).toBeDefined();
+
+      sendSpy.mockRestore();
+    });
   });
 });
