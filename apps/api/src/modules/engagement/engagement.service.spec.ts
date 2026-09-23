@@ -841,7 +841,6 @@ describe('EngagementService', () => {
             { field: 'type', valueJson: 'EVENT' },
           ],
           userConfirmations: [],
-          assets: [],
         },
       ];
 
@@ -1015,7 +1014,6 @@ describe('EngagementService', () => {
             { field: 'date', valueJson: '2026-09-15' },
           ],
           userConfirmations: [],
-          assets: [],
         },
       ];
 
@@ -1058,7 +1056,6 @@ describe('EngagementService', () => {
             { field: 'date', valueJson: '2026-09-15' },
           ],
           userConfirmations: [],
-          assets: [],
         },
       ];
 
@@ -1097,7 +1094,7 @@ describe('EngagementService', () => {
       await service.getCalendarMonth(userId, '2025-02');
     });
 
-    it('should not include objectKey in asset select', async () => {
+    it('should not include assets in Calendar response (MVP does not render images)', async () => {
       const userId = 'user-123';
       const matchingIds = [
         { id: 'mem-1', title: 'Event', effective_date: '2026-09-15' },
@@ -1113,13 +1110,6 @@ describe('EngagementService', () => {
             { field: 'date', valueJson: '2026-09-15' },
           ],
           userConfirmations: [],
-          assets: [
-            {
-              id: 'asset-1',
-              mimeType: 'image/jpeg',
-              variant: 'thumbnail',
-            },
-          ],
         },
       ];
 
@@ -1128,47 +1118,10 @@ describe('EngagementService', () => {
 
       const result = await service.getCalendarMonth(userId, '2026-09');
 
-      expect(result.items[0].assets).toHaveLength(1);
-      expect(result.items[0].assets[0]).toHaveProperty('id');
-      expect(result.items[0].assets[0]).toHaveProperty('mimeType');
-      expect(result.items[0].assets[0]).not.toHaveProperty('objectKey');
-    });
-
-    it('should not include SSE-C or presigned material in response', async () => {
-      const userId = 'user-123';
-      const matchingIds = [
-        { id: 'mem-1', title: 'Event', effective_date: '2026-09-15' },
-      ];
-      const mockMemories = [
-        {
-          id: 'mem-1',
-          userId,
-          title: 'Event',
-          lifecycleState: 'active',
-          securityScope: 'private',
-          aiInferences: [
-            { field: 'date', valueJson: '2026-09-15' },
-          ],
-          userConfirmations: [],
-          assets: [
-            {
-              id: 'asset-1',
-              mimeType: 'image/jpeg',
-              variant: 'thumbnail',
-            },
-          ],
-        },
-      ];
-
-      jest.spyOn(prismaService, '$queryRaw').mockResolvedValue(matchingIds as any);
-      jest.spyOn(prismaService.memory, 'findMany').mockResolvedValue(mockMemories as any);
-
-      const result = await service.getCalendarMonth(userId, '2026-09');
-
-      const assetDto = result.items[0].assets[0];
-      expect(assetDto).not.toHaveProperty('objectKey');
-      expect(JSON.stringify(assetDto)).not.toContain('presigned');
-      expect(JSON.stringify(assetDto)).not.toContain('sseC');
+      expect(result.items[0]).not.toHaveProperty('assets');
+      // Verify DTO only contains: memoryId, date, title, type
+      const keys = Object.keys(result.items[0]);
+      expect(keys.sort()).toEqual(['date', 'memoryId', 'title', 'type'].sort());
     });
   });
 });

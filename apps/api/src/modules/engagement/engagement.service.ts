@@ -8,7 +8,6 @@ export interface CalendarItem {
   date: string;
   title: string;
   type?: string;
-  assets: Array<{ id: string; mimeType: string; variant?: string }>;
 }
 
 export interface CalendarMonthResponse {
@@ -471,19 +470,44 @@ export class EngagementService {
     }
 
     // Get memory IDs that have a valid effective date in the requested month
+    // Physical schema: tables use quoted names, columns use camelCase
+    // Precedence: UserConfirmation.confirmedValue > AIInference.valueJson (both JSON types)
+    // Extract JSON scalar text using #>> '{}' operator
     const matchingMemoryIds = await this.prisma.$queryRaw<RawCalendarResult[]>`
-      SELECT DISTINCT m.id, m.title,
-        COALESCE(uc_date.confirmed_value, ai_date.value_json) as effective_date
-      FROM memory m
-      LEFT JOIN user_confirmation uc_date ON m.id = uc_date.memory_id AND uc_date.field = 'date'
-      LEFT JOIN ai_inference ai_date ON m.id = ai_date.memory_id AND ai_date.field = 'date'
-      WHERE m.user_id = ${userId}
-        AND m.lifecycle_state = 'active'
-        AND m.security_scope != 'vault'
-        AND (COALESCE(uc_date.confirmed_value, ai_date.value_json))::text >= ${monthRangeStart}
-        AND (COALESCE(uc_date.confirmed_value, ai_date.value_json))::text <= ${monthRangeEnd}
-        AND (COALESCE(uc_date.confirmed_value, ai_date.value_json))::text ~ '^\d{4}-\d{2}-\d{2}$'
-      ORDER BY COALESCE(uc_date.confirmed_value, ai_date.value_json), m.title
+      SELECT DISTINCT m."id", m."title",
+        COALESCE(
+          uc_date."confirmedValue" #>> '{}',
+          ai_date."valueJson" #>> '{}'
+        ) as "effective_date"
+      FROM "memories" m
+      LEFT JOIN "user_confirmations" uc_date
+        ON m."id" = uc_date."memoryId" AND uc_date."field" = 'date'
+      LEFT JOIN LATERAL (
+        SELECT "valueJson"
+        FROM "ai_inferences"
+        WHERE "memoryId" = m."id" AND "field" = 'date'
+        ORDER BY "createdAt" DESC
+        LIMIT 1
+      ) ai_date ON true
+      WHERE m."userId" = ${userId}
+        AND m."lifecycleState" = 'active'
+        AND m."securityScope" != 'vault'
+        AND (COALESCE(
+          uc_date."confirmedValue" #>> '{}',
+          ai_date."valueJson" #>> '{}'
+        )) >= ${monthRangeStart}
+        AND (COALESCE(
+          uc_date."confirmedValue" #>> '{}',
+          ai_date."valueJson" #>> '{}'
+        )) <= ${monthRangeEnd}
+        AND (COALESCE(
+          uc_date."confirmedValue" #>> '{}',
+          ai_date."valueJson" #>> '{}'
+        )) ~ '^\d{4}-\d{2}-\d{2}$'
+      ORDER BY COALESCE(
+        uc_date."confirmedValue" #>> '{}',
+        ai_date."valueJson" #>> '{}'
+      ), m."title"
     `;
 
     // Filter out results with invalid dates and collect valid memory IDs
@@ -509,11 +533,11 @@ export class EngagementService {
     }
 
     // Fetch full memory details (including related data) only for matched memory IDs
+    // Assets not included: Calendar MVP does not render images
     type MemoryWithDatesAndTitles = Prisma.MemoryGetPayload<{
       include: {
         aiInferences: true;
         userConfirmations: true;
-        assets: true;
       };
     }>;
 
@@ -527,13 +551,6 @@ export class EngagementService {
         },
         userConfirmations: {
           where: { field: { in: ['date', 'title'] } },
-        },
-        assets: {
-          select: {
-            id: true,
-            mimeType: true,
-            variant: true,
-          },
         },
       },
     });
@@ -576,19 +593,11 @@ export class EngagementService {
         'type'
       );
 
-      // Build safe asset DTO (no objectKey, no SSE-C material)
-      const assetDtos = memory.assets.map((asset) => ({
-        id: asset.id,
-        mimeType: asset.mimeType,
-        ...(asset.variant ? { variant: asset.variant } : {}),
-      }));
-
       const item: CalendarItem = {
         memoryId: memory.id,
         date: effectiveDate,
         title: effectiveTitle || memory.title || 'Untitled',
         type: effectiveType,
-        assets: assetDtos,
       };
 
       items.push(item);

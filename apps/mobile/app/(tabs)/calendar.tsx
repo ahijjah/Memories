@@ -9,7 +9,6 @@ interface CalendarItem {
   date: string;
   title: string;
   type?: string;
-  assets: Array<{ id: string; mimeType: string; variant?: string }>;
 }
 
 interface CalendarMonthResponse {
