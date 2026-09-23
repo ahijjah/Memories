@@ -76,6 +76,7 @@ export class WorkspaceService {
   /**
    * Select display label from raw topic variants.
    * Prefer most frequent variant; tie-break alphabetically.
+   * Input: array of raw variants (may contain duplicates to indicate frequency).
    */
   selectDisplayLabel(rawVariants: string[]): string {
     if (rawVariants.length === 0) return '';
@@ -95,95 +96,170 @@ export class WorkspaceService {
   }
 
   /**
+   * Select display label from raw variants with frequency information.
+   * Input: array of raw variants from SQL (which may include duplicates or be pre-counted).
+   */
+  selectDisplayLabelFromFrequencies(rawVariants: string[]): string {
+    return this.selectDisplayLabel(rawVariants);
+  }
+
+  /**
    * Get all workspaces for authenticated user.
    * Returns normalized topics with 2+ distinct memories, ordered by count.
+   * Aggregation done in PostgreSQL.
    */
   async listWorkspaces(
     userId: string,
     limit: number = 50,
     offset: number = 0,
   ): Promise<WorkspaceListResponse> {
-    // Fetch all qualifying memories with topics
-    const memories = await this.prisma.memory.findMany({
-      where: {
-        userId,
-        lifecycleState: { notIn: ['deleted', 'deleted_pending'] },
-        securityScope: 'private',
-      },
-      include: {
-        aiInferences: {
-          where: { field: 'topics' },
-        },
-      },
-    });
+    interface WorkspaceRow {
+      normalized_topic: string;
+      memory_count: number;
+      variant_frequencies: string;
+    }
 
-    // Build topic map: normalized_topic -> { count, raw_variants }
-    const topicMap = new Map<
-      string,
-      { memoryIds: Set<string>; rawVariants: Set<string> }
-    >();
+    const results = await this.prisma.$queryRaw<WorkspaceRow[]>`
+      WITH topics_expanded AS (
+        SELECT
+          m."id" AS memory_id,
+          LOWER(
+            REGEXP_REPLACE(
+              REGEXP_REPLACE(
+                TRIM(jsonb_array_elements_text(ai."valueJson")),
+                '\\s+', ' ', 'g'
+              ),
+              '^\s+|\s+$', '', 'g'
+            )
+          ) AS normalized_topic,
+          TRIM(jsonb_array_elements_text(ai."valueJson")) AS raw_topic
+        FROM "memories" m
+        JOIN "ai_inferences" ai ON m."id" = ai."memoryId"
+        WHERE m."userId" = ${userId}
+          AND m."lifecycleState" NOT IN ('deleted', 'deleted_pending')
+          AND m."securityScope" = 'private'
+          AND ai."field" = 'topics'
+          AND jsonb_typeof(ai."valueJson") = 'array'
+      ),
+      filtered_topics AS (
+        SELECT
+          memory_id,
+          normalized_topic,
+          raw_topic
+        FROM topics_expanded
+        WHERE normalized_topic != ''
+          AND CHAR_LENGTH(normalized_topic) > 0
+      ),
+      deduped_per_memory AS (
+        SELECT DISTINCT ON (memory_id, normalized_topic)
+          memory_id,
+          normalized_topic,
+          raw_topic
+        FROM filtered_topics
+        ORDER BY memory_id, normalized_topic, raw_topic
+      ),
+      variant_stats AS (
+        SELECT
+          normalized_topic,
+          raw_topic,
+          COUNT(DISTINCT memory_id) AS variant_count
+        FROM deduped_per_memory
+        GROUP BY normalized_topic, raw_topic
+      ),
+      grouped_topics AS (
+        SELECT
+          normalized_topic,
+          COUNT(DISTINCT memory_id) AS memory_count,
+          STRING_AGG(raw_topic || '|' || variant_count::text, ',' ORDER BY variant_count DESC, raw_topic ASC) AS variant_frequencies
+        FROM deduped_per_memory
+        GROUP BY normalized_topic
+        HAVING COUNT(DISTINCT memory_id) >= 2
+      ),
+      ordered_topics AS (
+        SELECT
+          normalized_topic,
+          memory_count,
+          variant_frequencies
+        FROM grouped_topics
+        ORDER BY memory_count DESC, normalized_topic ASC
+      )
+      SELECT
+        normalized_topic,
+        memory_count,
+        variant_frequencies
+      FROM ordered_topics
+      LIMIT ${limit}
+      OFFSET ${offset}
+    `;
 
-    for (const memory of memories) {
-      const topicsInference = memory.aiInferences?.[0];
-      if (!topicsInference?.valueJson || !Array.isArray(topicsInference.valueJson)) {
-        continue;
-      }
+    const totalResult = await this.prisma.$queryRaw<{ count: number }[]>`
+      WITH topics_expanded AS (
+        SELECT
+          m."id" AS memory_id,
+          LOWER(
+            REGEXP_REPLACE(
+              REGEXP_REPLACE(
+                TRIM(jsonb_array_elements_text(ai."valueJson")),
+                '\\s+', ' ', 'g'
+              ),
+              '^\s+|\s+$', '', 'g'
+            )
+          ) AS normalized_topic
+        FROM "memories" m
+        JOIN "ai_inferences" ai ON m."id" = ai."memoryId"
+        WHERE m."userId" = ${userId}
+          AND m."lifecycleState" NOT IN ('deleted', 'deleted_pending')
+          AND m."securityScope" = 'private'
+          AND ai."field" = 'topics'
+          AND jsonb_typeof(ai."valueJson") = 'array'
+      ),
+      filtered_topics AS (
+        SELECT
+          memory_id,
+          normalized_topic
+        FROM topics_expanded
+        WHERE normalized_topic != ''
+          AND CHAR_LENGTH(normalized_topic) > 0
+      ),
+      deduped_per_memory AS (
+        SELECT DISTINCT ON (memory_id, normalized_topic)
+          memory_id,
+          normalized_topic
+        FROM filtered_topics
+        ORDER BY memory_id, normalized_topic
+      ),
+      grouped_topics AS (
+        SELECT
+          normalized_topic,
+          COUNT(DISTINCT memory_id) AS memory_count
+        FROM deduped_per_memory
+        GROUP BY normalized_topic
+        HAVING COUNT(DISTINCT memory_id) >= 2
+      )
+      SELECT COUNT(*) AS count FROM grouped_topics
+    `;
 
-      // Expand array and normalize each topic
-      const seenInMemory = new Set<string>();
-      for (const rawTopic of topicsInference.valueJson) {
-        const rawTopicStr = String(rawTopic ?? '').trim();
-        if (!rawTopicStr) continue;
+    const total = Number(totalResult[0].count) || 0;
 
-        const normalized = this.normalizeTopicForIdentity(rawTopicStr);
-        if (!normalized) continue;
-
-        // Deduplicate within memory (only count once per memory per normalized topic)
-        if (seenInMemory.has(normalized)) continue;
-        seenInMemory.add(normalized);
-
-        // Track memory and raw variant
-        if (!topicMap.has(normalized)) {
-          topicMap.set(normalized, {
-            memoryIds: new Set(),
-            rawVariants: new Set(),
-          });
+    const workspaces: WorkspaceListItem[] = results.map((row) => {
+      const variants: string[] = [];
+      const pairs = row.variant_frequencies.split(',');
+      for (const pair of pairs) {
+        const [variant, countStr] = pair.split('|');
+        const count = parseInt(countStr, 10) || 1;
+        for (let i = 0; i < count; i++) {
+          variants.push(variant);
         }
-        const entry = topicMap.get(normalized)!;
-        entry.memoryIds.add(memory.id);
-        entry.rawVariants.add(rawTopicStr);
       }
-    }
-
-    // Filter to 2+ memories and build results
-    const workspaces: WorkspaceListItem[] = [];
-    for (const [normalizedTopic, { memoryIds, rawVariants }] of topicMap.entries()) {
-      if (memoryIds.size >= 2) {
-        workspaces.push({
-          workspaceId: this.encodeWorkspaceId(normalizedTopic),
-          displayLabel: this.selectDisplayLabel(Array.from(rawVariants)),
-          memoryCount: memoryIds.size,
-        });
-      }
-    }
-
-    // Sort by memoryCount DESC, then by normalized topic for determinism
-    workspaces.sort((a, b) => {
-      // Decode to compare normalized forms
-      const aNorm = this.decodeAndVerifyWorkspaceId(a.workspaceId);
-      const bNorm = this.decodeAndVerifyWorkspaceId(b.workspaceId);
-      if (b.memoryCount !== a.memoryCount) {
-        return b.memoryCount - a.memoryCount;
-      }
-      return aNorm.localeCompare(bNorm);
+      return {
+        workspaceId: this.encodeWorkspaceId(row.normalized_topic),
+        displayLabel: this.selectDisplayLabel(variants),
+        memoryCount: Number(row.memory_count),
+      };
     });
-
-    // Apply pagination
-    const total = workspaces.length;
-    const paginated = workspaces.slice(offset, offset + limit);
 
     return {
-      workspaces: paginated,
+      workspaces,
       total,
       limit,
       offset,
@@ -193,6 +269,7 @@ export class WorkspaceService {
   /**
    * Get memories in a workspace (by normalized topic).
    * Uses exact same normalization logic as listWorkspaces.
+   * Membership filtering done in PostgreSQL.
    */
   async getWorkspaceMemories(
     userId: string,
@@ -200,71 +277,155 @@ export class WorkspaceService {
     limit: number = 20,
     offset: number = 0,
   ): Promise<WorkspaceDetailResponse> {
-    // Decode and normalize workspace ID
     const normalizedTopic = this.decodeAndVerifyWorkspaceId(encodedWorkspaceId);
 
-    // Fetch all qualifying memories with topics
+    interface MembershipRow {
+      memory_id: string;
+      raw_topic: string;
+    }
+
+    interface CountRow {
+      total_count: number;
+    }
+
+    const memoriesResult = await this.prisma.$queryRaw<MembershipRow[]>`
+      WITH topics_expanded AS (
+        SELECT
+          m."id" AS memory_id,
+          LOWER(
+            REGEXP_REPLACE(
+              REGEXP_REPLACE(
+                TRIM(jsonb_array_elements_text(ai."valueJson")),
+                '\\s+', ' ', 'g'
+              ),
+              '^\s+|\s+$', '', 'g'
+            )
+          ) AS normalized_topic,
+          TRIM(jsonb_array_elements_text(ai."valueJson")) AS raw_topic
+        FROM "memories" m
+        JOIN "ai_inferences" ai ON m."id" = ai."memoryId"
+        WHERE m."userId" = ${userId}
+          AND m."lifecycleState" NOT IN ('deleted', 'deleted_pending')
+          AND m."securityScope" = 'private'
+          AND ai."field" = 'topics'
+          AND jsonb_typeof(ai."valueJson") = 'array'
+      ),
+      filtered_topics AS (
+        SELECT
+          memory_id,
+          normalized_topic,
+          raw_topic
+        FROM topics_expanded
+        WHERE normalized_topic != ''
+          AND CHAR_LENGTH(normalized_topic) > 0
+      ),
+      deduped_per_memory AS (
+        SELECT DISTINCT ON (memory_id, normalized_topic)
+          memory_id,
+          normalized_topic,
+          raw_topic
+        FROM filtered_topics
+        ORDER BY memory_id, normalized_topic, raw_topic
+      ),
+      matching_memories AS (
+        SELECT
+          memory_id,
+          raw_topic
+        FROM deduped_per_memory
+        WHERE normalized_topic = ${normalizedTopic}
+      )
+      SELECT
+        memory_id,
+        raw_topic
+      FROM matching_memories
+      ORDER BY memory_id ASC
+    `;
+
+    const countResult = await this.prisma.$queryRaw<CountRow[]>`
+      WITH topics_expanded AS (
+        SELECT
+          m."id" AS memory_id,
+          LOWER(
+            REGEXP_REPLACE(
+              REGEXP_REPLACE(
+                TRIM(jsonb_array_elements_text(ai."valueJson")),
+                '\\s+', ' ', 'g'
+              ),
+              '^\s+|\s+$', '', 'g'
+            )
+          ) AS normalized_topic
+        FROM "memories" m
+        JOIN "ai_inferences" ai ON m."id" = ai."memoryId"
+        WHERE m."userId" = ${userId}
+          AND m."lifecycleState" NOT IN ('deleted', 'deleted_pending')
+          AND m."securityScope" = 'private'
+          AND ai."field" = 'topics'
+          AND jsonb_typeof(ai."valueJson") = 'array'
+      ),
+      filtered_topics AS (
+        SELECT
+          memory_id,
+          normalized_topic
+        FROM topics_expanded
+        WHERE normalized_topic != ''
+          AND CHAR_LENGTH(normalized_topic) > 0
+      ),
+      deduped_per_memory AS (
+        SELECT DISTINCT ON (memory_id, normalized_topic)
+          memory_id,
+          normalized_topic
+        FROM filtered_topics
+        ORDER BY memory_id, normalized_topic
+      ),
+      matching_memories AS (
+        SELECT DISTINCT memory_id
+        FROM deduped_per_memory
+        WHERE normalized_topic = ${normalizedTopic}
+      )
+      SELECT COUNT(DISTINCT memory_id) AS total_count FROM matching_memories
+    `;
+
+    const totalCount = Number(countResult[0]?.total_count ?? 0);
+    if (totalCount < 2) {
+      throw new Error('Workspace not found or has fewer than 2 memories');
+    }
+
+    const memoryIds = Array.from(new Set(memoriesResult.map((r) => r.memory_id)));
+    if (memoryIds.length < 2) {
+      throw new Error('Workspace not found or has fewer than 2 memories');
+    }
+
+    const allRawVariants = memoriesResult.map((r) => r.raw_topic);
+    const variants: string[] = [];
+    const variantCounts = new Map<string, number>();
+    for (const v of allRawVariants) {
+      variantCounts.set(v, (variantCounts.get(v) ?? 0) + 1);
+    }
+    for (const [v, count] of variantCounts.entries()) {
+      for (let i = 0; i < count; i++) {
+        variants.push(v);
+      }
+    }
+    const displayLabel = this.selectDisplayLabel(variants);
+
+    const paginatedMemoryIds = memoryIds.slice(offset, offset + limit);
     const memories = await this.prisma.memory.findMany({
       where: {
-        userId,
-        lifecycleState: { notIn: ['deleted', 'deleted_pending'] },
-        securityScope: 'private',
+        id: { in: paginatedMemoryIds },
       },
       include: {
         aiInferences: {
-          where: { field: 'topics' },
+          where: { field: { in: ['title', 'type'] } },
         },
         userConfirmations: true,
         assets: true,
       },
-      orderBy: { capturedAt: 'desc' },
     });
 
-    // Find memories belonging to this workspace
-    const workspaceMemoryIds = new Set<string>();
-    let displayLabel = '';
-
-    for (const memory of memories) {
-      const topicsInference = memory.aiInferences?.[0];
-      if (!topicsInference?.valueJson || !Array.isArray(topicsInference.valueJson)) {
-        continue;
-      }
-
-      const seenInMemory = new Set<string>();
-      const rawVariants: string[] = [];
-
-      for (const rawTopic of topicsInference.valueJson) {
-        const rawTopicStr = String(rawTopic ?? '').trim();
-        if (!rawTopicStr) continue;
-
-        const normalized = this.normalizeTopicForIdentity(rawTopicStr);
-        if (!normalized) continue;
-
-        if (seenInMemory.has(normalized)) continue;
-        seenInMemory.add(normalized);
-
-        if (normalized === normalizedTopic) {
-          workspaceMemoryIds.add(memory.id);
-          rawVariants.push(rawTopicStr);
-        }
-      }
-
-      if (rawVariants.length > 0 && !displayLabel) {
-        displayLabel = this.selectDisplayLabel(rawVariants);
-      }
-    }
-
-    // Must have 2+ distinct memories for workspace to exist
-    if (workspaceMemoryIds.size < 2) {
-      throw new Error('Workspace not found or has fewer than 2 memories');
-    }
-
-    // Build result with title precedence: confirmation > inference > raw
-    const resultMemories = memories
-      .filter((m) => workspaceMemoryIds.has(m.id))
-      .slice(offset, offset + limit)
+    const resultMemories = paginatedMemoryIds
+      .map((memoryId) => memories.find((m) => m.id === memoryId))
+      .filter((m): m is typeof memories[0] => !!m)
       .map((memory) => {
-        // Title resolution
         const titleConfirmation = memory.userConfirmations.find((uc) => uc.field === 'title');
         const titleInference = memory.aiInferences.find((ai) => ai.field === 'title');
         const title =
@@ -273,7 +434,6 @@ export class WorkspaceService {
           memory.title ||
           `${memory.sourceType} Memory`;
 
-        // Memory type
         const typeInference = memory.aiInferences.find((ai) => ai.field === 'type');
         const memoryType = (typeInference?.valueJson as string) || memory.memoryType || 'GENERIC';
 
@@ -298,7 +458,7 @@ export class WorkspaceService {
       workspaceId: encodedWorkspaceId,
       displayLabel,
       memories: resultMemories,
-      total: workspaceMemoryIds.size,
+      total: totalCount,
       limit,
       offset,
     };

@@ -9,6 +9,7 @@ describe('WorkspaceService', () => {
     memory: {
       findMany: jest.fn(),
     },
+    $queryRaw: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -28,6 +29,18 @@ describe('WorkspaceService', () => {
   afterEach(() => {
     jest.clearAllMocks();
   });
+
+  // Helper to mock SQL query responses for listWorkspaces
+  const mockListWorkspacesQuery = (workspaces: Array<{ normalized_topic: string; memory_count: number; variant_frequencies: string }>) => {
+    (mockPrisma.$queryRaw as jest.Mock).mockResolvedValueOnce(workspaces);
+    (mockPrisma.$queryRaw as jest.Mock).mockResolvedValueOnce([{ count: workspaces.length }]);
+  };
+
+  // Helper to mock SQL query responses for getWorkspaceMemories
+  const mockDetailQuery = (memories: Array<{ memory_id: string; raw_topic: string }>, totalCount: number) => {
+    (mockPrisma.$queryRaw as jest.Mock).mockResolvedValueOnce(memories);
+    (mockPrisma.$queryRaw as jest.Mock).mockResolvedValueOnce([{ total_count: totalCount }]);
+  };
 
   describe('normalizeTopicForIdentity', () => {
     it('should trim whitespace', () => {
