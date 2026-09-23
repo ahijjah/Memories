@@ -1,6 +1,6 @@
 import { useAuth } from "@clerk/clerk-expo";
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 
@@ -20,11 +20,12 @@ interface WorkspaceListResponse {
 export default function WorkspacesScreen() {
   const { getToken } = useAuth();
   const router = useRouter();
+  const [accumulatedWorkspaces, setAccumulatedWorkspaces] = useState<Workspace[]>([]);
   const [offset, setOffset] = useState(0);
   const limit = 20;
 
   const { data, isLoading, error, refetch } = useQuery<WorkspaceListResponse>({
-    queryKey: ['workspaces', offset],
+    queryKey: ['workspaces'],
     queryFn: async () => {
       const token = await getToken();
       if (!token) throw new Error('No auth token');
@@ -44,11 +45,25 @@ export default function WorkspacesScreen() {
     },
   });
 
+  useEffect(() => {
+    if (data?.workspaces) {
+      if (offset === 0) {
+        setAccumulatedWorkspaces(data.workspaces);
+      } else {
+        setAccumulatedWorkspaces((prev) => [...prev, ...data.workspaces]);
+      }
+    }
+  }, [data?.workspaces, offset]);
+
   const handleWorkspacePress = (workspaceId: string) => {
     router.push(`/workspace/${workspaceId}`);
   };
 
-  if (isLoading) {
+  const handleLoadMore = () => {
+    setOffset((prev) => prev + limit);
+  };
+
+  if (isLoading && offset === 0) {
     return (
       <View className="flex-1 bg-white items-center justify-center">
         <ActivityIndicator size="large" color="#3b82f6" />
@@ -76,14 +91,13 @@ export default function WorkspacesScreen() {
     );
   }
 
-  const workspaces = data?.workspaces ?? [];
   const total = data?.total ?? 0;
   const hasMore = offset + limit < total;
 
   return (
     <ScrollView className="flex-1 bg-white">
       <View className="px-6 py-6">
-        {workspaces.length === 0 ? (
+        {accumulatedWorkspaces.length === 0 ? (
           <View className="items-center justify-center py-12">
             <Text className="text-lg font-semibold text-gray-900 mb-2">
               No Workspaces
@@ -94,7 +108,7 @@ export default function WorkspacesScreen() {
           </View>
         ) : (
           <View>
-            {workspaces.map((workspace) => (
+            {accumulatedWorkspaces.map((workspace) => (
               <TouchableOpacity
                 key={workspace.workspaceId}
                 onPress={() => handleWorkspacePress(workspace.workspaceId)}
@@ -116,11 +130,12 @@ export default function WorkspacesScreen() {
 
             {hasMore && (
               <TouchableOpacity
-                onPress={() => setOffset(offset + limit)}
+                onPress={handleLoadMore}
                 className="bg-gray-200 rounded-lg py-3 mt-4"
+                disabled={isLoading}
               >
                 <Text className="text-gray-700 text-center font-semibold">
-                  Load More
+                  {isLoading ? 'Loading...' : 'Load More'}
                 </Text>
               </TouchableOpacity>
             )}

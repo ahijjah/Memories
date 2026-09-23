@@ -1,6 +1,6 @@
 import { useAuth } from "@clerk/clerk-expo";
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { CompactCard } from '@/src/components/memory-cards/CompactCard';
@@ -37,10 +37,13 @@ export default function WorkspaceDetailScreen() {
   const router = useRouter();
   const { workspaceId } = useLocalSearchParams<{ workspaceId: string }>();
   const [offset, setOffset] = useState(0);
+  const [accumulatedMemories, setAccumulatedMemories] = useState<WorkspaceMemory[]>([]);
+  const [displayLabel, setDisplayLabel] = useState('Workspace');
+  const [total, setTotal] = useState(0);
   const limit = 20;
 
   const { data, isLoading, error, refetch } = useQuery<WorkspaceDetailResponse>({
-    queryKey: ['workspace', workspaceId, offset],
+    queryKey: ['workspace', workspaceId],
     queryFn: async () => {
       if (!workspaceId) throw new Error('No workspace ID');
 
@@ -66,11 +69,27 @@ export default function WorkspaceDetailScreen() {
     enabled: !!workspaceId,
   });
 
+  useEffect(() => {
+    if (data) {
+      setDisplayLabel(data.displayLabel);
+      setTotal(data.total);
+      if (offset === 0) {
+        setAccumulatedMemories(data.memories);
+      } else {
+        setAccumulatedMemories((prev) => [...prev, ...data.memories]);
+      }
+    }
+  }, [data, offset]);
+
   const handleMemoryPress = (memoryId: string) => {
     router.push(`/memories/${memoryId}`);
   };
 
-  if (isLoading) {
+  const handleLoadMore = () => {
+    setOffset((prev) => prev + limit);
+  };
+
+  if (isLoading && offset === 0) {
     return (
       <View className="flex-1 bg-white items-center justify-center">
         <ActivityIndicator size="large" color="#3b82f6" />
@@ -98,9 +117,6 @@ export default function WorkspaceDetailScreen() {
     );
   }
 
-  const displayLabel = data?.displayLabel ?? 'Workspace';
-  const memories = data?.memories ?? [];
-  const total = data?.total ?? 0;
   const hasMore = offset + limit < total;
 
   return (
@@ -113,7 +129,7 @@ export default function WorkspaceDetailScreen() {
         </Text>
       </View>
 
-      {memories.length === 0 ? (
+      {accumulatedMemories.length === 0 ? (
         <View className="items-center justify-center py-12">
           <Text className="text-lg font-semibold text-gray-900 mb-2">
             No Memories
@@ -124,7 +140,7 @@ export default function WorkspaceDetailScreen() {
         </View>
       ) : (
         <View>
-          {memories.map((memory) => (
+          {accumulatedMemories.map((memory) => (
             <TouchableOpacity
               key={memory.id}
               onPress={() => handleMemoryPress(memory.id)}
@@ -141,11 +157,12 @@ export default function WorkspaceDetailScreen() {
           {hasMore && (
             <View className="px-4 py-4">
               <TouchableOpacity
-                onPress={() => setOffset(offset + limit)}
+                onPress={handleLoadMore}
                 className="bg-gray-200 rounded-lg py-3"
+                disabled={isLoading}
               >
                 <Text className="text-gray-700 text-center font-semibold">
-                  Load More
+                  {isLoading ? 'Loading...' : 'Load More'}
                 </Text>
               </TouchableOpacity>
             </View>
