@@ -806,4 +806,337 @@ describe('EngagementService', () => {
       expect(result?.count).toBe(3);
     });
   });
+
+  describe('getCalendarMonth', () => {
+    it('should reject invalid month format', async () => {
+      const userId = 'user-123';
+
+      await expect(service.getCalendarMonth(userId, '2026-1')).rejects.toThrow(BadRequestException);
+      await expect(service.getCalendarMonth(userId, 'invalid')).rejects.toThrow(BadRequestException);
+      await expect(service.getCalendarMonth(userId, '2026')).rejects.toThrow(BadRequestException);
+    });
+
+    it('should reject out-of-range month values', async () => {
+      const userId = 'user-123';
+
+      await expect(service.getCalendarMonth(userId, '2026-00')).rejects.toThrow(BadRequestException);
+      await expect(service.getCalendarMonth(userId, '2026-13')).rejects.toThrow(BadRequestException);
+    });
+
+    it('should return memories for requested month only', async () => {
+      const userId = 'user-123';
+      const mockMemories = [
+        {
+          id: 'mem-1',
+          userId,
+          title: 'Sept Event',
+          lifecycleState: 'active',
+          securityScope: 'private',
+          aiInferences: [
+            { field: 'date', valueJson: '2026-09-15' },
+            { field: 'title', valueJson: 'AI Event' },
+            { field: 'type', valueJson: 'EVENT' },
+          ],
+          userConfirmations: [],
+          assets: [],
+        },
+        {
+          id: 'mem-2',
+          userId,
+          title: 'Oct Event',
+          lifecycleState: 'active',
+          securityScope: 'private',
+          aiInferences: [
+            { field: 'date', valueJson: '2026-10-15' },
+            { field: 'title', valueJson: 'Future Event' },
+          ],
+          userConfirmations: [],
+          assets: [],
+        },
+      ];
+
+      jest.spyOn(prismaService.memory, 'findMany').mockResolvedValue(mockMemories as any);
+
+      const result = await service.getCalendarMonth(userId, '2026-09');
+
+      expect(result.month).toBe('2026-09');
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0].date).toBe('2026-09-15');
+    });
+
+    it('should exclude vault-scoped memories', async () => {
+      const userId = 'user-123';
+
+      jest.spyOn(prismaService.memory, 'findMany').mockResolvedValue([] as any);
+
+      await service.getCalendarMonth(userId, '2026-09');
+
+      const callArgs = (prismaService.memory.findMany as jest.Mock).mock.calls[0][0];
+      expect(callArgs.where.securityScope).toEqual({ not: 'vault' });
+    });
+
+    it('should exclude deleted memories', async () => {
+      const userId = 'user-123';
+
+      jest.spyOn(prismaService.memory, 'findMany').mockResolvedValue([] as any);
+
+      await service.getCalendarMonth(userId, '2026-09');
+
+      const callArgs = (prismaService.memory.findMany as jest.Mock).mock.calls[0][0];
+      expect(callArgs.where.lifecycleState).toBe('active');
+    });
+
+    it('should apply UserConfirmation > AIInference precedence for dates', async () => {
+      const userId = 'user-123';
+      const mockMemories = [
+        {
+          id: 'mem-1',
+          userId,
+          title: 'Event',
+          lifecycleState: 'active',
+          securityScope: 'private',
+          aiInferences: [
+            { field: 'date', valueJson: '2026-09-10' },
+          ],
+          userConfirmations: [
+            { field: 'date', confirmedValue: '2026-09-15' },
+          ],
+          assets: [],
+        },
+      ];
+
+      jest.spyOn(prismaService.memory, 'findMany').mockResolvedValue(mockMemories as any);
+
+      const result = await service.getCalendarMonth(userId, '2026-09');
+
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0].date).toBe('2026-09-15');
+    });
+
+    it('should move memory OUT of month when user confirmation changes the date', async () => {
+      const userId = 'user-123';
+      const mockMemories = [
+        {
+          id: 'mem-1',
+          userId,
+          title: 'Event',
+          lifecycleState: 'active',
+          securityScope: 'private',
+          aiInferences: [
+            { field: 'date', valueJson: '2026-09-15' },
+          ],
+          userConfirmations: [
+            { field: 'date', confirmedValue: '2026-10-15' },
+          ],
+          assets: [],
+        },
+      ];
+
+      jest.spyOn(prismaService.memory, 'findMany').mockResolvedValue(mockMemories as any);
+
+      const result = await service.getCalendarMonth(userId, '2026-09');
+
+      expect(result.items).toHaveLength(0);
+    });
+
+    it('should move memory INTO month when user confirmation adds a date in that month', async () => {
+      const userId = 'user-123';
+      const mockMemories = [
+        {
+          id: 'mem-1',
+          userId,
+          title: 'Event',
+          lifecycleState: 'active',
+          securityScope: 'private',
+          aiInferences: [
+            { field: 'date', valueJson: '2026-10-15' },
+          ],
+          userConfirmations: [
+            { field: 'date', confirmedValue: '2026-09-15' },
+          ],
+          assets: [],
+        },
+      ];
+
+      jest.spyOn(prismaService.memory, 'findMany').mockResolvedValue(mockMemories as any);
+
+      const result = await service.getCalendarMonth(userId, '2026-09');
+
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0].date).toBe('2026-09-15');
+    });
+
+    it('should apply title precedence: UserConfirmation > AIInference > raw title', async () => {
+      const userId = 'user-123';
+      const mockMemories = [
+        {
+          id: 'mem-1',
+          userId,
+          title: 'Raw Title',
+          lifecycleState: 'active',
+          securityScope: 'private',
+          aiInferences: [
+            { field: 'date', valueJson: '2026-09-15' },
+            { field: 'title', valueJson: 'AI Title' },
+          ],
+          userConfirmations: [
+            { field: 'title', confirmedValue: 'User Title' },
+          ],
+          assets: [],
+        },
+      ];
+
+      jest.spyOn(prismaService.memory, 'findMany').mockResolvedValue(mockMemories as any);
+
+      const result = await service.getCalendarMonth(userId, '2026-09');
+
+      expect(result.items[0].title).toBe('User Title');
+    });
+
+    it('should handle multiple memories on the same day', async () => {
+      const userId = 'user-123';
+      const mockMemories = [
+        {
+          id: 'mem-1',
+          userId,
+          title: 'Event A',
+          lifecycleState: 'active',
+          securityScope: 'private',
+          aiInferences: [
+            { field: 'date', valueJson: '2026-09-15' },
+          ],
+          userConfirmations: [],
+          assets: [],
+        },
+        {
+          id: 'mem-2',
+          userId,
+          title: 'Event B',
+          lifecycleState: 'active',
+          securityScope: 'private',
+          aiInferences: [
+            { field: 'date', valueJson: '2026-09-15' },
+          ],
+          userConfirmations: [],
+          assets: [],
+        },
+      ];
+
+      jest.spyOn(prismaService.memory, 'findMany').mockResolvedValue(mockMemories as any);
+
+      const result = await service.getCalendarMonth(userId, '2026-09');
+
+      expect(result.items).toHaveLength(2);
+      expect(result.items[0].date).toBe('2026-09-15');
+      expect(result.items[1].date).toBe('2026-09-15');
+    });
+
+    it('should return deterministic ordering (by date, then by title)', async () => {
+      const userId = 'user-123';
+      const mockMemories = [
+        {
+          id: 'mem-1',
+          userId,
+          title: 'Zebra Event',
+          lifecycleState: 'active',
+          securityScope: 'private',
+          aiInferences: [
+            { field: 'date', valueJson: '2026-09-15' },
+          ],
+          userConfirmations: [],
+          assets: [],
+        },
+        {
+          id: 'mem-2',
+          userId,
+          title: 'Apple Event',
+          lifecycleState: 'active',
+          securityScope: 'private',
+          aiInferences: [
+            { field: 'date', valueJson: '2026-09-15' },
+          ],
+          userConfirmations: [],
+          assets: [],
+        },
+      ];
+
+      jest.spyOn(prismaService.memory, 'findMany').mockResolvedValue(mockMemories as any);
+
+      const result = await service.getCalendarMonth(userId, '2026-09');
+
+      expect(result.items[0].title).toBe('Apple Event');
+      expect(result.items[1].title).toBe('Zebra Event');
+    });
+
+    it('should not crash on malformed date values', async () => {
+      const userId = 'user-123';
+      const mockMemories = [
+        {
+          id: 'mem-1',
+          userId,
+          title: 'Valid Event',
+          lifecycleState: 'active',
+          securityScope: 'private',
+          aiInferences: [
+            { field: 'date', valueJson: '2026-09-15' },
+          ],
+          userConfirmations: [],
+          assets: [],
+        },
+        {
+          id: 'mem-2',
+          userId,
+          title: 'Invalid Event',
+          lifecycleState: 'active',
+          securityScope: 'private',
+          aiInferences: [
+            { field: 'date', valueJson: 'not-a-date' },
+          ],
+          userConfirmations: [],
+          assets: [],
+        },
+      ];
+
+      jest.spyOn(prismaService.memory, 'findMany').mockResolvedValue(mockMemories as any);
+
+      const result = await service.getCalendarMonth(userId, '2026-09');
+
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0].date).toBe('2026-09-15');
+    });
+
+    it('should not include objectKey or SSE-C material in asset DTO', async () => {
+      const userId = 'user-123';
+      const mockMemories = [
+        {
+          id: 'mem-1',
+          userId,
+          title: 'Event',
+          lifecycleState: 'active',
+          securityScope: 'private',
+          aiInferences: [
+            { field: 'date', valueJson: '2026-09-15' },
+          ],
+          userConfirmations: [],
+          assets: [
+            {
+              id: 'asset-1',
+              objectKey: 'secret-key-should-not-appear',
+              mimeType: 'image/jpeg',
+              variant: 'thumbnail',
+            },
+          ],
+        },
+      ];
+
+      jest.spyOn(prismaService.memory, 'findMany').mockResolvedValue(mockMemories as any);
+
+      const result = await service.getCalendarMonth(userId, '2026-09');
+
+      expect(result.items[0].assets).toHaveLength(1);
+      expect(result.items[0].assets[0]).toHaveProperty('id');
+      expect(result.items[0].assets[0]).toHaveProperty('mimeType');
+      expect(result.items[0].assets[0]).not.toHaveProperty('objectKey');
+    });
+  });
 });

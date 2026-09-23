@@ -7,6 +7,7 @@ export default function MoreScreen() {
   const menuItems = [
     { title: 'Capture', route: '/(tabs)/capture' },
     { title: 'Memories', route: '/(tabs)/memories' },
+    { title: 'Calendar', route: '/(tabs)/calendar' },
     { title: 'Collections', route: '/(tabs)/collections' },
     { title: 'Workspaces', route: '/(tabs)/workspaces' },
     { title: 'Near Me', route: '/(tabs)/near-me' },

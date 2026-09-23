@@ -3,6 +3,19 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { resolveTitleFromFields } from '../../common/resolve-title.util';
 
+export interface CalendarItem {
+  memoryId: string;
+  date: string;
+  title: string;
+  type?: string;
+  assets: Array<{ id: string; mimeType: string; variant?: string }>;
+}
+
+export interface CalendarMonthResponse {
+  month: string;
+  items: CalendarItem[];
+}
+
 @Injectable()
 export class EngagementService {
   constructor(private readonly prisma: PrismaService) {}
@@ -401,5 +414,140 @@ export class EngagementService {
     });
 
     return results;
+  }
+
+  async getCalendarMonth(userId: string, monthStr: string) {
+    // Validate month format: YYYY-MM
+    const monthRegex = /^\d{4}-\d{2}$/;
+    if (!monthRegex.test(monthStr)) {
+      throw new BadRequestException('Month must be in YYYY-MM format');
+    }
+
+    const [yearStr, monthNumStr] = monthStr.split('-');
+    const year = parseInt(yearStr, 10);
+    const monthNum = parseInt(monthNumStr, 10);
+
+    // Validate ranges
+    if (isNaN(year) || isNaN(monthNum) || monthNum < 1 || monthNum > 12) {
+      throw new BadRequestException('Invalid month or year');
+    }
+
+    type MemoryWithDatesAndTitles = Prisma.MemoryGetPayload<{
+      include: {
+        aiInferences: true;
+        userConfirmations: true;
+        assets: true;
+      };
+    }>;
+
+    const memories = await this.prisma.memory.findMany({
+      where: {
+        userId,
+        lifecycleState: 'active',
+        securityScope: { not: 'vault' },
+      },
+      include: {
+        aiInferences: {
+          where: { field: { in: ['date', 'title', 'type'] } },
+        },
+        userConfirmations: {
+          where: { field: { in: ['date', 'title'] } },
+        },
+        assets: {
+          select: {
+            id: true,
+            objectKey: true,
+            mimeType: true,
+            variant: true,
+          },
+        },
+      },
+    });
+
+    const getFieldValue = (
+      memory: MemoryWithDatesAndTitles,
+      field: string
+    ): string | undefined => {
+      const confirmation = memory.userConfirmations.find(
+        (c) => c.field === field
+      );
+      if (confirmation && confirmation.confirmedValue) {
+        return String(confirmation.confirmedValue);
+      }
+      const inference = memory.aiInferences.find((i) => i.field === field);
+      if (inference && inference.valueJson) {
+        return String(inference.valueJson);
+      }
+      return undefined;
+    };
+
+    // Group by date, filtering only memories in the requested month
+    const itemsByDate: { [dateStr: string]: any[] } = {};
+
+    for (const memory of memories) {
+      const effectiveDate = getFieldValue(
+        memory as MemoryWithDatesAndTitles,
+        'date'
+      );
+      if (!effectiveDate) continue;
+
+      // Parse the date string (YYYY-MM-DD)
+      // Safe: preserve the canonical YYYY-MM-DD without any Date object parsing
+      const dateParts = effectiveDate.split('-');
+      if (dateParts.length !== 3) continue;
+
+      const dateYear = parseInt(dateParts[0], 10);
+      const dateMonth = parseInt(dateParts[1], 10);
+      const dateDay = parseInt(dateParts[2], 10);
+
+      // Check if this date is in the requested month
+      if (isNaN(dateYear) || isNaN(dateMonth) || isNaN(dateDay)) continue;
+      if (dateYear !== year || dateMonth !== monthNum) continue;
+
+      // Date is valid and in the requested month
+      const effectiveTitle =
+        getFieldValue(memory as MemoryWithDatesAndTitles, 'title') ||
+        memory.title;
+      const effectiveType = getFieldValue(
+        memory as MemoryWithDatesAndTitles,
+        'type'
+      );
+
+      // Build safe asset DTO (no objectKey, no SSE-C material)
+      const assetDtos = memory.assets.map((asset) => ({
+        id: asset.id,
+        mimeType: asset.mimeType,
+        ...(asset.variant ? { variant: asset.variant } : {}),
+      }));
+
+      const item: CalendarItem = {
+        memoryId: memory.id,
+        date: effectiveDate,
+        title: effectiveTitle || memory.title || 'Untitled',
+        type: effectiveType,
+        assets: assetDtos,
+      };
+
+      if (!itemsByDate[effectiveDate]) {
+        itemsByDate[effectiveDate] = [];
+      }
+      itemsByDate[effectiveDate].push(item);
+    }
+
+    // Sort items by date, then by title for deterministic ordering
+    const sortedDates = Object.keys(itemsByDate).sort();
+    const items: CalendarItem[] = [];
+    for (const date of sortedDates) {
+      const dayItems = itemsByDate[date];
+      dayItems.sort((a: CalendarItem, b: CalendarItem) =>
+        a.title.localeCompare(b.title)
+      );
+      items.push(...dayItems);
+    }
+
+    return {
+      month: monthStr,
+      items,
+    } as CalendarMonthResponse;
   }
 }

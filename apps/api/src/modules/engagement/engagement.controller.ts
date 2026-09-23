@@ -71,4 +71,16 @@ export class EngagementController {
 
     return this.engagementService.getNearMe(user.sub, lat, lon, radius);
   }
+
+  @Get('calendar')
+  async getCalendarMonth(
+    @CurrentUser() user: CurrentUserPayload,
+    @Query('month') month?: string,
+  ) {
+    if (!month) {
+      throw new BadRequestException('month query parameter is required (format: YYYY-MM)');
+    }
+
+    return this.engagementService.getCalendarMonth(user.sub, month);
+  }
 }
