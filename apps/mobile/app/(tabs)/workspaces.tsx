@@ -1,8 +1,7 @@
 import { useAuth } from "@clerk/clerk-expo";
 import { useRouter } from 'expo-router';
-import { useState, useEffect } from 'react';
 import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity } from 'react-native';
-import { useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery } from '@tanstack/react-query';
 
 interface Workspace {
   workspaceId: string;
@@ -20,18 +19,24 @@ interface WorkspaceListResponse {
 export default function WorkspacesScreen() {
   const { getToken } = useAuth();
   const router = useRouter();
-  const [accumulatedWorkspaces, setAccumulatedWorkspaces] = useState<Workspace[]>([]);
-  const [offset, setOffset] = useState(0);
   const limit = 20;
 
-  const { data, isLoading, error, refetch } = useQuery<WorkspaceListResponse>({
+  const {
+    data,
+    isLoading,
+    error,
+    refetch,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery<WorkspaceListResponse>({
     queryKey: ['workspaces'],
-    queryFn: async () => {
+    queryFn: async ({ pageParam = 0 }) => {
       const token = await getToken();
       if (!token) throw new Error('No auth token');
 
       const response = await fetch(
-        `${process.env.EXPO_PUBLIC_API_URL}/workspaces?limit=${limit}&offset=${offset}`,
+        `${process.env.EXPO_PUBLIC_API_URL}/workspaces?limit=${limit}&offset=${pageParam}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -43,27 +48,25 @@ export default function WorkspacesScreen() {
       if (!response.ok) throw new Error('Failed to fetch workspaces');
       return response.json();
     },
-  });
-
-  useEffect(() => {
-    if (data?.workspaces) {
-      if (offset === 0) {
-        setAccumulatedWorkspaces(data.workspaces);
-      } else {
-        setAccumulatedWorkspaces((prev) => [...prev, ...data.workspaces]);
+    getNextPageParam: (lastPage) => {
+      const nextOffset = lastPage.offset + lastPage.limit;
+      if (nextOffset < lastPage.total) {
+        return nextOffset;
       }
-    }
-  }, [data?.workspaces, offset]);
+      return undefined;
+    },
+    initialPageParam: 0,
+  });
 
   const handleWorkspacePress = (workspaceId: string) => {
     router.push(`/workspace/${workspaceId}`);
   };
 
   const handleLoadMore = () => {
-    setOffset((prev) => prev + limit);
+    fetchNextPage();
   };
 
-  if (isLoading && offset === 0) {
+  if (isLoading) {
     return (
       <View className="flex-1 bg-white items-center justify-center">
         <ActivityIndicator size="large" color="#3b82f6" />
@@ -91,13 +94,13 @@ export default function WorkspacesScreen() {
     );
   }
 
-  const total = data?.total ?? 0;
-  const hasMore = offset + limit < total;
+  const workspaces = data?.pages.flatMap((page) => page.workspaces) ?? [];
+  const total = data?.pages[0]?.total ?? 0;
 
   return (
     <ScrollView className="flex-1 bg-white">
       <View className="px-6 py-6">
-        {accumulatedWorkspaces.length === 0 ? (
+        {workspaces.length === 0 ? (
           <View className="items-center justify-center py-12">
             <Text className="text-lg font-semibold text-gray-900 mb-2">
               No Workspaces
@@ -108,7 +111,7 @@ export default function WorkspacesScreen() {
           </View>
         ) : (
           <View>
-            {accumulatedWorkspaces.map((workspace) => (
+            {workspaces.map((workspace) => (
               <TouchableOpacity
                 key={workspace.workspaceId}
                 onPress={() => handleWorkspacePress(workspace.workspaceId)}
@@ -128,14 +131,14 @@ export default function WorkspacesScreen() {
               </TouchableOpacity>
             ))}
 
-            {hasMore && (
+            {hasNextPage && (
               <TouchableOpacity
                 onPress={handleLoadMore}
                 className="bg-gray-200 rounded-lg py-3 mt-4"
-                disabled={isLoading}
+                disabled={isFetchingNextPage}
               >
                 <Text className="text-gray-700 text-center font-semibold">
-                  {isLoading ? 'Loading...' : 'Load More'}
+                  {isFetchingNextPage ? 'Loading...' : 'Load More'}
                 </Text>
               </TouchableOpacity>
             )}

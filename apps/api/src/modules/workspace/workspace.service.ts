@@ -116,7 +116,7 @@ export class WorkspaceService {
     interface WorkspaceRow {
       normalized_topic: string;
       memory_count: number;
-      variant_frequencies: string;
+      display_label: string;
     }
 
     const results = await this.prisma.$queryRaw<WorkspaceRow[]>`
@@ -166,28 +166,36 @@ export class WorkspaceService {
         FROM deduped_per_memory
         GROUP BY normalized_topic, raw_topic
       ),
-      grouped_topics AS (
+      ranked_variants AS (
+        SELECT
+          normalized_topic,
+          raw_topic,
+          variant_count,
+          ROW_NUMBER() OVER (PARTITION BY normalized_topic ORDER BY variant_count DESC, raw_topic ASC) AS rank
+        FROM variant_stats
+      ),
+      workspace_stats AS (
         SELECT
           normalized_topic,
           COUNT(DISTINCT memory_id) AS memory_count,
-          STRING_AGG(raw_topic || '|' || variant_count::text, ',' ORDER BY variant_count DESC, raw_topic ASC) AS variant_frequencies
-        FROM deduped_per_memory
+          (SELECT raw_topic FROM ranked_variants rv WHERE rv.normalized_topic = dpm.normalized_topic AND rv.rank = 1 LIMIT 1) AS display_label
+        FROM deduped_per_memory dpm
         GROUP BY normalized_topic
         HAVING COUNT(DISTINCT memory_id) >= 2
       ),
-      ordered_topics AS (
+      ordered_workspaces AS (
         SELECT
           normalized_topic,
           memory_count,
-          variant_frequencies
-        FROM grouped_topics
+          display_label
+        FROM workspace_stats
         ORDER BY memory_count DESC, normalized_topic ASC
       )
       SELECT
         normalized_topic,
         memory_count,
-        variant_frequencies
-      FROM ordered_topics
+        display_label
+      FROM ordered_workspaces
       LIMIT ${limit}
       OFFSET ${offset}
     `;
@@ -228,7 +236,7 @@ export class WorkspaceService {
         FROM filtered_topics
         ORDER BY memory_id, normalized_topic
       ),
-      grouped_topics AS (
+      workspace_stats AS (
         SELECT
           normalized_topic,
           COUNT(DISTINCT memory_id) AS memory_count
@@ -236,27 +244,16 @@ export class WorkspaceService {
         GROUP BY normalized_topic
         HAVING COUNT(DISTINCT memory_id) >= 2
       )
-      SELECT COUNT(*) AS count FROM grouped_topics
+      SELECT COUNT(*) AS count FROM workspace_stats
     `;
 
-    const total = Number(totalResult[0].count) || 0;
+    const total = Number(totalResult[0]?.count ?? 0);
 
-    const workspaces: WorkspaceListItem[] = results.map((row) => {
-      const variants: string[] = [];
-      const pairs = row.variant_frequencies.split(',');
-      for (const pair of pairs) {
-        const [variant, countStr] = pair.split('|');
-        const count = parseInt(countStr, 10) || 1;
-        for (let i = 0; i < count; i++) {
-          variants.push(variant);
-        }
-      }
-      return {
-        workspaceId: this.encodeWorkspaceId(row.normalized_topic),
-        displayLabel: this.selectDisplayLabel(variants),
-        memoryCount: Number(row.memory_count),
-      };
-    });
+    const workspaces: WorkspaceListItem[] = results.map((row) => ({
+      workspaceId: this.encodeWorkspaceId(row.normalized_topic),
+      displayLabel: row.display_label,
+      memoryCount: Number(row.memory_count),
+    }));
 
     return {
       workspaces,
@@ -279,16 +276,13 @@ export class WorkspaceService {
   ): Promise<WorkspaceDetailResponse> {
     const normalizedTopic = this.decodeAndVerifyWorkspaceId(encodedWorkspaceId);
 
-    interface MembershipRow {
+    interface DetailQueryRow {
       memory_id: string;
-      raw_topic: string;
-    }
-
-    interface CountRow {
       total_count: number;
+      display_label: string;
     }
 
-    const memoriesResult = await this.prisma.$queryRaw<MembershipRow[]>`
+    const detailQuery = await this.prisma.$queryRaw<DetailQueryRow[]>`
       WITH topics_expanded AS (
         SELECT
           m."id" AS memory_id,
@@ -327,86 +321,53 @@ export class WorkspaceService {
         FROM filtered_topics
         ORDER BY memory_id, normalized_topic, raw_topic
       ),
-      matching_memories AS (
+      variant_stats AS (
         SELECT
-          memory_id,
-          raw_topic
+          normalized_topic,
+          raw_topic,
+          COUNT(DISTINCT memory_id) AS variant_count
         FROM deduped_per_memory
-        WHERE normalized_topic = ${normalizedTopic}
-      )
-      SELECT
-        memory_id,
-        raw_topic
-      FROM matching_memories
-      ORDER BY memory_id ASC
-    `;
-
-    const countResult = await this.prisma.$queryRaw<CountRow[]>`
-      WITH topics_expanded AS (
-        SELECT
-          m."id" AS memory_id,
-          LOWER(
-            REGEXP_REPLACE(
-              REGEXP_REPLACE(
-                TRIM(jsonb_array_elements_text(ai."valueJson")),
-                '\\s+', ' ', 'g'
-              ),
-              '^\s+|\s+$', '', 'g'
-            )
-          ) AS normalized_topic
-        FROM "memories" m
-        JOIN "ai_inferences" ai ON m."id" = ai."memoryId"
-        WHERE m."userId" = ${userId}
-          AND m."lifecycleState" NOT IN ('deleted', 'deleted_pending')
-          AND m."securityScope" = 'private'
-          AND ai."field" = 'topics'
-          AND jsonb_typeof(ai."valueJson") = 'array'
+        GROUP BY normalized_topic, raw_topic
       ),
-      filtered_topics AS (
+      ranked_variants AS (
         SELECT
-          memory_id,
-          normalized_topic
-        FROM topics_expanded
-        WHERE normalized_topic != ''
-          AND CHAR_LENGTH(normalized_topic) > 0
-      ),
-      deduped_per_memory AS (
-        SELECT DISTINCT ON (memory_id, normalized_topic)
-          memory_id,
-          normalized_topic
-        FROM filtered_topics
-        ORDER BY memory_id, normalized_topic
+          normalized_topic,
+          raw_topic,
+          variant_count,
+          ROW_NUMBER() OVER (PARTITION BY normalized_topic ORDER BY variant_count DESC, raw_topic ASC) AS rank
+        FROM variant_stats
       ),
       matching_memories AS (
         SELECT DISTINCT memory_id
         FROM deduped_per_memory
         WHERE normalized_topic = ${normalizedTopic}
+      ),
+      workspace_stats AS (
+        SELECT
+          (SELECT COUNT(DISTINCT memory_id) FROM matching_memories) AS total_count,
+          (SELECT raw_topic FROM ranked_variants rv WHERE rv.normalized_topic = ${normalizedTopic} AND rv.rank = 1 LIMIT 1) AS display_label
       )
-      SELECT COUNT(DISTINCT memory_id) AS total_count FROM matching_memories
+      SELECT
+        mm.memory_id,
+        ws.total_count,
+        ws.display_label
+      FROM matching_memories mm
+      CROSS JOIN workspace_stats ws
+      ORDER BY mm.memory_id ASC
     `;
 
-    const totalCount = Number(countResult[0]?.total_count ?? 0);
+    if (detailQuery.length === 0) {
+      throw new Error('Workspace not found or has fewer than 2 memories');
+    }
+
+    const totalCount = Number(detailQuery[0].total_count ?? 0);
+    const displayLabel = detailQuery[0].display_label ?? '';
+
     if (totalCount < 2) {
       throw new Error('Workspace not found or has fewer than 2 memories');
     }
 
-    const memoryIds = Array.from(new Set(memoriesResult.map((r) => r.memory_id)));
-    if (memoryIds.length < 2) {
-      throw new Error('Workspace not found or has fewer than 2 memories');
-    }
-
-    const allRawVariants = memoriesResult.map((r) => r.raw_topic);
-    const variants: string[] = [];
-    const variantCounts = new Map<string, number>();
-    for (const v of allRawVariants) {
-      variantCounts.set(v, (variantCounts.get(v) ?? 0) + 1);
-    }
-    for (const [v, count] of variantCounts.entries()) {
-      for (let i = 0; i < count; i++) {
-        variants.push(v);
-      }
-    }
-    const displayLabel = this.selectDisplayLabel(variants);
+    const memoryIds = Array.from(new Set(detailQuery.map((r) => r.memory_id)));
 
     const paginatedMemoryIds = memoryIds.slice(offset, offset + limit);
     const memories = await this.prisma.memory.findMany({

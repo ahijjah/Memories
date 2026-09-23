@@ -1,8 +1,7 @@
 import { useAuth } from "@clerk/clerk-expo";
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useState, useEffect } from 'react';
 import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity } from 'react-native';
-import { useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery } from '@tanstack/react-query';
 import { CompactCard } from '@/src/components/memory-cards/CompactCard';
 
 interface Asset {
@@ -36,22 +35,26 @@ export default function WorkspaceDetailScreen() {
   const { getToken } = useAuth();
   const router = useRouter();
   const { workspaceId } = useLocalSearchParams<{ workspaceId: string }>();
-  const [offset, setOffset] = useState(0);
-  const [accumulatedMemories, setAccumulatedMemories] = useState<WorkspaceMemory[]>([]);
-  const [displayLabel, setDisplayLabel] = useState('Workspace');
-  const [total, setTotal] = useState(0);
   const limit = 20;
 
-  const { data, isLoading, error, refetch } = useQuery<WorkspaceDetailResponse>({
+  const {
+    data,
+    isLoading,
+    error,
+    refetch,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery<WorkspaceDetailResponse>({
     queryKey: ['workspace', workspaceId],
-    queryFn: async () => {
+    queryFn: async ({ pageParam = 0 }) => {
       if (!workspaceId) throw new Error('No workspace ID');
 
       const token = await getToken();
       if (!token) throw new Error('No auth token');
 
       const response = await fetch(
-        `${process.env.EXPO_PUBLIC_API_URL}/workspaces/${workspaceId}/memories?limit=${limit}&offset=${offset}`,
+        `${process.env.EXPO_PUBLIC_API_URL}/workspaces/${workspaceId}/memories?limit=${limit}&offset=${pageParam}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -66,30 +69,26 @@ export default function WorkspaceDetailScreen() {
       if (!response.ok) throw new Error('Failed to fetch workspace memories');
       return response.json();
     },
+    getNextPageParam: (lastPage) => {
+      const nextOffset = lastPage.offset + lastPage.limit;
+      if (nextOffset < lastPage.total) {
+        return nextOffset;
+      }
+      return undefined;
+    },
+    initialPageParam: 0,
     enabled: !!workspaceId,
   });
-
-  useEffect(() => {
-    if (data) {
-      setDisplayLabel(data.displayLabel);
-      setTotal(data.total);
-      if (offset === 0) {
-        setAccumulatedMemories(data.memories);
-      } else {
-        setAccumulatedMemories((prev) => [...prev, ...data.memories]);
-      }
-    }
-  }, [data, offset]);
 
   const handleMemoryPress = (memoryId: string) => {
     router.push(`/memories/${memoryId}`);
   };
 
   const handleLoadMore = () => {
-    setOffset((prev) => prev + limit);
+    fetchNextPage();
   };
 
-  if (isLoading && offset === 0) {
+  if (isLoading) {
     return (
       <View className="flex-1 bg-white items-center justify-center">
         <ActivityIndicator size="large" color="#3b82f6" />
@@ -117,7 +116,9 @@ export default function WorkspaceDetailScreen() {
     );
   }
 
-  const hasMore = offset + limit < total;
+  const memories = data?.pages.flatMap((page) => page.memories) ?? [];
+  const displayLabel = data?.pages[0]?.displayLabel ?? 'Workspace';
+  const total = data?.pages[0]?.total ?? 0;
 
   return (
     <ScrollView className="flex-1 bg-white">
@@ -129,7 +130,7 @@ export default function WorkspaceDetailScreen() {
         </Text>
       </View>
 
-      {accumulatedMemories.length === 0 ? (
+      {memories.length === 0 ? (
         <View className="items-center justify-center py-12">
           <Text className="text-lg font-semibold text-gray-900 mb-2">
             No Memories
@@ -140,7 +141,7 @@ export default function WorkspaceDetailScreen() {
         </View>
       ) : (
         <View>
-          {accumulatedMemories.map((memory) => (
+          {memories.map((memory) => (
             <TouchableOpacity
               key={memory.id}
               onPress={() => handleMemoryPress(memory.id)}
@@ -154,15 +155,15 @@ export default function WorkspaceDetailScreen() {
             </TouchableOpacity>
           ))}
 
-          {hasMore && (
+          {hasNextPage && (
             <View className="px-4 py-4">
               <TouchableOpacity
                 onPress={handleLoadMore}
                 className="bg-gray-200 rounded-lg py-3"
-                disabled={isLoading}
+                disabled={isFetchingNextPage}
               >
                 <Text className="text-gray-700 text-center font-semibold">
-                  {isLoading ? 'Loading...' : 'Load More'}
+                  {isFetchingNextPage ? 'Loading...' : 'Load More'}
                 </Text>
               </TouchableOpacity>
             </View>
