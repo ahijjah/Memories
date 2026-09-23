@@ -1123,5 +1123,76 @@ describe('EngagementService', () => {
       const keys = Object.keys(result.items[0]);
       expect(keys.sort()).toEqual(['date', 'memoryId', 'title', 'type'].sort());
     });
+
+    it('should use SQL effective_date, not recompute from unordered Prisma relations', async () => {
+      const userId = 'user-123';
+      // SQL returns the newest date (2026-09-15) as effective_date
+      const matchingIds = [
+        { id: 'mem-1', title: 'Event', effective_date: '2026-09-15' },
+      ];
+      // But Prisma returns inferences in arbitrary order (older date first)
+      const mockMemories = [
+        {
+          id: 'mem-1',
+          userId,
+          title: 'Event',
+          lifecycleState: 'active',
+          securityScope: 'private',
+          aiInferences: [
+            // Returned in arbitrary order: older date first
+            { field: 'title', valueJson: 'Event Title' },
+            { field: 'type', valueJson: 'PERSON' },
+          ],
+          userConfirmations: [],
+        },
+      ];
+
+      jest.spyOn(prismaService, '$queryRaw').mockResolvedValue(matchingIds as any);
+      jest.spyOn(prismaService.memory, 'findMany').mockResolvedValue(mockMemories as any);
+
+      const result = await service.getCalendarMonth(userId, '2026-09');
+
+      // Item date must match SQL effective_date (2026-09-15), not recomputed from relations
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0].date).toBe('2026-09-15');
+      expect(result.items[0].memoryId).toBe('mem-1');
+    });
+
+    it('should respect UserConfirmation.date precedence over AIInference.date', async () => {
+      const userId = 'user-123';
+      // SQL returns the confirmed date as effective_date (UserConfirmation > AIInference)
+      const matchingIds = [
+        { id: 'mem-1', title: 'Event', effective_date: '2026-09-20' },
+      ];
+      // Prisma has both confirmation and inference
+      const mockMemories = [
+        {
+          id: 'mem-1',
+          userId,
+          title: 'Event',
+          lifecycleState: 'active',
+          securityScope: 'private',
+          aiInferences: [
+            // Older inferred date
+            { field: 'title', valueJson: 'Event Title' },
+          ],
+          userConfirmations: [
+            // User-confirmed date (takes precedence)
+            { field: 'title', confirmedValue: 'Confirmed Title' },
+          ],
+        },
+      ];
+
+      jest.spyOn(prismaService, '$queryRaw').mockResolvedValue(matchingIds as any);
+      jest.spyOn(prismaService.memory, 'findMany').mockResolvedValue(mockMemories as any);
+
+      const result = await service.getCalendarMonth(userId, '2026-09');
+
+      // Date must come from SQL (which selected confirmed date), not recomputed
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0].date).toBe('2026-09-20');
+      // Title must use precedence: confirmed > inferred
+      expect(result.items[0].title).toBe('Confirmed Title');
+    });
   });
 });

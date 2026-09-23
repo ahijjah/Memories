@@ -511,17 +511,14 @@ export class EngagementService {
     `;
 
     // Filter out results with invalid dates and collect valid memory IDs
-    const validResults: Array<{ id: string; title: string; effective_date: string }> = [];
+    // Build map of memoryId -> effective_date from SQL (authoritative source)
+    const effectiveDateMap = new Map<string, string>();
     const memoryIds: string[] = [];
 
     for (const result of matchingMemoryIds) {
       if (result.effective_date && isValidCalendarDate(result.effective_date)) {
-        validResults.push({
-          id: result.id,
-          title: result.title,
-          effective_date: result.effective_date,
-        });
         memoryIds.push(result.id);
+        effectiveDateMap.set(result.id, result.effective_date);
       }
     }
 
@@ -534,70 +531,47 @@ export class EngagementService {
 
     // Fetch full memory details (including related data) only for matched memory IDs
     // Assets not included: Calendar MVP does not render images
-    type MemoryWithDatesAndTitles = Prisma.MemoryGetPayload<{
-      include: {
-        aiInferences: true;
-        userConfirmations: true;
-      };
-    }>;
-
+    // Date retrieved from SQL effectiveDateMap (authoritative source)
     const memories = await this.prisma.memory.findMany({
       where: {
         id: { in: memoryIds },
       },
       include: {
         aiInferences: {
-          where: { field: { in: ['date', 'title', 'type'] } },
+          where: { field: { in: ['title', 'type'] } },
+          orderBy: { createdAt: 'desc' },
         },
         userConfirmations: {
-          where: { field: { in: ['date', 'title'] } },
+          where: { field: { in: ['title', 'type'] } },
         },
       },
     });
 
-    const getFieldValue = (
-      memory: MemoryWithDatesAndTitles,
-      field: string
-    ): string | undefined => {
-      const confirmation = memory.userConfirmations.find(
-        (c) => c.field === field
-      );
-      if (confirmation && confirmation.confirmedValue) {
-        return String(confirmation.confirmedValue);
-      }
-      const inference = memory.aiInferences.find((i) => i.field === field);
-      if (inference && inference.valueJson) {
-        return String(inference.valueJson);
-      }
-      return undefined;
-    };
-
     // Build calendar items from fetched memories
+    // Date comes from SQL effectiveDateMap (authoritative), not recomputed from Prisma relations
     const items: CalendarItem[] = [];
 
     for (const memory of memories) {
-      const effectiveDate = getFieldValue(
-        memory as MemoryWithDatesAndTitles,
-        'date'
-      );
+      const effectiveDate = effectiveDateMap.get(memory.id);
       if (!effectiveDate) continue;
 
-      // Validate date format
-      if (!isValidCalendarDate(effectiveDate)) continue;
-
-      const effectiveTitle =
-        getFieldValue(memory as MemoryWithDatesAndTitles, 'title') ||
-        memory.title;
-      const effectiveType = getFieldValue(
-        memory as MemoryWithDatesAndTitles,
-        'type'
+      const effectiveTitle = resolveTitleFromFields(
+        memory.title || '',
+        memory.aiInferences,
+        memory.userConfirmations,
       );
+      const effectiveType = (
+        memory.userConfirmations.find((c) => c.field === 'type')?.confirmedValue ||
+        memory.aiInferences.find((i) => i.field === 'type')?.valueJson ||
+        undefined
+      );
+      const effectiveTypeStr = effectiveType ? String(effectiveType) : undefined;
 
       const item: CalendarItem = {
         memoryId: memory.id,
         date: effectiveDate,
-        title: effectiveTitle || memory.title || 'Untitled',
-        type: effectiveType,
+        title: effectiveTitle || 'Untitled',
+        type: effectiveTypeStr,
       };
 
       items.push(item);
