@@ -11,12 +11,9 @@ interface RelatedMemoriesSectionProps {
 
 export function RelatedMemoriesSection({
   memoryId,
-  isVault = false,
   onNavigateToMemory,
 }: RelatedMemoriesSectionProps) {
-  const { data: relatedMemories, isLoading, error } = useRelatedMemories(memoryId, {
-    isVault,
-  });
+  const { data: relatedMemories, isLoading, error } = useRelatedMemories(memoryId);
 
   // Handle navigation to a related memory
   const handleNavigate = useCallback(
@@ -26,8 +23,8 @@ export function RelatedMemoriesSection({
     [onNavigateToMemory]
   );
 
-  // Hide if no results
-  if (!relatedMemories || relatedMemories.length === 0) {
+  // Hide section if loading, has error, or no results
+  if (isLoading || error || !relatedMemories || relatedMemories.length === 0) {
     return null;
   }
 
@@ -39,34 +36,16 @@ export function RelatedMemoriesSection({
         </Text>
       </View>
 
-      {/* Loading state */}
-      {isLoading && (
-        <View className="flex items-center py-6">
-          <ActivityIndicator size="small" color="#666" />
-        </View>
-      )}
-
-      {/* Error state - fail gracefully */}
-      {error && !isLoading && (
-        <View className="px-4 py-3">
-          <Text className="text-sm text-gray-600">
-            Could not load related memories
-          </Text>
-        </View>
-      )}
-
-      {/* Results */}
-      {!error && relatedMemories && relatedMemories.length > 0 && (
-        <View>
-          {relatedMemories.slice(0, 5).map((related) => (
-            <RelatedMemoryCard
-              key={related.id}
-              memory={related}
-              onPress={() => handleNavigate(related.id, related.securityScope === 'vault')}
-            />
-          ))}
-        </View>
-      )}
+      {/* Results - max 5 cards */}
+      <View>
+        {relatedMemories.slice(0, 5).map((related) => (
+          <RelatedMemoryCard
+            key={related.id}
+            memory={related}
+            onPress={() => handleNavigate(related.id, related.securityScope === 'vault')}
+          />
+        ))}
+      </View>
     </View>
   );
 }

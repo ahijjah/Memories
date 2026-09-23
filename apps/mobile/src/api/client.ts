@@ -294,14 +294,6 @@ export async function getVaultMemoryDetail(token: string | null, id: string): Pr
   return makeRequest(`/vault/${id}`, 'GET', token);
 }
 
-export async function fetchRelatedVaultMemories(
-  token: string | null,
-  id: string,
-  limit: number = 5,
-): Promise<RelatedMemoryResult[]> {
-  return makeRequest(`/vault/${id}/related?limit=${limit}`, 'GET', token);
-}
-
 export async function getVaultProcessingStatus(
   token: string | null,
   id: string,
