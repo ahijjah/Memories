@@ -238,6 +238,13 @@ export class WorkspaceService {
    * Get memories in a workspace (by normalized topic).
    * Uses exact same normalization logic as listWorkspaces.
    * Membership filtering, pagination, and ordering done in PostgreSQL.
+   *
+   * Two-query pattern:
+   * 1. Stats query: workspace existence, total count, display label (unpaginated)
+   * 2. Page query: paginated memory IDs for the requested page
+   *
+   * This allows correct behavior for offset beyond end (200 with empty array)
+   * vs. workspace not found (404).
    */
   async getWorkspaceMemories(
     userId: string,
@@ -247,17 +254,19 @@ export class WorkspaceService {
   ): Promise<WorkspaceDetailResponse> {
     const normalizedTopic = this.decodeAndVerifyWorkspaceId(encodedWorkspaceId);
 
-    interface DetailQueryRow {
-      memory_id: string;
+    interface StatsRow {
       total_count: number;
       display_label: string;
     }
 
-    const detailQuery = await this.prisma.$queryRaw<DetailQueryRow[]>`
+    interface PageRow {
+      memory_id: string;
+    }
+
+    const statsQuery = await this.prisma.$queryRaw<StatsRow[]>`
       WITH topic_expanded AS (
         SELECT
           m."id" AS memory_id,
-          m."capturedAt",
           LOWER(
             REGEXP_REPLACE(
               REGEXP_REPLACE(
@@ -279,7 +288,6 @@ export class WorkspaceService {
       filtered_topics AS (
         SELECT
           memory_id,
-          "capturedAt",
           normalized_topic,
           raw_topic
         FROM topic_expanded
@@ -289,7 +297,6 @@ export class WorkspaceService {
       deduped_per_memory AS (
         SELECT DISTINCT ON (memory_id, normalized_topic)
           memory_id,
-          "capturedAt",
           normalized_topic,
           raw_topic
         FROM filtered_topics
@@ -312,38 +319,98 @@ export class WorkspaceService {
         FROM variant_stats
       ),
       matching_memories AS (
-        SELECT DISTINCT memory_id, "capturedAt"
+        SELECT DISTINCT memory_id
         FROM deduped_per_memory
         WHERE normalized_topic = ${normalizedTopic}
       ),
       workspace_stats AS (
         SELECT
-          (SELECT COUNT(DISTINCT memory_id) FROM matching_memories) AS total_count,
+          COUNT(DISTINCT memory_id) AS total_count,
           (SELECT raw_topic FROM ranked_variants rv WHERE rv.normalized_topic = ${normalizedTopic} AND rv.rank = 1 LIMIT 1) AS display_label
+        FROM matching_memories
       )
       SELECT
-        mm.memory_id,
-        ws.total_count,
-        ws.display_label
-      FROM matching_memories mm
-      CROSS JOIN workspace_stats ws
-      ORDER BY mm."capturedAt" DESC, mm.memory_id DESC
-      LIMIT ${limit}
-      OFFSET ${offset}
+        total_count,
+        display_label
+      FROM workspace_stats
     `;
 
-    if (detailQuery.length === 0) {
+    if (statsQuery.length === 0) {
       throw new Error('Workspace not found or has fewer than 2 memories');
     }
 
-    const totalCount = Number(detailQuery[0].total_count ?? 0);
-    const displayLabel = detailQuery[0].display_label ?? '';
+    const totalCount = Number(statsQuery[0]?.total_count ?? 0);
+    const displayLabel = statsQuery[0]?.display_label ?? '';
 
     if (totalCount < 2) {
       throw new Error('Workspace not found or has fewer than 2 memories');
     }
 
-    const paginatedMemoryIds = detailQuery.map((r) => r.memory_id);
+    const pageQuery = await this.prisma.$queryRaw<PageRow[]>`
+      WITH topic_expanded AS (
+        SELECT
+          m."id" AS memory_id,
+          m."capturedAt",
+          LOWER(
+            REGEXP_REPLACE(
+              REGEXP_REPLACE(
+                TRIM(jsonb_array_elements_text(ai."valueJson")),
+                '\\s+', ' ', 'g'
+              ),
+              '^\s+|\s+$', '', 'g'
+            )
+          ) AS normalized_topic
+        FROM "memories" m
+        JOIN "ai_inferences" ai ON m."id" = ai."memoryId"
+        WHERE m."userId" = ${userId}
+          AND m."lifecycleState" NOT IN ('deleted', 'deleted_pending')
+          AND m."securityScope" = 'private'
+          AND ai."field" = 'topics'
+          AND jsonb_typeof(ai."valueJson") = 'array'
+      ),
+      filtered_topics AS (
+        SELECT
+          memory_id,
+          "capturedAt",
+          normalized_topic
+        FROM topic_expanded
+        WHERE normalized_topic != ''
+          AND CHAR_LENGTH(normalized_topic) > 0
+      ),
+      deduped_per_memory AS (
+        SELECT DISTINCT ON (memory_id, normalized_topic)
+          memory_id,
+          "capturedAt",
+          normalized_topic
+        FROM filtered_topics
+        ORDER BY memory_id, normalized_topic
+      ),
+      matching_memories AS (
+        SELECT DISTINCT memory_id, "capturedAt"
+        FROM deduped_per_memory
+        WHERE normalized_topic = ${normalizedTopic}
+      )
+      SELECT
+        mm.memory_id
+      FROM matching_memories mm
+      ORDER BY mm."capturedAt" DESC, mm.memory_id DESC
+      LIMIT ${limit}
+      OFFSET ${offset}
+    `;
+
+    const paginatedMemoryIds = pageQuery.map((r) => r.memory_id);
+
+    if (paginatedMemoryIds.length === 0) {
+      return {
+        workspaceId: encodedWorkspaceId,
+        displayLabel,
+        memories: [],
+        total: totalCount,
+        limit,
+        offset,
+      };
+    }
+
     const memories = await this.prisma.memory.findMany({
       where: {
         id: { in: paginatedMemoryIds },

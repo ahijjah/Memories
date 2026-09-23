@@ -94,12 +94,19 @@ describe('WorkspaceService', () => {
     });
   });
 
-  describe('getWorkspaceMemories - Pagination Regression Tests', () => {
+  describe('getWorkspaceMemories - Pagination and Edge Cases', () => {
     it('should perform pagination via SQL LIMIT/OFFSET, not Node Array.slice', async () => {
+      // statsQuery: workspace exists with 100 memories
       (mockPrisma.$queryRaw as jest.Mock)
         .mockResolvedValueOnce([
-          { memory_id: 'mem-1', total_count: 100, display_label: 'AI' },
-          { memory_id: 'mem-2', total_count: 100, display_label: 'AI' },
+          { total_count: 100, display_label: 'AI' },
+        ]);
+
+      // pageQuery: return 2 memory IDs for page 1
+      (mockPrisma.$queryRaw as jest.Mock)
+        .mockResolvedValueOnce([
+          { memory_id: 'mem-1' },
+          { memory_id: 'mem-2' },
         ]);
 
       (mockPrisma.memory.findMany as jest.Mock).mockResolvedValue([
@@ -131,15 +138,12 @@ describe('WorkspaceService', () => {
 
       const result = await service.getWorkspaceMemories('user-123', 'ai', 20, 0);
 
-      // Verify that SQL returned exactly 2 results (limit=20, so 2 is page 1 of 100)
-      // If Node-side Array.slice were used, SQL would return ALL 100 and slice to 2
-      // Instead, SQL should return only what was requested
       expect(result.memories).toHaveLength(2);
       expect(result.total).toBe(100);
       expect(result.limit).toBe(20);
       expect(result.offset).toBe(0);
 
-      // Verify that memory.findMany was called with exactly 2 IDs, not a larger array
+      // Verify that memory.findMany was called with exactly 2 IDs
       const findManyCall = (mockPrisma.memory.findMany as jest.Mock).mock.calls[0];
       expect(findManyCall[0].where.id.in).toHaveLength(2);
     });
@@ -147,9 +151,14 @@ describe('WorkspaceService', () => {
     it('should order by capturedAt DESC then memory_id DESC', async () => {
       (mockPrisma.$queryRaw as jest.Mock)
         .mockResolvedValueOnce([
-          { memory_id: 'mem-5', total_count: 3, display_label: 'AI' },
-          { memory_id: 'mem-3', total_count: 3, display_label: 'AI' },
-          { memory_id: 'mem-1', total_count: 3, display_label: 'AI' },
+          { total_count: 3, display_label: 'AI' },
+        ]);
+
+      (mockPrisma.$queryRaw as jest.Mock)
+        .mockResolvedValueOnce([
+          { memory_id: 'mem-5' },
+          { memory_id: 'mem-3' },
+          { memory_id: 'mem-1' },
         ]);
 
       (mockPrisma.memory.findMany as jest.Mock).mockResolvedValue([
@@ -198,77 +207,36 @@ describe('WorkspaceService', () => {
       expect(result.memories[2].title).toBe('Oldest');
     });
 
-    it('should preserve total count across pages', async () => {
+    it('should return 200 with empty memories when offset is beyond end', async () => {
       (mockPrisma.$queryRaw as jest.Mock)
         .mockResolvedValueOnce([
-          { memory_id: 'mem-1', total_count: 47, display_label: 'AI' },
-          { memory_id: 'mem-2', total_count: 47, display_label: 'AI' },
+          { total_count: 47, display_label: 'AI' },
         ]);
 
-      (mockPrisma.memory.findMany as jest.Mock).mockResolvedValue([
-        {
-          id: 'mem-1',
-          title: 'Memory 1',
-          memoryType: 'TEXT',
-          sourceType: 'MANUAL',
-          capturedAt: new Date(),
-          processingState: 'COMPLETE',
-          securityScope: 'private',
-          aiInferences: [],
-          userConfirmations: [],
-          assets: [],
-        },
-        {
-          id: 'mem-2',
-          title: 'Memory 2',
-          memoryType: 'TEXT',
-          sourceType: 'MANUAL',
-          capturedAt: new Date(),
-          processingState: 'COMPLETE',
-          securityScope: 'private',
-          aiInferences: [],
-          userConfirmations: [],
-          assets: [],
-        },
-      ]);
+      (mockPrisma.$queryRaw as jest.Mock)
+        .mockResolvedValueOnce([]);
 
-      const result = await service.getWorkspaceMemories('user-123', 'ai', 20, 0);
+      const result = await service.getWorkspaceMemories('user-123', 'ai', 20, 60);
+
+      expect(result.memories).toEqual([]);
       expect(result.total).toBe(47);
-      expect(result.memories).toHaveLength(2);
+      expect(result.displayLabel).toBe('AI');
+      expect(result.limit).toBe(20);
+      expect(result.offset).toBe(60);
+
+      expect((mockPrisma.memory.findMany as jest.Mock).mock.calls).toHaveLength(0);
     });
 
-    it('should preserve display_label across pages', async () => {
+    it('should return normal results for page 1 of workspace with total=2', async () => {
       (mockPrisma.$queryRaw as jest.Mock)
         .mockResolvedValueOnce([
-          { memory_id: 'mem-1', total_count: 100, display_label: 'Artificial Intelligence' },
+          { total_count: 2, display_label: 'Minimum' },
         ]);
 
-      (mockPrisma.memory.findMany as jest.Mock).mockResolvedValue([
-        {
-          id: 'mem-1',
-          title: 'Memory 1',
-          memoryType: 'TEXT',
-          sourceType: 'MANUAL',
-          capturedAt: new Date(),
-          processingState: 'COMPLETE',
-          securityScope: 'private',
-          aiInferences: [],
-          userConfirmations: [],
-          assets: [],
-        },
-      ]);
-
-      const result = await service.getWorkspaceMemories('user-123', 'ai', 20, 0);
-      expect(result.displayLabel).toBe('Artificial Intelligence');
-      expect(result.total).toBe(100);
-    });
-
-    it('should return exactly paginated memory IDs without Node-side filtering', async () => {
-      // SQL returns exactly the requested page
       (mockPrisma.$queryRaw as jest.Mock)
         .mockResolvedValueOnce([
-          { memory_id: 'mem-1', total_count: 100, display_label: 'AI' },
-          { memory_id: 'mem-2', total_count: 100, display_label: 'AI' },
+          { memory_id: 'mem-1' },
+          { memory_id: 'mem-2' },
         ]);
 
       (mockPrisma.memory.findMany as jest.Mock).mockResolvedValue([
@@ -298,16 +266,43 @@ describe('WorkspaceService', () => {
         },
       ]);
 
-      const result = await service.getWorkspaceMemories('user-123', 'ai', 2, 0);
+      const result = await service.getWorkspaceMemories('user-123', 'minimum', 20, 0);
 
       expect(result.memories).toHaveLength(2);
-      expect(result.limit).toBe(2);
-      expect(result.offset).toBe(0);
-      expect(result.total).toBe(100);
+      expect(result.total).toBe(2);
+      expect(result.displayLabel).toBe('Minimum');
+    });
 
-      // Verify that findMany was called with the exact IDs from SQL
-      const findManyCall = (mockPrisma.memory.findMany as jest.Mock).mock.calls[0];
-      expect(findManyCall[0].where.id.in).toEqual(['mem-1', 'mem-2']);
+    it('should throw 404 when workspace has fewer than 2 memories', async () => {
+      (mockPrisma.$queryRaw as jest.Mock)
+        .mockResolvedValueOnce([
+          { total_count: 1, display_label: 'Singleton' },
+        ]);
+
+      await expect(service.getWorkspaceMemories('user-123', 'singleton', 20, 0))
+        .rejects.toThrow('Workspace not found or has fewer than 2 memories');
+    });
+
+    it('should throw 404 when workspace does not exist', async () => {
+      (mockPrisma.$queryRaw as jest.Mock)
+        .mockResolvedValueOnce([]);
+
+      await expect(service.getWorkspaceMemories('user-123', 'nonexistent', 20, 0))
+        .rejects.toThrow('Workspace not found or has fewer than 2 memories');
+    });
+
+    it('should not call memory.findMany when page query returns zero results', async () => {
+      (mockPrisma.$queryRaw as jest.Mock)
+        .mockResolvedValueOnce([
+          { total_count: 47, display_label: 'AI' },
+        ]);
+
+      (mockPrisma.$queryRaw as jest.Mock)
+        .mockResolvedValueOnce([]);
+
+      await service.getWorkspaceMemories('user-123', 'ai', 20, 60);
+
+      expect((mockPrisma.memory.findMany as jest.Mock).mock.calls).toHaveLength(0);
     });
   });
 
@@ -433,81 +428,17 @@ describe('WorkspaceService', () => {
     });
   });
 
-  describe('getWorkspaceMemories', () => {
-    beforeEach(() => {
-      (mockPrisma.memory.findMany as jest.Mock).mockResolvedValue([]);
-    });
-
-    it('should throw when workspace has fewer than 2 memories', async () => {
-      (mockPrisma.$queryRaw as jest.Mock).mockResolvedValueOnce([]);
-
-      await expect(
-        service.getWorkspaceMemories('user-123', 'ai')
-      ).rejects.toThrow('Workspace not found or has fewer than 2 memories');
-    });
-
-    it('should fetch memories when workspace has 2+ memories', async () => {
-      (mockPrisma.$queryRaw as jest.Mock)
-        .mockResolvedValueOnce([
-          {
-            memory_id: 'mem-1',
-            total_count: 2,
-            display_label: 'AI',
-          },
-          {
-            memory_id: 'mem-2',
-            total_count: 2,
-            display_label: 'AI',
-          },
-        ]);
-
-      (mockPrisma.memory.findMany as jest.Mock).mockResolvedValue([
-        {
-          id: 'mem-1',
-          title: 'Memory 1',
-          memoryType: 'TEXT',
-          sourceType: 'MANUAL',
-          capturedAt: new Date(),
-          processingState: 'COMPLETE',
-          securityScope: 'private',
-          aiInferences: [],
-          userConfirmations: [],
-          assets: [],
-        },
-        {
-          id: 'mem-2',
-          title: 'Memory 2',
-          memoryType: 'TEXT',
-          sourceType: 'MANUAL',
-          capturedAt: new Date(),
-          processingState: 'COMPLETE',
-          securityScope: 'private',
-          aiInferences: [],
-          userConfirmations: [],
-          assets: [],
-        },
-      ]);
-
-      const result = await service.getWorkspaceMemories('user-123', 'ai');
-
-      expect(result.memories).toHaveLength(2);
-      expect(result.total).toBe(2);
-      expect(result.displayLabel).toBe('AI');
-    });
-
+  describe('getWorkspaceMemories - Additional Tests', () => {
     it('should resolve title from confirmation > inference > raw', async () => {
       (mockPrisma.$queryRaw as jest.Mock)
         .mockResolvedValueOnce([
-          {
-            memory_id: 'mem-1',
-            total_count: 2,
-            display_label: 'AI',
-          },
-          {
-            memory_id: 'mem-2',
-            total_count: 2,
-            display_label: 'AI',
-          },
+          { total_count: 2, display_label: 'AI' },
+        ]);
+
+      (mockPrisma.$queryRaw as jest.Mock)
+        .mockResolvedValueOnce([
+          { memory_id: 'mem-1' },
+          { memory_id: 'mem-2' },
         ]);
 
       (mockPrisma.memory.findMany as jest.Mock).mockResolvedValue([
@@ -553,52 +484,16 @@ describe('WorkspaceService', () => {
       expect(result.memories[1].title).toBe('Raw Title 2');
     });
 
-    it('should apply pagination correctly', async () => {
-      (mockPrisma.$queryRaw as jest.Mock)
-        .mockResolvedValueOnce([
-          { memory_id: 'mem-1', total_count: 3, display_label: 'AI' },
-          { memory_id: 'mem-2', total_count: 3, display_label: 'AI' },
-        ]);
-
-      (mockPrisma.memory.findMany as jest.Mock).mockResolvedValue([
-        {
-          id: 'mem-1',
-          title: 'Memory 1',
-          memoryType: 'TEXT',
-          sourceType: 'MANUAL',
-          capturedAt: new Date(),
-          processingState: 'COMPLETE',
-          securityScope: 'private',
-          aiInferences: [],
-          userConfirmations: [],
-          assets: [],
-        },
-        {
-          id: 'mem-2',
-          title: 'Memory 2',
-          memoryType: 'TEXT',
-          sourceType: 'MANUAL',
-          capturedAt: new Date(),
-          processingState: 'COMPLETE',
-          securityScope: 'private',
-          aiInferences: [],
-          userConfirmations: [],
-          assets: [],
-        },
-      ]);
-
-      const result = await service.getWorkspaceMemories('user-123', 'ai', 2, 0);
-
-      expect(result.limit).toBe(2);
-      expect(result.offset).toBe(0);
-      expect(result.total).toBe(3);
-    });
-
     it('should decode encoded workspaceId', async () => {
       (mockPrisma.$queryRaw as jest.Mock)
         .mockResolvedValueOnce([
-          { memory_id: 'mem-1', total_count: 2, display_label: 'path/to/topic' },
-          { memory_id: 'mem-2', total_count: 2, display_label: 'path/to/topic' },
+          { total_count: 2, display_label: 'path/to/topic' },
+        ]);
+
+      (mockPrisma.$queryRaw as jest.Mock)
+        .mockResolvedValueOnce([
+          { memory_id: 'mem-1' },
+          { memory_id: 'mem-2' },
         ]);
 
       (mockPrisma.memory.findMany as jest.Mock).mockResolvedValue([
@@ -637,8 +532,13 @@ describe('WorkspaceService', () => {
     it('should include proper asset URLs without objectKey exposure', async () => {
       (mockPrisma.$queryRaw as jest.Mock)
         .mockResolvedValueOnce([
-          { memory_id: 'mem-1', total_count: 2, display_label: 'AI' },
-          { memory_id: 'mem-2', total_count: 2, display_label: 'AI' },
+          { total_count: 2, display_label: 'AI' },
+        ]);
+
+      (mockPrisma.$queryRaw as jest.Mock)
+        .mockResolvedValueOnce([
+          { memory_id: 'mem-1' },
+          { memory_id: 'mem-2' },
         ]);
 
       (mockPrisma.memory.findMany as jest.Mock).mockResolvedValue([
@@ -690,14 +590,6 @@ describe('WorkspaceService', () => {
       ).rejects.toThrow();
 
       expect((mockPrisma.$queryRaw as jest.Mock).mock.calls.length).toBeGreaterThan(0);
-    });
-
-    it('should handle empty total_count safely', async () => {
-      (mockPrisma.$queryRaw as jest.Mock).mockResolvedValueOnce([]);
-
-      await expect(
-        service.getWorkspaceMemories('user-123', 'nonexistent')
-      ).rejects.toThrow('Workspace not found');
     });
   });
 });
