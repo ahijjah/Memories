@@ -23,7 +23,6 @@ describe('WorkspaceService', () => {
     }).compile();
 
     service = module.get<WorkspaceService>(WorkspaceService);
-    prisma = module.get<PrismaService>(PrismaService);
   });
 
   afterEach(() => {
