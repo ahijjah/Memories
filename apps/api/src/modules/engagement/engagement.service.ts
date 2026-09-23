@@ -3,6 +3,43 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { resolveTitleFromFields } from '../../common/resolve-title.util';
 
+export interface CalendarItem {
+  memoryId: string;
+  date: string;
+  title: string;
+  type?: string;
+}
+
+export interface CalendarMonthResponse {
+  month: string;
+  items: CalendarItem[];
+}
+
+// Strict date-only validator: ensures YYYY-MM-DD format with valid calendar date
+function isValidCalendarDate(dateStr: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    return false;
+  }
+
+  const parts = dateStr.split('-');
+  const year = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10);
+  const day = parseInt(parts[2], 10);
+
+  // Validate month range
+  if (month < 1 || month > 12) {
+    return false;
+  }
+
+  // Validate day exists in that month/year
+  const daysInMonth = new Date(year, month, 0).getDate();
+  if (day < 1 || day > daysInMonth) {
+    return false;
+  }
+
+  return true;
+}
+
 @Injectable()
 export class EngagementService {
   constructor(private readonly prisma: PrismaService) {}
@@ -401,5 +438,156 @@ export class EngagementService {
     });
 
     return results;
+  }
+
+  async getCalendarMonth(userId: string, monthStr: string) {
+    // Validate month format: YYYY-MM
+    const monthRegex = /^\d{4}-\d{2}$/;
+    if (!monthRegex.test(monthStr)) {
+      throw new BadRequestException('Month must be in YYYY-MM format');
+    }
+
+    const [yearStr, monthNumStr] = monthStr.split('-');
+    const year = parseInt(yearStr, 10);
+    const monthNum = parseInt(monthNumStr, 10);
+
+    // Validate ranges
+    if (isNaN(year) || isNaN(monthNum) || monthNum < 1 || monthNum > 12) {
+      throw new BadRequestException('Invalid month or year');
+    }
+
+    // Use raw SQL to efficiently filter memories by effective date in requested month
+    // Precedence: UserConfirmation.date > AIInference.date
+    const yearPadded = String(year).padStart(4, '0');
+    const monthPadded = String(monthNum).padStart(2, '0');
+    const monthRangeStart = `${yearPadded}-${monthPadded}-01`;
+    const monthRangeEnd = `${yearPadded}-${monthPadded}-31`;
+
+    interface RawCalendarResult {
+      id: string;
+      title: string;
+      effective_date: string | null;
+    }
+
+    // Get memory IDs that have a valid effective date in the requested month
+    // Physical schema: tables use quoted names, columns use camelCase
+    // Precedence: UserConfirmation.confirmedValue > AIInference.valueJson (both JSON types)
+    // Extract JSON scalar text using #>> '{}' operator
+    const matchingMemoryIds = await this.prisma.$queryRaw<RawCalendarResult[]>`
+      SELECT DISTINCT m."id", m."title",
+        COALESCE(
+          uc_date."confirmedValue" #>> '{}',
+          ai_date."valueJson" #>> '{}'
+        ) as "effective_date"
+      FROM "memories" m
+      LEFT JOIN "user_confirmations" uc_date
+        ON m."id" = uc_date."memoryId" AND uc_date."field" = 'date'
+      LEFT JOIN LATERAL (
+        SELECT "valueJson"
+        FROM "ai_inferences"
+        WHERE "memoryId" = m."id" AND "field" = 'date'
+        ORDER BY "createdAt" DESC
+        LIMIT 1
+      ) ai_date ON true
+      WHERE m."userId" = ${userId}
+        AND m."lifecycleState" = 'active'
+        AND m."securityScope" != 'vault'
+        AND (COALESCE(
+          uc_date."confirmedValue" #>> '{}',
+          ai_date."valueJson" #>> '{}'
+        )) >= ${monthRangeStart}
+        AND (COALESCE(
+          uc_date."confirmedValue" #>> '{}',
+          ai_date."valueJson" #>> '{}'
+        )) <= ${monthRangeEnd}
+        AND (COALESCE(
+          uc_date."confirmedValue" #>> '{}',
+          ai_date."valueJson" #>> '{}'
+        )) ~ '^\d{4}-\d{2}-\d{2}$'
+      ORDER BY COALESCE(
+        uc_date."confirmedValue" #>> '{}',
+        ai_date."valueJson" #>> '{}'
+      ), m."title"
+    `;
+
+    // Filter out results with invalid dates and collect valid memory IDs
+    // Build map of memoryId -> effective_date from SQL (authoritative source)
+    const effectiveDateMap = new Map<string, string>();
+    const memoryIds: string[] = [];
+
+    for (const result of matchingMemoryIds) {
+      if (result.effective_date && isValidCalendarDate(result.effective_date)) {
+        memoryIds.push(result.id);
+        effectiveDateMap.set(result.id, result.effective_date);
+      }
+    }
+
+    if (memoryIds.length === 0) {
+      return {
+        month: monthStr,
+        items: [],
+      } as CalendarMonthResponse;
+    }
+
+    // Fetch full memory details (including related data) only for matched memory IDs
+    // Assets not included: Calendar MVP does not render images
+    // Date retrieved from SQL effectiveDateMap (authoritative source)
+    const memories = await this.prisma.memory.findMany({
+      where: {
+        id: { in: memoryIds },
+      },
+      include: {
+        aiInferences: {
+          where: { field: { in: ['title', 'type'] } },
+          orderBy: { createdAt: 'desc' },
+        },
+        userConfirmations: {
+          where: { field: { in: ['title', 'type'] } },
+        },
+      },
+    });
+
+    // Build calendar items from fetched memories
+    // Date comes from SQL effectiveDateMap (authoritative), not recomputed from Prisma relations
+    const items: CalendarItem[] = [];
+
+    for (const memory of memories) {
+      const effectiveDate = effectiveDateMap.get(memory.id);
+      if (!effectiveDate) continue;
+
+      const effectiveTitle = resolveTitleFromFields(
+        memory.title || '',
+        memory.aiInferences,
+        memory.userConfirmations,
+      );
+      const effectiveType = (
+        memory.userConfirmations.find((c) => c.field === 'type')?.confirmedValue ||
+        memory.aiInferences.find((i) => i.field === 'type')?.valueJson ||
+        undefined
+      );
+      const effectiveTypeStr = effectiveType ? String(effectiveType) : undefined;
+
+      const item: CalendarItem = {
+        memoryId: memory.id,
+        date: effectiveDate,
+        title: effectiveTitle || 'Untitled',
+        type: effectiveTypeStr,
+      };
+
+      items.push(item);
+    }
+
+    // Sort by date, then title for deterministic ordering
+    items.sort((a, b) => {
+      if (a.date !== b.date) {
+        return a.date.localeCompare(b.date);
+      }
+      return a.title.localeCompare(b.title);
+    });
+
+    return {
+      month: monthStr,
+      items,
+    } as CalendarMonthResponse;
   }
 }
