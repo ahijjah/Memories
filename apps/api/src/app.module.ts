@@ -19,6 +19,7 @@ import { EngagementModule } from './modules/engagement/engagement.module';
 import { AccountModule } from './modules/account/account.module';
 import { HealthModule } from './modules/health/health.module';
 import { PersonModule } from './modules/person/person.module';
+import { WorkspaceModule } from './modules/workspace/workspace.module';
 
 @Module({
   imports: [
@@ -51,6 +52,7 @@ import { PersonModule } from './modules/person/person.module';
     AccountModule,
     HealthModule,
     PersonModule,
+    WorkspaceModule,
   ],
   providers: [
     {

@@ -56,6 +56,14 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
+        name="workspaces"
+        options={{
+          href: null,
+          title: 'Workspaces',
+          headerShown: true,
+        }}
+      />
+      <Tabs.Screen
         name="vault"
         options={{
           href: null,
