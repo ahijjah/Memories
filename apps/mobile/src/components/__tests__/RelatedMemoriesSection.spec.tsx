@@ -10,8 +10,14 @@ jest.mock('react-native', () => ({
   Text: 'Text',
   Pressable: 'Pressable',
 }));
+
+const mockCapturedPressCallbacks = new Map<string, () => void>();
+
 jest.mock('../memory-cards/RelatedMemoryCard', () => ({
-  RelatedMemoryCard: ({ memory, onPress }: any) => `RelatedMemoryCard:${memory.id}`,
+  RelatedMemoryCard: ({ memory, onPress }: any) => {
+    mockCapturedPressCallbacks.set(memory.id, onPress);
+    return `RelatedMemoryCard:${memory.id}`;
+  },
 }));
 
 describe('RelatedMemoriesSection - Real Rendering Tests', () => {
@@ -195,7 +201,7 @@ describe('RelatedMemoriesSection - Real Rendering Tests', () => {
   });
 
   describe('F. NAVIGATION CALLBACK - private', () => {
-    it('renders private memory and component is ready for press', async () => {
+    it('calls onNavigateToMemory with isVault=false for private scope', async () => {
       const privateMemory = {
         id: 'private-1',
         title: 'Private Memory',
@@ -212,6 +218,8 @@ describe('RelatedMemoriesSection - Real Rendering Tests', () => {
         error: null,
       });
 
+      mockCapturedPressCallbacks.clear();
+
       let rendered: any;
       await TestRenderer.act(async () => {
         rendered = TestRenderer.create(
@@ -224,15 +232,19 @@ describe('RelatedMemoriesSection - Real Rendering Tests', () => {
         );
       });
 
-      const tree = rendered.toJSON();
-      const treeString = JSON.stringify(tree);
-      expect(treeString).toContain('RelatedMemoryCard:private-1');
-      expect(treeString).toContain('private-1');
+      const onPress = mockCapturedPressCallbacks.get('private-1');
+      expect(onPress).toBeDefined();
+
+      await TestRenderer.act(async () => {
+        onPress?.();
+      });
+
+      expect(mockOnNavigate).toHaveBeenCalledWith('private-1', false);
     });
   });
 
   describe('G. NAVIGATION CALLBACK - vault', () => {
-    it('renders vault memory with correct scope indicator', async () => {
+    it('calls onNavigateToMemory with isVault=true for vault scope', async () => {
       const vaultMemory = {
         id: 'vault-1',
         title: 'Vault Memory',
@@ -249,6 +261,8 @@ describe('RelatedMemoriesSection - Real Rendering Tests', () => {
         error: null,
       });
 
+      mockCapturedPressCallbacks.clear();
+
       let rendered: any;
       await TestRenderer.act(async () => {
         rendered = TestRenderer.create(
@@ -261,10 +275,14 @@ describe('RelatedMemoriesSection - Real Rendering Tests', () => {
         );
       });
 
-      const tree = rendered.toJSON();
-      const treeString = JSON.stringify(tree);
-      expect(treeString).toContain('RelatedMemoryCard:vault-1');
-      expect(treeString).toContain('vault-1');
+      const onPress = mockCapturedPressCallbacks.get('vault-1');
+      expect(onPress).toBeDefined();
+
+      await TestRenderer.act(async () => {
+        onPress?.();
+      });
+
+      expect(mockOnNavigate).toHaveBeenCalledWith('vault-1', true);
     });
   });
 

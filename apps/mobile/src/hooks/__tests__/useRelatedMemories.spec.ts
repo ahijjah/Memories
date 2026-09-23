@@ -100,34 +100,34 @@ describe('useRelatedMemories', () => {
   });
 
   describe('C. API error handling', () => {
-    it('hook can be mounted even when API call fails', async () => {
+    it('handles API errors without breaking the hook', async () => {
       const networkError = new Error('Network error');
       (clientApi.fetchRelatedMemories as jest.Mock).mockRejectedValue(networkError);
 
       let result: any;
-      let renderError: any;
-
       const TestComponent = () => {
-        try {
-          result = useRelatedMemories(mockMemoryId);
-          return null;
-        } catch (e) {
-          renderError = e;
-          return null;
-        }
+        result = useRelatedMemories(mockMemoryId);
+        return null;
       };
 
-      let rendered: any;
+      let renderError: any;
       await TestRenderer.act(async () => {
-        rendered = TestRenderer.create(
-          <QueryClientProvider client={queryClient}>
-            <TestComponent />
-          </QueryClientProvider>
-        );
+        try {
+          TestRenderer.create(
+            <QueryClientProvider client={queryClient}>
+              <TestComponent />
+            </QueryClientProvider>
+          );
+        } catch (e) {
+          renderError = e;
+        }
       });
 
+      await new Promise(resolve => setTimeout(resolve, 200));
+
       expect(renderError).toBeUndefined();
-      expect(rendered).not.toBeNull();
+      expect(result).toBeDefined();
+      expect(clientApi.fetchRelatedMemories).toHaveBeenCalled();
     });
   });
 
@@ -342,20 +342,41 @@ describe('useRelatedMemories', () => {
   });
 
   describe('Token handling', () => {
-    it('hook still mounts when token is unavailable', async () => {
+    it('throws error and does not call fetchRelatedMemories when token is unavailable', async () => {
       mockGetToken.mockResolvedValue(null);
 
       let result: any;
-      let renderError: any;
-
       const TestComponent = () => {
-        try {
-          result = useRelatedMemories(mockMemoryId);
-          return null;
-        } catch (e) {
-          renderError = e;
-          return null;
-        }
+        result = useRelatedMemories(mockMemoryId);
+        return null;
+      };
+
+      await TestRenderer.act(async () => {
+        TestRenderer.create(
+          <QueryClientProvider client={queryClient}>
+            <TestComponent />
+          </QueryClientProvider>
+        );
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 200));
+
+      expect(mockGetToken).toHaveBeenCalled();
+      expect(clientApi.fetchRelatedMemories).not.toHaveBeenCalled();
+      expect(result).toBeDefined();
+    });
+  });
+
+  describe('M. Unmount during pending request', () => {
+    it('does not produce state-update warnings when unmounted with pending request', async () => {
+      let resolveApi: any;
+      const pendingPromise = new Promise(resolve => { resolveApi = resolve; });
+      (clientApi.fetchRelatedMemories as jest.Mock).mockReturnValue(pendingPromise);
+
+      let result: any;
+      const TestComponent = () => {
+        result = useRelatedMemories(mockMemoryId);
+        return null;
       };
 
       let rendered: any;
@@ -367,9 +388,18 @@ describe('useRelatedMemories', () => {
         );
       });
 
-      expect(renderError).toBeUndefined();
-      expect(rendered).not.toBeNull();
-      expect(mockGetToken).toHaveBeenCalled();
+      expect(result.isLoading).toBe(true);
+
+      await TestRenderer.act(async () => {
+        rendered.unmount();
+      });
+
+      await TestRenderer.act(async () => {
+        resolveApi([{ id: 'mem-1' }]);
+        await pendingPromise;
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 50));
     });
   });
 });

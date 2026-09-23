@@ -9,8 +9,15 @@ jest.mock('react-native', () => ({
   Image: 'Image',
 }));
 
+let capturedAssetImageProps: Map<string, any> = new Map();
+
+const mockCapturedAssetImageProps = new Map<string, any>();
+
 jest.mock('../AuthenticatedAssetImage', () => ({
-  AuthenticatedAssetImage: ({ assetId }: any) => `AuthenticatedAssetImage:${assetId}`,
+  AuthenticatedAssetImage: (props: any) => {
+    mockCapturedAssetImageProps.set(props.assetId, props);
+    return `AuthenticatedAssetImage:${props.assetId}`;
+  },
 }));
 
 describe('RelatedMemoryCard', () => {
@@ -131,8 +138,8 @@ describe('RelatedMemoryCard', () => {
     });
   });
 
-  describe('F. Pressable with onPress callback', () => {
-    it('renders Pressable component with onPress prop', async () => {
+  describe('F. Pressable component receives onPress callback', () => {
+    it('component structure includes Pressable wrapper', async () => {
       let rendered: any;
       await TestRenderer.act(async () => {
         rendered = TestRenderer.create(
@@ -142,13 +149,15 @@ describe('RelatedMemoryCard', () => {
 
       const tree = rendered.toJSON();
       const treeString = JSON.stringify(tree);
-
       expect(treeString).toContain('Pressable');
+      expect(mockOnPress).not.toHaveBeenCalled();
     });
   });
 
-  describe('G. Renders with asset image when available', () => {
-    it('includes AuthenticatedAssetImage when image asset exists', async () => {
+  describe('G. AuthenticatedAssetImage props validation', () => {
+    it('passes correct assetId and contentUrl to AuthenticatedAssetImage', async () => {
+      mockCapturedAssetImageProps.clear();
+
       let rendered: any;
       await TestRenderer.act(async () => {
         rendered = TestRenderer.create(
@@ -156,10 +165,28 @@ describe('RelatedMemoryCard', () => {
         );
       });
 
-      const tree = rendered.toJSON();
-      const treeString = JSON.stringify(tree);
+      const assetProps = mockCapturedAssetImageProps.get('asset-1');
+      expect(assetProps).toBeDefined();
+      expect(assetProps.assetId).toBe('asset-1');
+      expect(assetProps.contentUrl).toBe('/assets/asset-1/content');
+    });
 
-      expect(treeString).toContain('AuthenticatedAssetImage');
+    it('does not render AuthenticatedAssetImage when no image asset', async () => {
+      mockCapturedAssetImageProps.clear();
+
+      const memoryNoAssets = {
+        ...mockMemory,
+        assets: [],
+      };
+
+      let rendered: any;
+      await TestRenderer.act(async () => {
+        rendered = TestRenderer.create(
+          <RelatedMemoryCard memory={memoryNoAssets} onPress={mockOnPress} />
+        );
+      });
+
+      expect(mockCapturedAssetImageProps.size).toBe(0);
     });
   });
 
