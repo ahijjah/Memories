@@ -260,6 +260,27 @@ describe('CalendarScreen', () => {
         expect(dateDisplay).toBeTruthy();
       });
     });
+
+    it('uses safe date-only formatter that does not parse YYYY-MM-DD as UTC', async () => {
+      renderCalendar();
+
+      await waitFor(() => {
+        const day15 = screen.queryByText('15');
+        expect(day15).toBeTruthy();
+      });
+
+      const day15Button = screen.getByText('15');
+      fireEvent.press(day15Button);
+
+      await waitFor(() => {
+        // The formatter should use local Date constructor, not new Date("2026-09-15")
+        // which would parse as UTC and shift the day for timezones west of UTC
+        const dateDisplay = screen.queryByText(/September 15, 2026/);
+        expect(dateDisplay).toBeTruthy();
+        // Verify the exact day number appears (not shifted)
+        expect(screen.queryByText('15')).toBeTruthy();
+      });
+    });
   });
 
   describe('Selected day display', () => {

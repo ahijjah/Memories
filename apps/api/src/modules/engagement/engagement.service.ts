@@ -16,6 +16,31 @@ export interface CalendarMonthResponse {
   items: CalendarItem[];
 }
 
+// Strict date-only validator: ensures YYYY-MM-DD format with valid calendar date
+function isValidCalendarDate(dateStr: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    return false;
+  }
+
+  const parts = dateStr.split('-');
+  const year = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10);
+  const day = parseInt(parts[2], 10);
+
+  // Validate month range
+  if (month < 1 || month > 12) {
+    return false;
+  }
+
+  // Validate day exists in that month/year
+  const daysInMonth = new Date(year, month, 0).getDate();
+  if (day < 1 || day > daysInMonth) {
+    return false;
+  }
+
+  return true;
+}
+
 @Injectable()
 export class EngagementService {
   constructor(private readonly prisma: PrismaService) {}
@@ -432,6 +457,58 @@ export class EngagementService {
       throw new BadRequestException('Invalid month or year');
     }
 
+    // Use raw SQL to efficiently filter memories by effective date in requested month
+    // Precedence: UserConfirmation.date > AIInference.date
+    const yearPadded = String(year).padStart(4, '0');
+    const monthPadded = String(monthNum).padStart(2, '0');
+    const monthRangeStart = `${yearPadded}-${monthPadded}-01`;
+    const monthRangeEnd = `${yearPadded}-${monthPadded}-31`;
+
+    interface RawCalendarResult {
+      id: string;
+      title: string;
+      effective_date: string | null;
+    }
+
+    // Get memory IDs that have a valid effective date in the requested month
+    const matchingMemoryIds = await this.prisma.$queryRaw<RawCalendarResult[]>`
+      SELECT DISTINCT m.id, m.title,
+        COALESCE(uc_date.confirmed_value, ai_date.value_json) as effective_date
+      FROM memory m
+      LEFT JOIN user_confirmation uc_date ON m.id = uc_date.memory_id AND uc_date.field = 'date'
+      LEFT JOIN ai_inference ai_date ON m.id = ai_date.memory_id AND ai_date.field = 'date'
+      WHERE m.user_id = ${userId}
+        AND m.lifecycle_state = 'active'
+        AND m.security_scope != 'vault'
+        AND (COALESCE(uc_date.confirmed_value, ai_date.value_json))::text >= ${monthRangeStart}
+        AND (COALESCE(uc_date.confirmed_value, ai_date.value_json))::text <= ${monthRangeEnd}
+        AND (COALESCE(uc_date.confirmed_value, ai_date.value_json))::text ~ '^\d{4}-\d{2}-\d{2}$'
+      ORDER BY COALESCE(uc_date.confirmed_value, ai_date.value_json), m.title
+    `;
+
+    // Filter out results with invalid dates and collect valid memory IDs
+    const validResults: Array<{ id: string; title: string; effective_date: string }> = [];
+    const memoryIds: string[] = [];
+
+    for (const result of matchingMemoryIds) {
+      if (result.effective_date && isValidCalendarDate(result.effective_date)) {
+        validResults.push({
+          id: result.id,
+          title: result.title,
+          effective_date: result.effective_date,
+        });
+        memoryIds.push(result.id);
+      }
+    }
+
+    if (memoryIds.length === 0) {
+      return {
+        month: monthStr,
+        items: [],
+      } as CalendarMonthResponse;
+    }
+
+    // Fetch full memory details (including related data) only for matched memory IDs
     type MemoryWithDatesAndTitles = Prisma.MemoryGetPayload<{
       include: {
         aiInferences: true;
@@ -442,9 +519,7 @@ export class EngagementService {
 
     const memories = await this.prisma.memory.findMany({
       where: {
-        userId,
-        lifecycleState: 'active',
-        securityScope: { not: 'vault' },
+        id: { in: memoryIds },
       },
       include: {
         aiInferences: {
@@ -456,7 +531,6 @@ export class EngagementService {
         assets: {
           select: {
             id: true,
-            objectKey: true,
             mimeType: true,
             variant: true,
           },
@@ -481,8 +555,8 @@ export class EngagementService {
       return undefined;
     };
 
-    // Group by date, filtering only memories in the requested month
-    const itemsByDate: { [dateStr: string]: any[] } = {};
+    // Build calendar items from fetched memories
+    const items: CalendarItem[] = [];
 
     for (const memory of memories) {
       const effectiveDate = getFieldValue(
@@ -491,20 +565,9 @@ export class EngagementService {
       );
       if (!effectiveDate) continue;
 
-      // Parse the date string (YYYY-MM-DD)
-      // Safe: preserve the canonical YYYY-MM-DD without any Date object parsing
-      const dateParts = effectiveDate.split('-');
-      if (dateParts.length !== 3) continue;
+      // Validate date format
+      if (!isValidCalendarDate(effectiveDate)) continue;
 
-      const dateYear = parseInt(dateParts[0], 10);
-      const dateMonth = parseInt(dateParts[1], 10);
-      const dateDay = parseInt(dateParts[2], 10);
-
-      // Check if this date is in the requested month
-      if (isNaN(dateYear) || isNaN(dateMonth) || isNaN(dateDay)) continue;
-      if (dateYear !== year || dateMonth !== monthNum) continue;
-
-      // Date is valid and in the requested month
       const effectiveTitle =
         getFieldValue(memory as MemoryWithDatesAndTitles, 'title') ||
         memory.title;
@@ -528,22 +591,16 @@ export class EngagementService {
         assets: assetDtos,
       };
 
-      if (!itemsByDate[effectiveDate]) {
-        itemsByDate[effectiveDate] = [];
-      }
-      itemsByDate[effectiveDate].push(item);
+      items.push(item);
     }
 
-    // Sort items by date, then by title for deterministic ordering
-    const sortedDates = Object.keys(itemsByDate).sort();
-    const items: CalendarItem[] = [];
-    for (const date of sortedDates) {
-      const dayItems = itemsByDate[date];
-      dayItems.sort((a: CalendarItem, b: CalendarItem) =>
-        a.title.localeCompare(b.title)
-      );
-      items.push(...dayItems);
-    }
+    // Sort by date, then title for deterministic ordering
+    items.sort((a, b) => {
+      if (a.date !== b.date) {
+        return a.date.localeCompare(b.date);
+      }
+      return a.title.localeCompare(b.title);
+    });
 
     return {
       month: monthStr,

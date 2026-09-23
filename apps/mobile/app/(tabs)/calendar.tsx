@@ -25,11 +25,31 @@ function getFirstDayOfMonth(year: number, month: number): number {
   return new Date(year, month - 1, 1).getDay();
 }
 
+// Safe date-only formatting without timezone conversion
+function formatDateOnly(dateStr: string): string {
+  const parts = dateStr.split('-');
+  if (parts.length !== 3) return dateStr;
+
+  const year = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10);
+  const day = parseInt(parts[2], 10);
+
+  if (isNaN(year) || isNaN(month) || isNaN(day)) return dateStr;
+
+  // Use local Date constructor to avoid UTC parsing
+  const date = new Date(year, month - 1, day);
+  return date.toLocaleDateString('en-US', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+}
+
 export default function CalendarScreen() {
   const router = useRouter();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const [datedMemories, setDatedMemories] = useState<CalendarItem[]>([]);
 
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth() + 1;
@@ -50,7 +70,6 @@ export default function CalendarScreen() {
   useEffect(() => {
     if (calendarData?.items) {
       setSelectedDate(null);
-      setDatedMemories([]);
     }
   }, [calendarData?.items]);
 
@@ -203,12 +222,7 @@ export default function CalendarScreen() {
           {selectedDate && (
             <View className="border-t border-gray-200 px-6 py-4">
               <Text className="text-lg font-semibold text-gray-900 mb-4">
-                {new Date(selectedDate).toLocaleDateString('en-US', {
-                  weekday: 'long',
-                  year: 'numeric',
-                  month: 'long',
-                  day: 'numeric',
-                })}
+                {formatDateOnly(selectedDate)}
               </Text>
 
               {selectedDayMemories.length === 0 ? (
