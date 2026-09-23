@@ -1,11 +1,10 @@
 import React, { useCallback } from 'react';
-import { View, Text, ActivityIndicator } from 'react-native';
+import { View, Text } from 'react-native';
 import { useRelatedMemories } from '../hooks/useRelatedMemories';
 import { RelatedMemoryCard } from './memory-cards/RelatedMemoryCard';
 
 interface RelatedMemoriesSectionProps {
   memoryId: string;
-  isVault?: boolean;
   onNavigateToMemory: (memoryId: string, isVault: boolean) => void;
 }
 

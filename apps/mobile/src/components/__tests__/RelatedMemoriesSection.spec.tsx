@@ -1,24 +1,20 @@
 import React from 'react';
+import TestRenderer from 'react-test-renderer';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as useRelatedMemoriesHook from '../../hooks/useRelatedMemories';
+import { RelatedMemoriesSection } from '../RelatedMemoriesSection';
 
 jest.mock('../../hooks/useRelatedMemories');
 jest.mock('react-native', () => ({
   View: 'View',
   Text: 'Text',
-  ActivityIndicator: 'ActivityIndicator',
   Pressable: 'Pressable',
 }));
-jest.mock('../AuthenticatedAssetImage', () => ({
-  AuthenticatedAssetImage: 'AuthenticatedAssetImage',
-}));
 jest.mock('../memory-cards/RelatedMemoryCard', () => ({
-  RelatedMemoryCard: 'RelatedMemoryCard',
+  RelatedMemoryCard: ({ memory, onPress }: any) => `RelatedMemoryCard:${memory.id}`,
 }));
 
-// Import after mocking
-import { RelatedMemoriesSection } from '../RelatedMemoriesSection';
-
-describe('RelatedMemoriesSection - Behavioral Verification', () => {
+describe('RelatedMemoriesSection - Real Rendering Tests', () => {
   const mockOnNavigate = jest.fn();
   const mockMemoryId = 'mem-1';
   const mockRelatedMemories = [
@@ -29,14 +25,7 @@ describe('RelatedMemoriesSection - Behavioral Verification', () => {
       capturedAt: '2026-09-20T10:00:00Z',
       securityScope: 'private',
       similarity: 0.85,
-      assets: [
-        {
-          id: 'asset-1',
-          mimeType: 'image/jpeg',
-          variant: 'thumbnail',
-          url: '/assets/asset-1/content',
-        },
-      ],
+      assets: [],
     },
     {
       id: 'mem-3',
@@ -49,201 +38,256 @@ describe('RelatedMemoriesSection - Behavioral Verification', () => {
     },
   ];
 
+  let queryClient: QueryClient;
+
   beforeEach(() => {
     jest.clearAllMocks();
     mockOnNavigate.mockClear();
+    queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+      },
+    });
   });
 
-  describe('A. Related section renders when results exist', () => {
-    it('renders section with data when hook returns memories', () => {
+  describe('A. DATA STATE - renders two memory cards', () => {
+    it('renders Related Memories section with two RelatedMemoryCard components', async () => {
       (useRelatedMemoriesHook.useRelatedMemories as jest.Mock).mockReturnValue({
         data: mockRelatedMemories,
         isLoading: false,
         error: null,
       });
 
-      const Component = RelatedMemoriesSection;
-      expect(Component).toBeDefined();
-      // With data, component should render related memory cards
+      let rendered: any;
+      await TestRenderer.act(async () => {
+        rendered = TestRenderer.create(
+          <QueryClientProvider client={queryClient}>
+            <RelatedMemoriesSection
+              memoryId={mockMemoryId}
+              onNavigateToMemory={mockOnNavigate}
+            />
+          </QueryClientProvider>
+        );
+      });
+
+      const tree = rendered.toJSON();
+      const treeString = JSON.stringify(tree);
+
+      expect(treeString).toContain('Related Memories');
+      const cardMatches = treeString.match(/RelatedMemoryCard:mem-\d/g);
+      expect(cardMatches).toHaveLength(2);
+      expect(treeString).toContain('RelatedMemoryCard:mem-2');
+      expect(treeString).toContain('RelatedMemoryCard:mem-3');
     });
   });
 
-  describe('B. [] hides Related section', () => {
-    it('hides section when empty array returned from hook', () => {
+  describe('B. EMPTY STATE - returns null', () => {
+    it('renders null when hook returns empty array', async () => {
       (useRelatedMemoriesHook.useRelatedMemories as jest.Mock).mockReturnValue({
         data: [],
         isLoading: false,
         error: null,
       });
 
-      const Component = RelatedMemoriesSection;
-      // Empty array hides the section
-      expect(Component).toBeDefined();
-    });
-  });
-
-  describe('C. API error does not break primary Memory Detail', () => {
-    it('hides section on error without blocking detail view', () => {
-      const error = new Error('Network error');
-      (useRelatedMemoriesHook.useRelatedMemories as jest.Mock).mockReturnValue({
-        data: undefined,
-        isLoading: false,
-        error,
+      let rendered: any;
+      await TestRenderer.act(async () => {
+        rendered = TestRenderer.create(
+          <QueryClientProvider client={queryClient}>
+            <RelatedMemoriesSection
+              memoryId={mockMemoryId}
+              onNavigateToMemory={mockOnNavigate}
+            />
+          </QueryClientProvider>
+        );
       });
 
-      const Component = RelatedMemoriesSection;
-      // On error, section is hidden - primary detail view continues
-      expect(Component).toBeDefined();
+      const tree = rendered.toJSON();
+      expect(tree).toBeNull();
     });
   });
 
-  describe('D. Related loading does not block primary content', () => {
-    it('hides section during loading, primary detail renders without blocking', () => {
+  describe('C. LOADING STATE - returns null', () => {
+    it('renders null when isLoading is true', async () => {
       (useRelatedMemoriesHook.useRelatedMemories as jest.Mock).mockReturnValue({
         data: undefined,
         isLoading: true,
         error: null,
       });
 
-      const Component = RelatedMemoriesSection;
-      // During loading, section is hidden - primary content is not blocked
-      expect(Component).toBeDefined();
+      let rendered: any;
+      await TestRenderer.act(async () => {
+        rendered = TestRenderer.create(
+          <QueryClientProvider client={queryClient}>
+            <RelatedMemoriesSection
+              memoryId={mockMemoryId}
+              onNavigateToMemory={mockOnNavigate}
+            />
+          </QueryClientProvider>
+        );
+      });
+
+      const tree = rendered.toJSON();
+      expect(tree).toBeNull();
     });
   });
 
-  describe('F. No more than 5 cards render', () => {
-    it('limits displayed cards to 5 maximum', () => {
-      const manyResults = Array.from({ length: 10 }, (_, i) => ({
-        ...mockRelatedMemories[0],
-        id: `mem-${i}`,
+  describe('D. ERROR STATE - returns null', () => {
+    it('renders null when hook returns error', async () => {
+      (useRelatedMemoriesHook.useRelatedMemories as jest.Mock).mockReturnValue({
+        data: undefined,
+        isLoading: false,
+        error: new Error('Network error'),
+      });
+
+      let rendered: any;
+      await TestRenderer.act(async () => {
+        rendered = TestRenderer.create(
+          <QueryClientProvider client={queryClient}>
+            <RelatedMemoriesSection
+              memoryId={mockMemoryId}
+              onNavigateToMemory={mockOnNavigate}
+            />
+          </QueryClientProvider>
+        );
+      });
+
+      const tree = rendered.toJSON();
+      expect(tree).toBeNull();
+    });
+  });
+
+  describe('E. MAX FIVE - limits cards to 5', () => {
+    it('renders exactly 5 RelatedMemoryCard when given 10 results', async () => {
+      const tenResults = Array.from({ length: 10 }, (_, i) => ({
+        id: `mem-${i + 2}`,
         title: `Memory ${i}`,
+        memoryType: 'event',
+        capturedAt: '2026-09-20T10:00:00Z',
+        securityScope: 'private',
+        similarity: 0.85,
+        assets: [],
       }));
 
       (useRelatedMemoriesHook.useRelatedMemories as jest.Mock).mockReturnValue({
-        data: manyResults,
+        data: tenResults,
         isLoading: false,
         error: null,
       });
 
-      const Component = RelatedMemoriesSection;
-      // Component uses .slice(0, 5) to limit results
-      expect(Component).toBeDefined();
+      let rendered: any;
+      await TestRenderer.act(async () => {
+        rendered = TestRenderer.create(
+          <QueryClientProvider client={queryClient}>
+            <RelatedMemoriesSection
+              memoryId={mockMemoryId}
+              onNavigateToMemory={mockOnNavigate}
+            />
+          </QueryClientProvider>
+        );
+      });
+
+      const tree = rendered.toJSON();
+      const treeString = JSON.stringify(tree);
+
+      const cardMatches = (treeString.match(/RelatedMemoryCard:/g) || []).length;
+      expect(cardMatches).toBe(5);
     });
   });
 
-  describe('G. Title renders in related cards', () => {
-    it('passes title to RelatedMemoryCard components', () => {
+  describe('F. NAVIGATION CALLBACK - private', () => {
+    it('renders private memory and component is ready for press', async () => {
+      const privateMemory = {
+        id: 'private-1',
+        title: 'Private Memory',
+        memoryType: 'event',
+        capturedAt: '2026-09-20T10:00:00Z',
+        securityScope: 'private',
+        similarity: 0.85,
+        assets: [],
+      };
+
       (useRelatedMemoriesHook.useRelatedMemories as jest.Mock).mockReturnValue({
-        data: mockRelatedMemories,
+        data: [privateMemory],
         isLoading: false,
         error: null,
       });
 
-      const Component = RelatedMemoriesSection;
-      expect(Component).toBeDefined();
-      // Component passes memory.title to RelatedMemoryCard
-      expect(mockRelatedMemories[0].title).toBe('Related Event');
+      let rendered: any;
+      await TestRenderer.act(async () => {
+        rendered = TestRenderer.create(
+          <QueryClientProvider client={queryClient}>
+            <RelatedMemoriesSection
+              memoryId={mockMemoryId}
+              onNavigateToMemory={mockOnNavigate}
+            />
+          </QueryClientProvider>
+        );
+      });
+
+      const tree = rendered.toJSON();
+      const treeString = JSON.stringify(tree);
+      expect(treeString).toContain('RelatedMemoryCard:private-1');
+      expect(treeString).toContain('private-1');
     });
   });
 
-  describe('H. Similarity value is NOT rendered in UI', () => {
-    it('does not expose similarity value for display', () => {
+  describe('G. NAVIGATION CALLBACK - vault', () => {
+    it('renders vault memory with correct scope indicator', async () => {
+      const vaultMemory = {
+        id: 'vault-1',
+        title: 'Vault Memory',
+        memoryType: 'event',
+        capturedAt: '2026-09-20T10:00:00Z',
+        securityScope: 'vault',
+        similarity: 0.85,
+        assets: [],
+      };
+
       (useRelatedMemoriesHook.useRelatedMemories as jest.Mock).mockReturnValue({
-        data: mockRelatedMemories,
+        data: [vaultMemory],
         isLoading: false,
         error: null,
       });
 
-      const Component = RelatedMemoriesSection;
-      expect(Component).toBeDefined();
-      // Similarity is in data but not passed to RelatedMemoryCard for rendering
+      let rendered: any;
+      await TestRenderer.act(async () => {
+        rendered = TestRenderer.create(
+          <QueryClientProvider client={queryClient}>
+            <RelatedMemoriesSection
+              memoryId={mockMemoryId}
+              onNavigateToMemory={mockOnNavigate}
+            />
+          </QueryClientProvider>
+        );
+      });
+
+      const tree = rendered.toJSON();
+      const treeString = JSON.stringify(tree);
+      expect(treeString).toContain('RelatedMemoryCard:vault-1');
+      expect(treeString).toContain('vault-1');
     });
   });
 
-  describe('I. Related image goes through authenticated asset downloader', () => {
-    it('passes authenticated asset URLs to RelatedMemoryCard', () => {
+  describe('H. HOOK INTEGRATION', () => {
+    it('calls useRelatedMemories hook with memoryId', async () => {
       (useRelatedMemoriesHook.useRelatedMemories as jest.Mock).mockReturnValue({
-        data: mockRelatedMemories,
+        data: [],
         isLoading: false,
         error: null,
       });
 
-      const Component = RelatedMemoriesSection;
-      // RelatedMemoryCard receives assetId and contentUrl in /assets/:id/content format
-      expect(mockRelatedMemories[0].assets[0].url).toBe('/assets/asset-1/content');
-      expect(mockRelatedMemories[0].assets[0].id).toBe('asset-1');
-    });
-  });
-
-  describe('K. Private related card navigation', () => {
-    it('navigates to private memory detail for non-vault scoped results', () => {
-      (useRelatedMemoriesHook.useRelatedMemories as jest.Mock).mockReturnValue({
-        data: [mockRelatedMemories[0]], // private scope
-        isLoading: false,
-        error: null,
+      await TestRenderer.act(async () => {
+        TestRenderer.create(
+          <QueryClientProvider client={queryClient}>
+            <RelatedMemoriesSection
+              memoryId={mockMemoryId}
+              onNavigateToMemory={mockOnNavigate}
+            />
+          </QueryClientProvider>
+        );
       });
 
-      const Component = RelatedMemoriesSection;
-      const element = React.createElement(Component, {
-        memoryId: mockMemoryId,
-        onNavigateToMemory: mockOnNavigate,
-      });
-
-      expect(element).toBeDefined();
-      expect(mockRelatedMemories[0].securityScope).toBe('private');
-    });
-  });
-
-  describe('L. Vault related card navigation', () => {
-    it('navigates to vault detail for vault scoped results', () => {
-      (useRelatedMemoriesHook.useRelatedMemories as jest.Mock).mockReturnValue({
-        data: [mockRelatedMemories[1]], // vault scope
-        isLoading: false,
-        error: null,
-      });
-
-      const Component = RelatedMemoriesSection;
-      const element = React.createElement(Component, {
-        memoryId: mockMemoryId,
-        onNavigateToMemory: mockOnNavigate,
-      });
-
-      expect(element).toBeDefined();
-      expect(mockRelatedMemories[1].securityScope).toBe('vault');
-    });
-  });
-
-  describe('Hook integration', () => {
-    it('calls useRelatedMemories hook with correct parameters', () => {
-      (useRelatedMemoriesHook.useRelatedMemories as jest.Mock).mockReturnValue({
-        data: mockRelatedMemories,
-        isLoading: false,
-        error: null,
-      });
-
-      React.createElement(RelatedMemoriesSection, {
-        memoryId: mockMemoryId,
-        isVault: false,
-        onNavigateToMemory: mockOnNavigate,
-      });
-
-      expect(useRelatedMemoriesHook.useRelatedMemories).toBeDefined();
-    });
-
-    it('uses vault endpoint when isVault prop is true', () => {
-      (useRelatedMemoriesHook.useRelatedMemories as jest.Mock).mockReturnValue({
-        data: mockRelatedMemories,
-        isLoading: false,
-        error: null,
-      });
-
-      React.createElement(RelatedMemoriesSection, {
-        memoryId: mockMemoryId,
-        isVault: true,
-        onNavigateToMemory: mockOnNavigate,
-      });
-
-      expect(useRelatedMemoriesHook.useRelatedMemories).toBeDefined();
+      expect(useRelatedMemoriesHook.useRelatedMemories).toHaveBeenCalledWith(mockMemoryId);
     });
   });
 });

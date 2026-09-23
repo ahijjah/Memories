@@ -54,63 +54,188 @@ describe('useRelatedMemories', () => {
     (clientApi.fetchRelatedMemories as jest.Mock).mockResolvedValue(mockRelatedMemories);
   });
 
-  describe('A. Hook returns data when results exist', () => {
-    it('returns related memories data when available', async () => {
-      (clientApi.fetchRelatedMemories as jest.Mock).mockResolvedValue(mockRelatedMemories);
+  describe('A. Hook calls getToken and fetchRelatedMemories on mount', () => {
+    it('calls getToken() and fetchRelatedMemories(token, memoryId, 5)', async () => {
+      const TestComponent = () => {
+        const query = useRelatedMemories(mockMemoryId);
+        return null;
+      };
 
-      expect(clientApi.fetchRelatedMemories).toBeDefined();
-      expect(clientApi.fetchRelatedMemories).toHaveBeenCalledTimes(0);
+      await TestRenderer.act(async () => {
+        TestRenderer.create(
+          <QueryClientProvider client={queryClient}>
+            <TestComponent />
+          </QueryClientProvider>
+        );
+      });
+
+      expect(mockGetToken).toHaveBeenCalled();
+      expect(clientApi.fetchRelatedMemories).toHaveBeenCalledWith(mockToken, mockMemoryId, 5);
     });
   });
 
   describe('B. Hook returns empty array when no related memories exist', () => {
-    it('allows empty results without error', () => {
+    it('allows empty results without error', async () => {
       (clientApi.fetchRelatedMemories as jest.Mock).mockResolvedValue([]);
 
-      expect(clientApi.fetchRelatedMemories).toBeDefined();
+      let result: any;
+      const TestComponent = () => {
+        result = useRelatedMemories(mockMemoryId);
+        return null;
+      };
+
+      await TestRenderer.act(async () => {
+        TestRenderer.create(
+          <QueryClientProvider client={queryClient}>
+            <TestComponent />
+          </QueryClientProvider>
+        );
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      expect(result.data).toEqual([]);
+      expect(result.error).toBeNull();
     });
   });
 
-  describe('C. API error does not break primary Memory Detail', () => {
-    it('handles API errors gracefully', () => {
-      const error = new Error('Network error');
-      (clientApi.fetchRelatedMemories as jest.Mock).mockRejectedValue(error);
+  describe('C. API error handling', () => {
+    it('hook can be mounted even when API call fails', async () => {
+      const networkError = new Error('Network error');
+      (clientApi.fetchRelatedMemories as jest.Mock).mockRejectedValue(networkError);
 
-      expect(clientApi.fetchRelatedMemories).toBeDefined();
+      let result: any;
+      let renderError: any;
+
+      const TestComponent = () => {
+        try {
+          result = useRelatedMemories(mockMemoryId);
+          return null;
+        } catch (e) {
+          renderError = e;
+          return null;
+        }
+      };
+
+      let rendered: any;
+      await TestRenderer.act(async () => {
+        rendered = TestRenderer.create(
+          <QueryClientProvider client={queryClient}>
+            <TestComponent />
+          </QueryClientProvider>
+        );
+      });
+
+      expect(renderError).toBeUndefined();
+      expect(rendered).not.toBeNull();
     });
   });
 
   describe('E. Hook uses limit=5 for API calls', () => {
-    it('uses fetchRelatedMemories which accepts limit parameter', () => {
-      expect(clientApi.fetchRelatedMemories).toBeDefined();
-      // Hook passes limit=5 to fetchRelatedMemories
+    it('passes limit=5 to fetchRelatedMemories', async () => {
+      const TestComponent = () => {
+        useRelatedMemories(mockMemoryId);
+        return null;
+      };
+
+      await TestRenderer.act(async () => {
+        TestRenderer.create(
+          <QueryClientProvider client={queryClient}>
+            <TestComponent />
+          </QueryClientProvider>
+        );
+      });
+
+      expect(clientApi.fetchRelatedMemories).toHaveBeenCalledWith(mockToken, mockMemoryId, 5);
     });
   });
 
   describe('G. Title is returned in result', () => {
-    it('includes title field in API response', () => {
-      expect(mockRelatedMemories[0].title).toBe('Related Memory 1');
+    it('includes title field in successful API response', async () => {
+      let result: any;
+      const TestComponent = () => {
+        result = useRelatedMemories(mockMemoryId);
+        return null;
+      };
+
+      await TestRenderer.act(async () => {
+        TestRenderer.create(
+          <QueryClientProvider client={queryClient}>
+            <TestComponent />
+          </QueryClientProvider>
+        );
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      expect(result.data[0].title).toBe('Related Memory 1');
     });
   });
 
   describe('H. Similarity value returned from backend', () => {
-    it('includes similarity in API response', () => {
-      expect(mockRelatedMemories[0].similarity).toBe(0.85);
+    it('includes similarity in API response', async () => {
+      let result: any;
+      const TestComponent = () => {
+        result = useRelatedMemories(mockMemoryId);
+        return null;
+      };
+
+      await TestRenderer.act(async () => {
+        TestRenderer.create(
+          <QueryClientProvider client={queryClient}>
+            <TestComponent />
+          </QueryClientProvider>
+        );
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      expect(result.data[0].similarity).toBe(0.85);
     });
   });
 
   describe('I. Asset URLs properly formatted', () => {
-    it('returns URLs in /assets/:id/content format', () => {
-      const asset = mockRelatedMemories[0].assets[0];
-      expect(asset.url).toBe('/assets/asset-1/content');
-      expect(asset.id).toBe('asset-1');
+    it('returns URLs in /assets/:id/content format', async () => {
+      let result: any;
+      const TestComponent = () => {
+        result = useRelatedMemories(mockMemoryId);
+        return null;
+      };
+
+      await TestRenderer.act(async () => {
+        TestRenderer.create(
+          <QueryClientProvider client={queryClient}>
+            <TestComponent />
+          </QueryClientProvider>
+        );
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      expect(result.data[0].assets[0].url).toBe('/assets/asset-1/content');
+      expect(result.data[0].assets[0].id).toBe('asset-1');
     });
   });
 
   describe('J. No SSE-C headers in asset URLs', () => {
-    it('does not include encryption headers in URLs', () => {
-      const assets = mockRelatedMemories[0].assets;
-      for (const asset of assets) {
+    it('does not include encryption headers in URLs', async () => {
+      let result: any;
+      const TestComponent = () => {
+        result = useRelatedMemories(mockMemoryId);
+        return null;
+      };
+
+      await TestRenderer.act(async () => {
+        TestRenderer.create(
+          <QueryClientProvider client={queryClient}>
+            <TestComponent />
+          </QueryClientProvider>
+        );
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      for (const asset of result.data[0].assets) {
         expect(asset.url).not.toContain('SSE-C');
         expect(asset.url).not.toContain('x-amz-server-side-encryption');
       }
@@ -118,23 +243,133 @@ describe('useRelatedMemories', () => {
   });
 
   describe('K. SecurityScope field present for routing', () => {
-    it('returns securityScope for navigation decisions', () => {
-      expect(mockRelatedMemories[0].securityScope).toBe('private');
+    it('returns securityScope for navigation decisions', async () => {
+      let result: any;
+      const TestComponent = () => {
+        result = useRelatedMemories(mockMemoryId);
+        return null;
+      };
+
+      await TestRenderer.act(async () => {
+        TestRenderer.create(
+          <QueryClientProvider client={queryClient}>
+            <TestComponent />
+          </QueryClientProvider>
+        );
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      expect(result.data[0].securityScope).toBe('private');
     });
   });
 
   describe('L. Query key isolation prevents stale results', () => {
-    it('uses query key containing memoryId for isolation', () => {
-      // Hook uses queryKey: ['relatedMemories', memoryId]
-      // React Query ensures late results for A don't appear as B's result
-      expect(clientApi.fetchRelatedMemories).toBeDefined();
+    it('prevents late results from A replacing results for B via memoryId isolation', async () => {
+      let promiseA: Promise<any>;
+      let promiseB: Promise<any>;
+      let resolveA: any;
+      let resolveB: any;
+
+      promiseA = new Promise(resolve => { resolveA = resolve; });
+      promiseB = new Promise(resolve => { resolveB = resolve; });
+
+      let callCount = 0;
+      (clientApi.fetchRelatedMemories as jest.Mock).mockImplementation((token, memoryId) => {
+        callCount++;
+        if (memoryId === 'mem-A') {
+          return promiseA;
+        } else if (memoryId === 'mem-B') {
+          return promiseB;
+        }
+      });
+
+      let resultA: any;
+      let resultB: any;
+
+      const TestComponentA = () => {
+        resultA = useRelatedMemories('mem-A');
+        return null;
+      };
+
+      const TestComponentB = () => {
+        resultB = useRelatedMemories('mem-B');
+        return null;
+      };
+
+      let renderA: any;
+      let renderB: any;
+
+      await TestRenderer.act(async () => {
+        renderA = TestRenderer.create(
+          <QueryClientProvider client={queryClient}>
+            <TestComponentA />
+          </QueryClientProvider>
+        );
+      });
+
+      await TestRenderer.act(async () => {
+        renderB = TestRenderer.create(
+          <QueryClientProvider client={queryClient}>
+            <TestComponentB />
+          </QueryClientProvider>
+        );
+      });
+
+      const dataB = [{ id: 'mem-related-b' }];
+      const dataA = [{ id: 'mem-related-a' }];
+
+      await TestRenderer.act(async () => {
+        resolveB(dataB);
+        await promiseB;
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      expect(resultB.data).toEqual(dataB);
+      expect(resultA.isLoading).toBe(true);
+
+      await TestRenderer.act(async () => {
+        resolveA(dataA);
+        await promiseA;
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      expect(resultA.data).toEqual(dataA);
+      expect(resultB.data).toEqual(dataB);
     });
   });
 
   describe('Token handling', () => {
-    it('requires authentication token', () => {
-      expect(clientApi.fetchRelatedMemories).toBeDefined();
-      // Hook throws error if no token available
+    it('hook still mounts when token is unavailable', async () => {
+      mockGetToken.mockResolvedValue(null);
+
+      let result: any;
+      let renderError: any;
+
+      const TestComponent = () => {
+        try {
+          result = useRelatedMemories(mockMemoryId);
+          return null;
+        } catch (e) {
+          renderError = e;
+          return null;
+        }
+      };
+
+      let rendered: any;
+      await TestRenderer.act(async () => {
+        rendered = TestRenderer.create(
+          <QueryClientProvider client={queryClient}>
+            <TestComponent />
+          </QueryClientProvider>
+        );
+      });
+
+      expect(renderError).toBeUndefined();
+      expect(rendered).not.toBeNull();
+      expect(mockGetToken).toHaveBeenCalled();
     });
   });
 });

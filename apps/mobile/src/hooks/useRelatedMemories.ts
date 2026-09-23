@@ -2,14 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@clerk/clerk-expo';
 import { fetchRelatedMemories, RelatedMemoryResult } from '../api/client';
 
-interface UseRelatedMemoriesOptions {
-  isVault?: boolean;
-}
-
-export function useRelatedMemories(
-  memoryId: string,
-  options: UseRelatedMemoriesOptions = {},
-) {
+export function useRelatedMemories(memoryId: string) {
   const { getToken } = useAuth();
 
   const query = useQuery({
@@ -22,7 +15,7 @@ export function useRelatedMemories(
       return fetchRelatedMemories(token, memoryId, 5);
     },
     enabled: !!memoryId,
-    staleTime: 1000 * 60 * 5, // 5 minutes
+    staleTime: 1000 * 60 * 5,
     retry: 1,
   });
 
