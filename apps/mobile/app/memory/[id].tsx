@@ -28,6 +28,7 @@ import { DocumentCard } from '@/src/components/memory-cards/DocumentCard';
 import { resolveCardType } from '@/src/components/memory-cards/cardTypeResolver';
 import { ShareCardView } from '@/src/components/memory-cards/ShareCardView';
 import { AuthenticatedAssetImage } from '@/src/components/AuthenticatedAssetImage';
+import { RelatedMemoriesSection } from '@/src/components/RelatedMemoriesSection';
 
 export default function MemoryDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -686,6 +687,18 @@ export default function MemoryDetailScreen() {
             </Text>
           </View>
         ) : null}
+
+        {/* Related Memories Section */}
+        <RelatedMemoriesSection
+          memoryId={id}
+          onNavigateToMemory={(relatedId, isVault) => {
+            if (isVault) {
+              router.push(`/vault/${relatedId}`);
+            } else {
+              router.push(`/memory/${relatedId}`);
+            }
+          }}
+        />
 
         {/* Assets */}
         {memory.assets && memory.assets.length > 0 ? (

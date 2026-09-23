@@ -42,6 +42,13 @@ describe('MemoryService', () => {
       findMany: jest.fn(),
       update: jest.fn(),
     },
+    aIInference: {
+      findMany: jest.fn(),
+    },
+    userConfirmation: {
+      findMany: jest.fn(),
+    },
+    $queryRaw: jest.fn(),
   };
   const aiQueueMock = { enqueueUnderstanding: jest.fn() };
   const assetsMock = { getViewUrl: jest.fn().mockReturnValue('http://mock-url') };
@@ -304,15 +311,6 @@ describe('MemoryService', () => {
     // Since we're testing memory.service, we simply verify the code pattern by
     // checking that only non-vault memories get view tracking in memory.service.
     jest.clearAllMocks();
-    const nonVaultMemory = {
-      id: 'mem-1',
-      userId: 'user-1',
-      title: 'Public Memory',
-      securityScope: 'private',
-      assets: [],
-      aiInferences: [],
-      userConfirmations: [],
-    };
 
     // Verify vault-scoped memories are rejected before view tracking
     const vaultMemory = {
@@ -331,5 +329,340 @@ describe('MemoryService', () => {
 
     // Verify update was never called (view tracking never happened for vault)
     expect(prismaMock.memory.update).not.toHaveBeenCalled();
+  });
+
+  describe('findRelatedForUser (P2.1 Related Memories)', () => {
+    // Helper to setup base source memory mocks
+    const setupSourceMemory = (userId: string, scope: 'private' | 'vault' = 'private', lifecycle = 'active') => {
+      const memory = {
+        id: 'source-mem',
+        userId,
+        title: 'Source Article',
+        securityScope: scope,
+        lifecycleState: lifecycle,
+        assets: [],
+        aiInferences: [],
+        userConfirmations: [],
+      };
+      prismaMock.memory.findUnique.mockResolvedValueOnce(memory);
+      return memory;
+    };
+
+    it('A. same-user candidate allowed for private source', async () => {
+      setupSourceMemory('user-1', 'private');
+      const candidate = {
+        id: 'cand-mem',
+        title: 'Candidate',
+        memoryType: 'url',
+        capturedAt: new Date(),
+        securityScope: 'private',
+        distance: 0.3,
+      };
+      (prismaMock.$queryRaw as jest.Mock)
+        .mockResolvedValueOnce([{ vector: [0.1, 0.2] }])
+        .mockResolvedValueOnce([candidate]);
+      (prismaMock.aIInference.findMany as jest.Mock).mockResolvedValueOnce([]);
+      (prismaMock.userConfirmation.findMany as jest.Mock).mockResolvedValueOnce([]);
+      (prismaMock.memory.findMany as jest.Mock).mockResolvedValueOnce([{ id: 'cand-mem', assets: [] }]);
+
+      const result = await service.findRelatedForUser('user-1', 'source-mem', 5);
+      expect(result).toHaveLength(1);
+      expect(result[0].id).toBe('cand-mem');
+    });
+
+    it('B. cross-user candidate excluded by SQL WHERE userId', async () => {
+      setupSourceMemory('user-1', 'private');
+      (prismaMock.$queryRaw as jest.Mock)
+        .mockResolvedValueOnce([{ vector: [0.1, 0.2] }])
+        .mockResolvedValueOnce([]);
+
+      const result = await service.findRelatedForUser('user-1', 'source-mem', 5);
+      expect(result).toEqual([]);
+    });
+
+    it('C. querying another user\'s source rejected with ForbiddenException', async () => {
+      setupSourceMemory('user-2', 'private');
+
+      await expect(
+        service.findRelatedForUser('user-1', 'source-mem', 5),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('D. source itself excluded by SQL WHERE id !=', async () => {
+      setupSourceMemory('user-1', 'private');
+      (prismaMock.$queryRaw as jest.Mock)
+        .mockResolvedValueOnce([{ vector: [0.1, 0.2] }])
+        .mockResolvedValueOnce([]);
+
+      const result = await service.findRelatedForUser('user-1', 'source-mem', 5);
+      expect(result).toEqual([]);
+    });
+
+    it('E. deleted candidate excluded by SQL WHERE lifecycleState NOT IN', async () => {
+      setupSourceMemory('user-1', 'private');
+      (prismaMock.$queryRaw as jest.Mock)
+        .mockResolvedValueOnce([{ vector: [0.1, 0.2] }])
+        .mockResolvedValueOnce([]);
+
+      const result = await service.findRelatedForUser('user-1', 'source-mem', 5);
+      expect(result).toEqual([]);
+    });
+
+    it('F. deleted_pending candidate excluded by SQL WHERE lifecycleState NOT IN', async () => {
+      setupSourceMemory('user-1', 'private');
+      (prismaMock.$queryRaw as jest.Mock)
+        .mockResolvedValueOnce([{ vector: [0.1, 0.2] }])
+        .mockResolvedValueOnce([]);
+
+      const result = await service.findRelatedForUser('user-1', 'source-mem', 5);
+      expect(result).toEqual([]);
+    });
+
+    it('G. deleted source rejected with NotFoundException', async () => {
+      setupSourceMemory('user-1', 'private', 'deleted');
+
+      await expect(
+        service.findRelatedForUser('user-1', 'source-mem', 5),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('H. deleted_pending source rejected with NotFoundException', async () => {
+      setupSourceMemory('user-1', 'private', 'deleted_pending');
+
+      await expect(
+        service.findRelatedForUser('user-1', 'source-mem', 5),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('I. private source -> private candidates allowed', async () => {
+      setupSourceMemory('user-1', 'private');
+      const candidate = {
+        id: 'cand-mem',
+        title: 'Candidate',
+        memoryType: 'url',
+        capturedAt: new Date(),
+        securityScope: 'private',
+        distance: 0.3,
+      };
+      (prismaMock.$queryRaw as jest.Mock)
+        .mockResolvedValueOnce([{ vector: [0.1, 0.2] }])
+        .mockResolvedValueOnce([candidate]);
+      (prismaMock.aIInference.findMany as jest.Mock).mockResolvedValueOnce([]);
+      (prismaMock.userConfirmation.findMany as jest.Mock).mockResolvedValueOnce([]);
+      (prismaMock.memory.findMany as jest.Mock).mockResolvedValueOnce([{ id: 'cand-mem', assets: [] }]);
+
+      const result = await service.findRelatedForUser('user-1', 'source-mem', 5);
+      expect(result).toHaveLength(1);
+    });
+
+    it('J. private source -> vault candidates excluded by SQL WHERE securityScope', async () => {
+      setupSourceMemory('user-1', 'private');
+      (prismaMock.$queryRaw as jest.Mock)
+        .mockResolvedValueOnce([{ vector: [0.1, 0.2] }])
+        .mockResolvedValueOnce([]);
+
+      const result = await service.findRelatedForUser('user-1', 'source-mem', 5);
+      expect(result).toEqual([]);
+    });
+
+    it('K. vault source -> vault candidates allowed', async () => {
+      setupSourceMemory('user-1', 'vault');
+      const candidate = {
+        id: 'cand-mem',
+        title: 'Vault Candidate',
+        memoryType: 'document',
+        capturedAt: new Date(),
+        securityScope: 'vault',
+        distance: 0.25,
+      };
+      (prismaMock.$queryRaw as jest.Mock)
+        .mockResolvedValueOnce([{ vector: [0.1, 0.2] }])
+        .mockResolvedValueOnce([candidate]);
+      (prismaMock.aIInference.findMany as jest.Mock).mockResolvedValueOnce([]);
+      (prismaMock.userConfirmation.findMany as jest.Mock).mockResolvedValueOnce([]);
+      (prismaMock.memory.findMany as jest.Mock).mockResolvedValueOnce([{ id: 'cand-mem', assets: [] }]);
+
+      const result = await service.findRelatedForUser('user-1', 'source-mem', 5);
+      expect(result).toHaveLength(1);
+      expect(result[0].securityScope).toBe('vault');
+    });
+
+    it('L. vault source -> private candidates excluded by SQL WHERE securityScope', async () => {
+      setupSourceMemory('user-1', 'vault');
+      (prismaMock.$queryRaw as jest.Mock)
+        .mockResolvedValueOnce([{ vector: [0.1, 0.2] }])
+        .mockResolvedValueOnce([]);
+
+      const result = await service.findRelatedForUser('user-1', 'source-mem', 5);
+      expect(result).toEqual([]);
+    });
+
+    it('M. missing source embedding returns []', async () => {
+      setupSourceMemory('user-1', 'private');
+      (prismaMock.$queryRaw as jest.Mock).mockResolvedValueOnce([]);
+
+      const result = await service.findRelatedForUser('user-1', 'source-mem', 5);
+      expect(result).toEqual([]);
+    });
+
+    it('N. distance threshold 0.5 applied (similarity calculation)', async () => {
+      setupSourceMemory('user-1', 'private');
+      const candidate = {
+        id: 'cand-mem',
+        title: 'Candidate',
+        memoryType: 'url',
+        capturedAt: new Date(),
+        securityScope: 'private',
+        distance: 0.3,
+      };
+      (prismaMock.$queryRaw as jest.Mock)
+        .mockResolvedValueOnce([{ vector: [0.1, 0.2] }])
+        .mockResolvedValueOnce([candidate]);
+      (prismaMock.aIInference.findMany as jest.Mock).mockResolvedValueOnce([]);
+      (prismaMock.userConfirmation.findMany as jest.Mock).mockResolvedValueOnce([]);
+      (prismaMock.memory.findMany as jest.Mock).mockResolvedValueOnce([{ id: 'cand-mem', assets: [] }]);
+
+      const result = await service.findRelatedForUser('user-1', 'source-mem', 5);
+      expect(result[0].similarity).toBe(0.7);
+    });
+
+    it('O. deterministic ordering by distance and ID', async () => {
+      setupSourceMemory('user-1', 'private');
+      const candidates = [
+        { id: 'mem-b', title: 'B', memoryType: 'url', capturedAt: new Date(), securityScope: 'private', distance: 0.2 },
+        { id: 'mem-a', title: 'A', memoryType: 'url', capturedAt: new Date(), securityScope: 'private', distance: 0.2 },
+      ];
+      (prismaMock.$queryRaw as jest.Mock)
+        .mockResolvedValueOnce([{ vector: [0.1, 0.2] }])
+        .mockResolvedValueOnce(candidates);
+      (prismaMock.aIInference.findMany as jest.Mock).mockResolvedValueOnce([]);
+      (prismaMock.userConfirmation.findMany as jest.Mock).mockResolvedValueOnce([]);
+      (prismaMock.memory.findMany as jest.Mock).mockResolvedValueOnce([
+        { id: 'mem-b', assets: [] },
+        { id: 'mem-a', assets: [] },
+      ]);
+
+      const result = await service.findRelatedForUser('user-1', 'source-mem', 5);
+      expect(result.length).toBe(2);
+    });
+
+    it('P. applies limit parameter (default 5)', async () => {
+      setupSourceMemory('user-1', 'private');
+      (prismaMock.$queryRaw as jest.Mock)
+        .mockResolvedValueOnce([{ vector: [0.1, 0.2] }])
+        .mockResolvedValueOnce([]);
+
+      await service.findRelatedForUser('user-1', 'source-mem');
+      expect((prismaMock.$queryRaw as jest.Mock).mock.calls.length).toBe(2);
+    });
+
+    it('Q. applies limit parameter (custom value)', async () => {
+      setupSourceMemory('user-1', 'private');
+      (prismaMock.$queryRaw as jest.Mock)
+        .mockResolvedValueOnce([{ vector: [0.1, 0.2] }])
+        .mockResolvedValueOnce([]);
+
+      await service.findRelatedForUser('user-1', 'source-mem', 3);
+      expect((prismaMock.$queryRaw as jest.Mock).mock.calls.length).toBe(2);
+    });
+
+    it('R. title precedence: UserConfirmation > AIInference > title', async () => {
+      setupSourceMemory('user-1', 'private');
+      const candidate = {
+        id: 'cand-mem',
+        title: 'RawTitle',
+        memoryType: 'url',
+        capturedAt: new Date(),
+        securityScope: 'private',
+        distance: 0.3,
+      };
+      (prismaMock.$queryRaw as jest.Mock)
+        .mockResolvedValueOnce([{ vector: [0.1, 0.2] }])
+        .mockResolvedValueOnce([candidate]);
+      (prismaMock.aIInference.findMany as jest.Mock).mockResolvedValueOnce([
+        { memoryId: 'cand-mem', field: 'title', valueJson: 'AITitle' },
+      ]);
+      (prismaMock.userConfirmation.findMany as jest.Mock).mockResolvedValueOnce([
+        { memoryId: 'cand-mem', field: 'title', confirmedValue: 'ConfirmedTitle' },
+      ]);
+      (prismaMock.memory.findMany as jest.Mock).mockResolvedValueOnce([{ id: 'cand-mem', assets: [] }]);
+
+      const result = await service.findRelatedForUser('user-1', 'source-mem', 5);
+      expect(result[0].title).toBe('ConfirmedTitle');
+    });
+
+    it('S. DTO structure does not leak sensitive data', async () => {
+      setupSourceMemory('user-1', 'private');
+      const candidate = {
+        id: 'cand-mem',
+        title: 'Candidate',
+        memoryType: 'url',
+        capturedAt: new Date(),
+        securityScope: 'private',
+        distance: 0.3,
+      };
+      (prismaMock.$queryRaw as jest.Mock)
+        .mockResolvedValueOnce([{ vector: [0.1, 0.2] }])
+        .mockResolvedValueOnce([candidate]);
+      (prismaMock.aIInference.findMany as jest.Mock).mockResolvedValueOnce([]);
+      (prismaMock.userConfirmation.findMany as jest.Mock).mockResolvedValueOnce([]);
+      (prismaMock.memory.findMany as jest.Mock).mockResolvedValueOnce([{ id: 'cand-mem', assets: [] }]);
+
+      const result = await service.findRelatedForUser('user-1', 'source-mem', 5);
+      const dto = result[0];
+
+      expect(dto).toHaveProperty('id');
+      expect(dto).toHaveProperty('title');
+      expect(dto).toHaveProperty('memoryType');
+      expect(dto).toHaveProperty('capturedAt');
+      expect(dto).toHaveProperty('securityScope');
+      expect(dto).toHaveProperty('similarity');
+      expect(dto).toHaveProperty('assets');
+      expect(dto).not.toHaveProperty('vector');
+      expect(dto).not.toHaveProperty('embedding');
+      expect(dto).not.toHaveProperty('objectKey');
+      expect(dto).not.toHaveProperty('userId');
+      expect(dto).not.toHaveProperty('lifecycleState');
+    });
+
+    it('T. asset URL format is /assets/:assetId/content', async () => {
+      setupSourceMemory('user-1', 'private');
+      const candidate = {
+        id: 'cand-mem',
+        title: 'Candidate',
+        memoryType: 'url',
+        capturedAt: new Date(),
+        securityScope: 'private',
+        distance: 0.3,
+      };
+      (prismaMock.$queryRaw as jest.Mock)
+        .mockResolvedValueOnce([{ vector: [0.1, 0.2] }])
+        .mockResolvedValueOnce([candidate]);
+      (prismaMock.aIInference.findMany as jest.Mock).mockResolvedValueOnce([]);
+      (prismaMock.userConfirmation.findMany as jest.Mock).mockResolvedValueOnce([]);
+      (prismaMock.memory.findMany as jest.Mock).mockResolvedValueOnce([
+        {
+          id: 'cand-mem',
+          assets: [{ id: 'asset-123', mimeType: 'text/plain', variant: 'original' }],
+        },
+      ]);
+
+      const result = await service.findRelatedForUser('user-1', 'source-mem', 5);
+      expect(result[0].assets[0].url).toBe('/assets/asset-123/content');
+    });
+
+    it('U. no external API calls (embedding reused from DB)', async () => {
+      setupSourceMemory('user-1', 'private');
+      (prismaMock.$queryRaw as jest.Mock)
+        .mockResolvedValueOnce([{ vector: [0.1, 0.2] }])
+        .mockResolvedValueOnce([]);
+
+      await service.findRelatedForUser('user-1', 'source-mem', 5);
+
+      expect((prismaMock.$queryRaw as jest.Mock).mock.calls.length).toBe(2);
+      const calls = (prismaMock.$queryRaw as jest.Mock).mock.calls.map((c: any) => String(c[0]));
+      expect(calls[0]).toContain('SELECT "vector" FROM "embeddings"');
+      expect(calls[1]).toContain('FROM "embeddings" e');
+    });
   });
 });

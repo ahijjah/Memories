@@ -65,6 +65,21 @@ export interface ProcessingStatus {
   securityScope: string;
 }
 
+export interface RelatedMemoryResult {
+  id: string;
+  title: string;
+  memoryType?: string;
+  capturedAt: string;
+  securityScope: string;
+  similarity: number;
+  assets: Array<{
+    id: string;
+    mimeType: string;
+    variant?: string;
+    url: string;
+  }>;
+}
+
 export interface SearchResult {
   id: string;
   title: string;
@@ -149,6 +164,14 @@ export async function fetchMemories(token: string | null): Promise<Memory[]> {
 
 export async function fetchMemoryDetail(token: string | null, id: string): Promise<Memory> {
   return makeRequest(`/memories/${id}`, 'GET', token);
+}
+
+export async function fetchRelatedMemories(
+  token: string | null,
+  id: string,
+  limit: number = 5,
+): Promise<RelatedMemoryResult[]> {
+  return makeRequest(`/memories/${id}/related?limit=${limit}`, 'GET', token);
 }
 
 export async function fetchProcessingStatus(

@@ -22,6 +22,7 @@ import { DocumentCard } from '@/src/components/memory-cards/DocumentCard';
 import { resolveCardType } from '@/src/components/memory-cards/cardTypeResolver';
 import { checkBiometricEnrollment, authenticateVault, useVaultAutoLock, useVaultScreenProtection, type VaultAuthState } from '@/src/utils/vault-auth';
 import { AuthenticatedAssetImage } from '@/src/components/AuthenticatedAssetImage';
+import { RelatedMemoriesSection } from '@/src/components/RelatedMemoriesSection';
 
 export default function VaultDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -900,6 +901,18 @@ export default function VaultDetailScreen() {
               );
           }
         })()}
+
+        {/* Related Memories Section */}
+        <RelatedMemoriesSection
+          memoryId={id}
+          onNavigateToMemory={(relatedId, isVault) => {
+            if (isVault) {
+              router.push(`/vault/${relatedId}`);
+            } else {
+              router.push(`/memory/${relatedId}`);
+            }
+          }}
+        />
 
         {/* Assets */}
         {memory.assets && memory.assets.length > 0 ? (

@@ -5,6 +5,8 @@ import { AnthropicAiProvider } from '@memory-app/ai';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { FieldEncryptionService } from '../../common/crypto/field-encryption.service';
 import { isSensitiveField } from '../../common/crypto/sensitive-fields';
+import { toVectorLiteral } from '../../common/pgvector.util';
+import { resolveTitleFromFields } from '../../common/resolve-title.util';
 import { AiQueueService } from '../ai/ai-queue.service';
 import { AssetsService } from '../assets/assets.service';
 import { CreateMemoryDto } from './dto/create-memory.dto';
@@ -382,6 +384,133 @@ export class MemoryService {
     const apiKey = this.config.getOrThrow('ANTHROPIC_API_KEY');
     const provider = new AnthropicAiProvider(apiKey);
     return provider.compareProducts({ products });
+  }
+
+  async findRelatedForUser(userId: string, sourceMemoryId: string, limit: number = 5) {
+    // Fetch source memory to verify ownership, existence, and scope
+    const sourceMemory = await this.prisma.memory.findUnique({
+      where: { id: sourceMemoryId },
+      include: {
+        assets: true,
+        aiInferences: true,
+        userConfirmations: true,
+      },
+    });
+
+    if (!sourceMemory) throw new NotFoundException('Memory not found');
+    this.assertOwnership(sourceMemory.userId, userId);
+
+    // Reject deleted/deleted_pending source memories (consistent with Memory read semantics)
+    if (['deleted', 'deleted_pending'].includes(sourceMemory.lifecycleState)) {
+      throw new NotFoundException('Memory not found');
+    }
+
+    // Fetch source memory's embedding using raw query (vector is Unsupported type)
+    interface EmbeddingRow {
+      vector: any;
+    }
+    const sourceEmbeddingRows = await this.prisma.$queryRaw<EmbeddingRow[]>`
+      SELECT "vector" FROM "embeddings" WHERE "memoryId" = ${sourceMemoryId}
+    `;
+
+    // If source has no embedding, return empty results
+    if (!sourceEmbeddingRows || sourceEmbeddingRows.length === 0) {
+      return [];
+    }
+
+    const vectorLiteral = toVectorLiteral(sourceEmbeddingRows[0].vector as number[]);
+    const MAX_DISTANCE_THRESHOLD = 0.5;
+
+    // Query similar memories using pgvector cosine distance
+    // Exclude: source itself, different users, vault (if source is private),
+    // private (if source is vault), deleted/deleted_pending
+    interface RawRelatedResult {
+      id: string;
+      title: string;
+      memoryType: string;
+      capturedAt: Date;
+      securityScope: string;
+      distance: number;
+    }
+
+    const rawResults = await this.prisma.$queryRaw<RawRelatedResult[]>`
+      SELECT
+        m."id",
+        m."title",
+        m."memoryType",
+        m."capturedAt",
+        m."securityScope",
+        e."vector" <=> ${vectorLiteral}::"vector"(1024) AS "distance"
+      FROM "embeddings" e
+      JOIN "memories" m ON e."memoryId" = m."id"
+      WHERE
+        m."userId" = ${userId}
+        AND m."id" != ${sourceMemoryId}
+        AND m."lifecycleState" NOT IN ('deleted', 'deleted_pending')
+        AND m."securityScope" = ${sourceMemory.securityScope}
+        AND e."vector" <=> ${vectorLiteral}::"vector"(1024) < ${MAX_DISTANCE_THRESHOLD}
+      ORDER BY "distance" ASC, m."id" ASC
+      LIMIT ${limit}
+    `;
+
+    // Fetch title inferences and confirmations for title resolution
+    const memoryIds = rawResults.map((r: RawRelatedResult) => r.id);
+    const titleInferences = memoryIds.length > 0
+      ? await this.prisma.aIInference.findMany({
+          where: {
+            memoryId: { in: memoryIds },
+            field: 'title',
+          },
+        })
+      : [];
+
+    const titleConfirmations = memoryIds.length > 0
+      ? await this.prisma.userConfirmation.findMany({
+          where: {
+            memoryId: { in: memoryIds },
+            field: 'title',
+          },
+        })
+      : [];
+
+    // Fetch assets for all related memories
+    const relatedMemories = memoryIds.length > 0
+      ? await this.prisma.memory.findMany({
+          where: { id: { in: memoryIds } },
+          include: { assets: true },
+        })
+      : [];
+
+    // Build result set with title resolution and asset URL enrichment
+    const results = rawResults.map((result: RawRelatedResult) => {
+      const inferences = titleInferences.filter((inf) => inf.memoryId === result.id);
+      const confirmations = titleConfirmations.filter((conf) => conf.memoryId === result.id);
+      const resolvedTitle = resolveTitleFromFields(
+        result.title,
+        inferences,
+        confirmations,
+      );
+
+      const relatedMemory = relatedMemories.find((m) => m.id === result.id);
+      const enrichedAssets = relatedMemory?.assets.map((asset) => ({
+        id: asset.id,
+        mimeType: asset.mimeType,
+        variant: asset.variant,
+        url: `/assets/${asset.id}/content`,
+      })) || [];
+
+      return {
+        id: result.id,
+        title: resolvedTitle,
+        memoryType: result.memoryType,
+        capturedAt: result.capturedAt,
+        securityScope: result.securityScope,
+        similarity: 1 - (result.distance as unknown as number),
+        assets: enrichedAssets,
+      };
+    });
+
+    return results;
   }
 
   private assertOwnership(ownerId: string, requestingUserId: string) {
