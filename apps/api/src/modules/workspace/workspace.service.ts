@@ -73,35 +73,6 @@ export class WorkspaceService {
     return normalized;
   }
 
-  /**
-   * Select display label from raw topic variants.
-   * Prefer most frequent variant; tie-break alphabetically.
-   * Input: array of raw variants (may contain duplicates to indicate frequency).
-   */
-  selectDisplayLabel(rawVariants: string[]): string {
-    if (rawVariants.length === 0) return '';
-
-    const variantCounts = new Map<string, number>();
-    for (const variant of rawVariants) {
-      variantCounts.set(variant, (variantCounts.get(variant) ?? 0) + 1);
-    }
-
-    const sorted = Array.from(variantCounts.entries())
-      .sort(([a, countA], [b, countB]) => {
-        if (countB !== countA) return countB - countA;
-        return a.localeCompare(b);
-      });
-
-    return sorted[0]?.[0] ?? '';
-  }
-
-  /**
-   * Select display label from raw variants with frequency information.
-   * Input: array of raw variants from SQL (which may include duplicates or be pre-counted).
-   */
-  selectDisplayLabelFromFrequencies(rawVariants: string[]): string {
-    return this.selectDisplayLabel(rawVariants);
-  }
 
   /**
    * Get all workspaces for authenticated user.
@@ -266,7 +237,7 @@ export class WorkspaceService {
   /**
    * Get memories in a workspace (by normalized topic).
    * Uses exact same normalization logic as listWorkspaces.
-   * Membership filtering done in PostgreSQL.
+   * Membership filtering, pagination, and ordering done in PostgreSQL.
    */
   async getWorkspaceMemories(
     userId: string,
@@ -283,9 +254,10 @@ export class WorkspaceService {
     }
 
     const detailQuery = await this.prisma.$queryRaw<DetailQueryRow[]>`
-      WITH topics_expanded AS (
+      WITH topic_expanded AS (
         SELECT
           m."id" AS memory_id,
+          m."capturedAt",
           LOWER(
             REGEXP_REPLACE(
               REGEXP_REPLACE(
@@ -307,15 +279,17 @@ export class WorkspaceService {
       filtered_topics AS (
         SELECT
           memory_id,
+          "capturedAt",
           normalized_topic,
           raw_topic
-        FROM topics_expanded
+        FROM topic_expanded
         WHERE normalized_topic != ''
           AND CHAR_LENGTH(normalized_topic) > 0
       ),
       deduped_per_memory AS (
         SELECT DISTINCT ON (memory_id, normalized_topic)
           memory_id,
+          "capturedAt",
           normalized_topic,
           raw_topic
         FROM filtered_topics
@@ -338,7 +312,7 @@ export class WorkspaceService {
         FROM variant_stats
       ),
       matching_memories AS (
-        SELECT DISTINCT memory_id
+        SELECT DISTINCT memory_id, "capturedAt"
         FROM deduped_per_memory
         WHERE normalized_topic = ${normalizedTopic}
       ),
@@ -353,7 +327,9 @@ export class WorkspaceService {
         ws.display_label
       FROM matching_memories mm
       CROSS JOIN workspace_stats ws
-      ORDER BY mm.memory_id ASC
+      ORDER BY mm."capturedAt" DESC, mm.memory_id DESC
+      LIMIT ${limit}
+      OFFSET ${offset}
     `;
 
     if (detailQuery.length === 0) {
@@ -367,9 +343,7 @@ export class WorkspaceService {
       throw new Error('Workspace not found or has fewer than 2 memories');
     }
 
-    const memoryIds = Array.from(new Set(detailQuery.map((r) => r.memory_id)));
-
-    const paginatedMemoryIds = memoryIds.slice(offset, offset + limit);
+    const paginatedMemoryIds = detailQuery.map((r) => r.memory_id);
     const memories = await this.prisma.memory.findMany({
       where: {
         id: { in: paginatedMemoryIds },
