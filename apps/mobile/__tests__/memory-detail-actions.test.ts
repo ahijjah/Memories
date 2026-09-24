@@ -116,9 +116,7 @@ async function renderScreen(memory: client.Memory) {
   let renderer!: TestRenderer.ReactTestRenderer;
   await act(async () => {
     renderer = TestRenderer.create(
-      <QueryClientProvider client={queryClient}>
-        <MemoryDetailScreen />
-      </QueryClientProvider>,
+      React.createElement(QueryClientProvider, { client: queryClient }, React.createElement(MemoryDetailScreen)),
     );
   });
   await flush();

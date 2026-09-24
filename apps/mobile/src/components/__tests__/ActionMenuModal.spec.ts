@@ -44,21 +44,21 @@ describe('ActionMenuModal', () => {
 
   it('renders nothing when not visible', () => {
     const r = render(
-      <ActionMenuModal visible={false} items={[{ key: 'a', label: 'Alpha', onPress: jest.fn() }]} onClose={jest.fn()} />,
+      React.createElement(ActionMenuModal, { visible: false, items: [{ key: 'a', label: 'Alpha', onPress: jest.fn() }], onClose: jest.fn() }),
     );
     expect(r.root.findAll((n) => n.type === 'Text' && textOf(n) === 'Alpha')).toHaveLength(0);
   });
 
   it('renders every item when visible', () => {
     const r = render(
-      <ActionMenuModal
-        visible
-        items={[
+      React.createElement(ActionMenuModal, {
+        visible: true,
+        items: [
           { key: 'a', label: 'Alpha', onPress: jest.fn() },
           { key: 'b', label: 'Beta', onPress: jest.fn() },
-        ]}
-        onClose={jest.fn()}
-      />,
+        ],
+        onClose: jest.fn(),
+      }),
     );
     const labels = r.root.findAll((n) => n.type === 'TouchableOpacity').map(textOf);
     expect(labels).toEqual(['Alpha', 'Beta', 'Cancel']);
@@ -69,7 +69,7 @@ describe('ActionMenuModal', () => {
     const onClose = jest.fn(() => calls.push('close'));
     const onPress = jest.fn(() => calls.push('action'));
     const r = render(
-      <ActionMenuModal visible items={[{ key: 'a', label: 'Alpha', onPress }]} onClose={onClose} />,
+      React.createElement(ActionMenuModal, { visible: true, items: [{ key: 'a', label: 'Alpha', onPress }], onClose }),
     );
     pressLabel(r.root, 'Alpha');
     expect(calls).toEqual(['close', 'action']);
@@ -79,7 +79,7 @@ describe('ActionMenuModal', () => {
     mockPlatform.OS = 'ios';
     const onPress = jest.fn();
     const r = render(
-      <ActionMenuModal visible items={[{ key: 'a', label: 'Alpha', onPress }]} onClose={jest.fn()} />,
+      React.createElement(ActionMenuModal, { visible: true, items: [{ key: 'a', label: 'Alpha', onPress }], onClose: jest.fn() }),
     );
     pressLabel(r.root, 'Alpha');
     expect(onPress).not.toHaveBeenCalled();
@@ -93,7 +93,7 @@ describe('ActionMenuModal', () => {
     const onClose = jest.fn();
     const onPress = jest.fn();
     const r = render(
-      <ActionMenuModal visible items={[{ key: 'a', label: 'Alpha', onPress }]} onClose={onClose} />,
+      React.createElement(ActionMenuModal, { visible: true, items: [{ key: 'a', label: 'Alpha', onPress }], onClose }),
     );
     pressLabel(r.root, 'Cancel');
     act(() => r.root.findByProps({ accessibilityLabel: 'Close menu' }).props.onPress());
@@ -105,7 +105,11 @@ describe('ActionMenuModal', () => {
 
   it('marks disabled items as disabled', () => {
     const r = render(
-      <ActionMenuModal visible items={[{ key: 'a', label: 'Alpha', onPress: jest.fn(), disabled: true }]} onClose={jest.fn()} />,
+      React.createElement(ActionMenuModal, {
+        visible: true,
+        items: [{ key: 'a', label: 'Alpha', onPress: jest.fn(), disabled: true }],
+        onClose: jest.fn(),
+      }),
     );
     const item = r.root.findAll((n) => n.type === 'TouchableOpacity' && textOf(n) === 'Alpha')[0];
     expect(item.props.disabled).toBe(true);
