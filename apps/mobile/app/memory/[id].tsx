@@ -14,6 +14,8 @@ type ViewShotRef = View & { capture: () => Promise<string> };
 
 import { fetchMemoryDetail, fetchProcessingStatus, Memory, ProcessingStatus, AIInference, listCollections, addMemoryToCollection, lockMemory, createReminder, reprocessMemory, deleteMemory, summarizeMemory, extractKeyPoints } from '@/src/api/client';
 import { getActionsForMemory, MemoryAction } from '@/src/utils/memory-actions';
+import { splitDetailActions } from '@/src/utils/memory-detail-actions';
+import { ActionMenuModal, ActionMenuItem } from '@/src/components/ActionMenuModal';
 import { uploadPhotoToExistingMemory } from '@/src/utils/photo-upload';
 import { CardHeader } from '@/src/components/memory-cards/CardHeader';
 import { CardIdentity } from '@/src/components/memory-cards/CardIdentity';
@@ -36,6 +38,7 @@ export default function MemoryDetailScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [showCollectionPicker, setShowCollectionPicker] = useState(false);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showReminderModal, setShowReminderModal] = useState(false);
   const [reminderDate, setReminderDate] = useState(new Date());
   const [reminderNote, setReminderNote] = useState('');
@@ -491,6 +494,51 @@ export default function MemoryDetailScreen() {
     && !aiDate
     && (!memory.assets || memory.assets.length === 0);
 
+  const isVaultScoped = memory.securityScope === 'vault';
+  const { primary: primaryAction, secondary: secondaryActions } = splitDetailActions(
+    getActionsForMemory(memory, memory.aiInferences),
+  );
+
+  const confirmMoveToVault = () => {
+    Alert.alert(
+      'Move to Vault?',
+      'This memory will be private and hidden from search, list, and ask results.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Move to Vault',
+          style: 'destructive',
+          onPress: () => moveToVault(),
+        },
+      ],
+    );
+  };
+
+  const moreMenuItems: ActionMenuItem[] = [
+    ...secondaryActions.map((action, idx) => ({
+      key: `action-${idx}-${action.kind}`,
+      label: action.label,
+      onPress: () => handleActionPress(action),
+    })),
+    ...(isVaultScoped
+      ? []
+      : [
+          { key: 'share-card', label: 'Share Card', onPress: handleShareCard, disabled: isCapturingCard },
+          { key: 'add-to-collection', label: 'Add to Collection', onPress: () => setShowCollectionPicker(true) },
+          { key: 'move-to-vault', label: 'Move to Vault', onPress: confirmMoveToVault, disabled: isLocking },
+        ]),
+    {
+      key: 'refresh',
+      label: 'Refresh',
+      onPress: () => {
+        refetch();
+        refetchStatus();
+      },
+    },
+  ];
+
+  const isMoreActionPending = isCapturingCard || isLocking || isSummarizing || isExtractingKeyPoints;
+
   return (
     <>
       <ScrollView className="flex-1 bg-white">
@@ -736,137 +784,73 @@ export default function MemoryDetailScreen() {
           </View>
         ) : null}
 
-        {/* Memory Actions */}
-        {memory && (
-          <View className="mb-6">
-            {getActionsForMemory(memory, memory.aiInferences).length > 0 && (
-              <View className="mb-4">
-                {getActionsForMemory(memory, memory.aiInferences).map((action, idx) => (
-                  <TouchableOpacity
-                    key={idx}
-                    onPress={() => handleActionPress(action)}
-                    className={`rounded-lg py-3 mb-2 ${
-                      action.kind === 'comingSoon'
-                        ? 'bg-gray-200'
-                        : action.kind === 'ask'
-                          ? 'bg-green-600'
-                          : 'bg-blue-600'
-                    }`}
-                  >
-                    <Text
-                      className={`text-center font-semibold ${
-                        action.kind === 'comingSoon' ? 'text-gray-600' : 'text-white'
-                      }`}
-                    >
-                      {action.label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
-
-            {/* Generic Actions */}
+        {/* Quick Actions */}
+        <View className="mb-6">
+          {primaryAction && (
             <TouchableOpacity
-              onPress={() => setShowReminderModal(true)}
-              className="bg-orange-600 rounded-lg py-3 mb-2"
+              onPress={() => handleActionPress(primaryAction)}
+              className={`rounded-lg py-3 mb-2 ${primaryAction.kind === 'ask' ? 'bg-green-600' : 'bg-blue-600'}`}
             >
-              <Text className="text-white text-center font-semibold">Set Reminder</Text>
+              <Text className="text-white text-center font-semibold">{primaryAction.label}</Text>
             </TouchableOpacity>
-
-            {memory.securityScope !== 'vault' ? (
-              <TouchableOpacity
-                onPress={handleShareCard}
-                disabled={isCapturingCard}
-                className={`rounded-lg py-3 mb-2 ${isCapturingCard ? 'bg-gray-300' : 'bg-cyan-600'}`}
-              >
-                {isCapturingCard ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text className="text-white text-center font-semibold">Share Card</Text>
-                )}
-              </TouchableOpacity>
-            ) : null}
-
-            {memory.securityScope !== 'vault' ? (
-              <TouchableOpacity
-                onPress={() => {
-                  Alert.alert(
-                    'Move to Vault?',
-                    'This memory will be private and hidden from search, list, and ask results.',
-                    [
-                      { text: 'Cancel', style: 'cancel' },
-                      {
-                        text: 'Move to Vault',
-                        style: 'destructive',
-                        onPress: () => moveToVault(),
-                      },
-                    ],
-                  );
-                }}
-                disabled={isLocking}
-                className={`rounded-lg py-3 mb-2 ${isLocking ? 'bg-gray-300' : 'bg-amber-600'}`}
-              >
-                {isLocking ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text className="text-white text-center font-semibold">Move to Vault</Text>
-                )}
-              </TouchableOpacity>
-            ) : null}
-
-            {memory.securityScope !== 'vault' ? (
-              <TouchableOpacity
-                onPress={() => setShowCollectionPicker(true)}
-                className="bg-purple-600 rounded-lg py-3 mb-4"
-              >
-                <Text className="text-white text-center font-semibold">Add to Collection</Text>
-              </TouchableOpacity>
-            ) : (
-              <View className="bg-amber-50 rounded-lg py-3 px-4 mb-4">
-                <Text className="text-amber-900 text-center text-sm font-semibold">
-                  Vault content cannot be added to collections
-                </Text>
-              </View>
-            )}
-          </View>
-        )}
-
-        {/* Refresh Button */}
-        <TouchableOpacity
-          onPress={() => {
-            refetch();
-            refetchStatus();
-          }}
-          className="bg-blue-600 rounded-lg py-3 mb-4"
-        >
-          <Text className="text-white text-center font-semibold">Refresh</Text>
-        </TouchableOpacity>
-
-        {/* Delete Memory Button */}
-        <TouchableOpacity
-          onPress={() => {
-            Alert.alert(
-              'Delete Memory?',
-              'This memory will be permanently deleted after 30 days. You can restore it during this grace period.',
-              [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                  text: 'Delete',
-                  style: 'destructive',
-                  onPress: () => mutateDelete(),
-                },
-              ],
-            );
-          }}
-          disabled={isDeleting}
-          className={`rounded-lg py-3 mb-4 ${isDeleting ? 'bg-gray-300' : 'bg-red-600'}`}
-        >
-          {isDeleting ? (
-            <ActivityIndicator size="small" color="#fff" />
-          ) : (
-            <Text className="text-white text-center font-semibold">Delete Memory</Text>
           )}
-        </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => setShowReminderModal(true)}
+            className="bg-orange-600 rounded-lg py-3 mb-2"
+          >
+            <Text className="text-white text-center font-semibold">Set Reminder</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => setShowMoreMenu(true)}
+            accessibilityRole="button"
+            accessibilityLabel="More actions"
+            className="border border-gray-300 rounded-lg py-3 flex-row items-center justify-center"
+          >
+            {isMoreActionPending ? (
+              <ActivityIndicator size="small" color="#374151" />
+            ) : (
+              <Text className="text-gray-900 text-center font-semibold">More (...)</Text>
+            )}
+          </TouchableOpacity>
+
+          {isVaultScoped ? (
+            <View className="bg-amber-50 rounded-lg py-3 px-4 mt-2">
+              <Text className="text-amber-900 text-center text-sm font-semibold">
+                Vault content cannot be added to collections
+              </Text>
+            </View>
+          ) : null}
+        </View>
+
+        {/* Destructive Area */}
+        <View className="border-t border-gray-200 pt-6 mb-4">
+          <TouchableOpacity
+            onPress={() => {
+              Alert.alert(
+                'Delete Memory?',
+                'This memory will be permanently deleted after 30 days. You can restore it during this grace period.',
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  {
+                    text: 'Delete',
+                    style: 'destructive',
+                    onPress: () => mutateDelete(),
+                  },
+                ],
+              );
+            }}
+            disabled={isDeleting}
+            className={`rounded-lg py-3 ${isDeleting ? 'bg-gray-300' : 'bg-red-600'}`}
+          >
+            {isDeleting ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Text className="text-white text-center font-semibold">Delete Memory</Text>
+            )}
+          </TouchableOpacity>
+        </View>
 
         {/* Back Button */}
         <TouchableOpacity
@@ -904,6 +888,12 @@ export default function MemoryDetailScreen() {
           </ViewShot>
         </View>
       )}
+
+      <ActionMenuModal
+        visible={showMoreMenu}
+        items={moreMenuItems}
+        onClose={() => setShowMoreMenu(false)}
+      />
 
       {/* Reminder Modal */}
       <Modal visible={showReminderModal} animationType="slide" transparent={true}>
