@@ -2,8 +2,15 @@ import { Injectable, Logger } from '@nestjs/common';
 import { load } from 'cheerio';
 import { URL } from 'node:url';
 import { promises as dns } from 'node:dns';
+import {
+  PageMarkers,
+  PageRejectReason,
+  evaluateFacebookPageTrust,
+  hostOf,
+  isFacebookFamilyHost,
+} from './url-page-trust';
 
-interface UrlMetadata {
+export interface UrlMetadata {
   title?: string;
   description?: string;
   imageUrl?: string;
@@ -16,6 +23,36 @@ interface UrlMetadata {
   availability?: string;
 }
 
+export type UrlMetadataUnavailableReason = 'INVALID_URL' | 'HOST_REJECTED' | 'FETCH_FAILED';
+
+// Only an 'ok' result carries page-derived evidence (metadata, og:image). A rejected or
+// unavailable page exposes nothing, so none of its content can reach the AI.
+export type UrlMetadataResult =
+  | {
+      status: 'ok';
+      metadata: UrlMetadata;
+      requestedHost: string;
+      finalHost: string;
+      redirectCount: number;
+    }
+  | {
+      status: 'rejected';
+      reason: PageRejectReason;
+      requestedHost: string;
+      finalHost: string;
+      redirectCount: number;
+    }
+  | {
+      status: 'unavailable';
+      reason: UrlMetadataUnavailableReason;
+      requestedHost: string;
+    };
+
+interface FetchedResource {
+  finalUrl: URL;
+  redirectCount: number;
+}
+
 @Injectable()
 export class UrlMetadataService {
   private readonly logger = new Logger(UrlMetadataService.name);
@@ -23,31 +60,73 @@ export class UrlMetadataService {
   private readonly MAX_RESPONSE_SIZE = 2 * 1024 * 1024; // 2 MB
   private readonly MAX_REDIRECTS = 3;
 
-  async fetchMetadata(urlString: string): Promise<UrlMetadata | null> {
+  async fetchMetadata(urlString: string): Promise<UrlMetadataResult> {
+    const result = await this.fetchMetadataResult(urlString);
+    const finalHost = result.status === 'unavailable' ? '-' : result.finalHost;
+    const redirects = result.status === 'unavailable' ? '-' : result.redirectCount;
+    const reason = result.status === 'ok' ? '-' : result.reason;
+    this.logger.debug(
+      `metadata fetch host=${result.requestedHost} final_host=${finalHost} redirects=${redirects} result=${result.status} reason=${reason}`,
+    );
+    return result;
+  }
+
+  private async fetchMetadataResult(urlString: string): Promise<UrlMetadataResult> {
+    const requestedHost = hostOf(urlString);
     try {
       const parsedUrl = this.validateUrl(urlString);
       if (!parsedUrl) {
-        return null;
+        return { status: 'unavailable', reason: 'INVALID_URL', requestedHost };
       }
 
       // SSRF protection: resolve hostname and validate before making request
       const hostname = parsedUrl.hostname;
       if (!(await this.isValidHostname(hostname))) {
         this.logger.warn(`Invalid hostname for metadata fetch: ${hostname}`);
-        return null;
+        return { status: 'unavailable', reason: 'HOST_REJECTED', requestedHost };
       }
 
-      const html = await this.fetchHtml(urlString);
-      if (!html) {
-        return null;
+      const page = await this.fetchHtml(urlString);
+      if (!page) {
+        return { status: 'unavailable', reason: 'FETCH_FAILED', requestedHost };
       }
 
-      return this.extractMetadata(html);
+      const metadata = this.extractMetadata(page.html);
+      const finalHost = page.finalUrl.hostname;
+
+      if (isFacebookFamilyHost(finalHost)) {
+        const signals = this.extractPageSignals(page.html);
+        const decision = evaluateFacebookPageTrust({
+          finalUrl: page.finalUrl,
+          title: metadata.title,
+          description: metadata.description,
+          ogUrl: signals.ogUrl,
+          canonicalUrl: signals.canonicalUrl,
+          markers: signals.markers,
+        });
+        if (!decision.trusted) {
+          return {
+            status: 'rejected',
+            reason: decision.reason,
+            requestedHost,
+            finalHost,
+            redirectCount: page.redirectCount,
+          };
+        }
+      }
+
+      return {
+        status: 'ok',
+        metadata,
+        requestedHost,
+        finalHost,
+        redirectCount: page.redirectCount,
+      };
     } catch (err) {
       this.logger.warn(
-        `Failed to fetch URL metadata for ${urlString}: ${(err as Error).message}`,
+        `Failed to fetch URL metadata for host ${requestedHost}: ${(err as Error).name}`,
       );
-      return null;
+      return { status: 'unavailable', reason: 'FETCH_FAILED', requestedHost };
     }
   }
 
@@ -233,22 +312,24 @@ export class UrlMetadataService {
       return { data: result.buffer, mimeType: result.mimeType };
     } catch (err) {
       this.logger.warn(
-        `Failed to fetch image bytes from ${urlString}: ${(err as Error).message}`,
+        `Failed to fetch image bytes from host ${hostOf(urlString)}: ${(err as Error).name}`,
       );
       return null;
     }
   }
 
-  private async fetchHtml(urlString: string): Promise<string | null> {
+  private async fetchHtml(
+    urlString: string,
+  ): Promise<{ html: string; finalUrl: URL; redirectCount: number } | null> {
     try {
       const result = await this.fetchWithValidation(urlString);
       if (!result || !result.text) {
         return null;
       }
-      return result.text;
+      return { html: result.text, finalUrl: result.finalUrl, redirectCount: result.redirectCount };
     } catch (err) {
       this.logger.warn(
-        `Failed to fetch HTML from ${urlString}: ${(err as Error).message}`,
+        `Failed to fetch HTML from host ${hostOf(urlString)}: ${(err as Error).name}`,
       );
       return null;
     }
@@ -257,8 +338,8 @@ export class UrlMetadataService {
   private async fetchWithValidation(
     urlString: string,
   ): Promise<
-    | { text: string; buffer?: never; mimeType?: never }
-    | { buffer: Buffer; mimeType: string; text?: never }
+    | (FetchedResource & { text: string; buffer?: never; mimeType?: never })
+    | (FetchedResource & { buffer: Buffer; mimeType: string; text?: never })
     | null
   > {
     let currentUrl = urlString;
@@ -288,14 +369,14 @@ export class UrlMetadataService {
         if (response.status >= 300 && response.status < 400) {
           const location = response.headers.get('location');
           if (!location) {
-            this.logger.warn(`Redirect without Location header from ${currentUrl}`);
+            this.logger.warn(`Redirect without Location header from host ${hostOf(currentUrl)}`);
             return null;
           }
 
           redirectCount++;
           if (redirectCount > this.MAX_REDIRECTS) {
             this.logger.warn(
-              `Too many redirects (>${this.MAX_REDIRECTS}) starting from ${urlString}`,
+              `Too many redirects (>${this.MAX_REDIRECTS}) starting from host ${hostOf(urlString)}`,
             );
             return null;
           }
@@ -305,7 +386,7 @@ export class UrlMetadataService {
           try {
             redirectUrl = new URL(location, currentUrl);
           } catch {
-            this.logger.warn(`Invalid redirect URL: ${location}`);
+            this.logger.warn(`Invalid redirect Location header from host ${hostOf(currentUrl)}`);
             return null;
           }
 
@@ -328,7 +409,9 @@ export class UrlMetadataService {
 
         if (!response.ok || !response.body) {
           if (!response.ok) {
-            this.logger.warn(`Non-OK response (status ${response.status}) fetching ${currentUrl}`);
+            this.logger.warn(
+              `Non-OK response (status ${response.status}) from host ${hostOf(currentUrl)}`,
+            );
           }
           return null;
         }
@@ -337,7 +420,7 @@ export class UrlMetadataService {
         const contentLength = response.headers.get('content-length');
         if (contentLength && parseInt(contentLength, 10) > this.MAX_RESPONSE_SIZE) {
           this.logger.warn(
-            `Response too large (${contentLength} bytes) for ${currentUrl}`,
+            `Response too large (${contentLength} bytes) from host ${hostOf(currentUrl)}`,
           );
           return null;
         }
@@ -365,30 +448,31 @@ export class UrlMetadataService {
           const totalSize = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
           if (totalSize > this.MAX_RESPONSE_SIZE) {
             this.logger.warn(
-              `Response exceeded size limit for ${currentUrl}`,
+              `Response exceeded size limit from host ${hostOf(currentUrl)}`,
             );
             return null;
           }
         }
 
         const buffer = Buffer.concat(chunks);
+        const fetched: FetchedResource = { finalUrl: new URL(currentUrl), redirectCount };
 
         // Return text or binary based on content type
         if (isTextContent) {
           const decoder = new TextDecoder();
           const text = decoder.decode(buffer);
-          return { text };
+          return { ...fetched, text };
         } else {
           // Extract MIME type from Content-Type header
           const mimeType = contentType.split(';')[0].trim();
-          return { buffer, mimeType };
+          return { ...fetched, buffer, mimeType };
         }
       } catch (err) {
         if ((err as Error).name === 'AbortError') {
-          this.logger.warn(`URL fetch timeout for ${currentUrl}`);
+          this.logger.warn(`URL fetch timeout for host ${hostOf(currentUrl)}`);
         } else {
           this.logger.warn(
-            `Failed to fetch from ${currentUrl}: ${(err as Error).message}`,
+            `Failed to fetch from host ${hostOf(currentUrl)}: ${(err as Error).name}`,
           );
         }
         return null;
@@ -431,6 +515,35 @@ export class UrlMetadataService {
         `Failed to extract metadata from HTML: ${(err as Error).message}`,
       );
       return {};
+    }
+  }
+
+  private extractPageSignals(html: string): {
+    ogUrl?: string;
+    canonicalUrl?: string;
+    markers: PageMarkers;
+  } {
+    try {
+      const $ = load(html);
+      return {
+        ogUrl: $('meta[property="og:url"]').attr('content') || undefined,
+        canonicalUrl: $('link[rel="canonical"]').attr('href') || undefined,
+        markers: {
+          hasLoginForm:
+            $('form#login_form').length > 0 ||
+            $('form[action*="/login"]').length > 0 ||
+            ($('input[name="email"]').length > 0 && $('input[name="pass"]').length > 0),
+          hasCheckpointForm:
+            $('form[action*="/checkpoint"]').length > 0 ||
+            $('#checkpointSubmitButton').length > 0,
+          hasConsentDialog:
+            $('[data-testid="cookie-policy-manage-dialog"]').length > 0 ||
+            $('form[action*="/cookie/consent"]').length > 0 ||
+            $('[data-cookiebanner]').length > 0,
+        },
+      };
+    } catch {
+      return { markers: { hasLoginForm: false, hasCheckpointForm: false, hasConsentDialog: false } };
     }
   }
 
