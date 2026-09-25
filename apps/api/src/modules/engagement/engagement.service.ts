@@ -503,7 +503,7 @@ export class EngagementService {
         AND (COALESCE(
           uc_date."confirmedValue" #>> '{}',
           ai_date."valueJson" #>> '{}'
-        )) ~ '^\d{4}-\d{2}-\d{2}$'
+        )) ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
       ORDER BY COALESCE(
         uc_date."confirmedValue" #>> '{}',
         ai_date."valueJson" #>> '{}'

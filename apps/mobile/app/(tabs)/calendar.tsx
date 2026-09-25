@@ -1,20 +1,9 @@
+import { useAuth } from '@clerk/clerk-expo';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'expo-router';
 import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator, FlatList } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
-import { getAuthenticatedClient } from '@/src/api/client';
-
-interface CalendarItem {
-  memoryId: string;
-  date: string;
-  title: string;
-  type?: string;
-}
-
-interface CalendarMonthResponse {
-  month: string;
-  items: CalendarItem[];
-}
+import { getCalendarMonth } from '@/src/api/client';
 
 function getDaysInMonth(year: number, month: number): number {
   return new Date(year, month, 0).getDate();
@@ -47,6 +36,7 @@ function formatDateOnly(dateStr: string): string {
 
 export default function CalendarScreen() {
   const router = useRouter();
+  const { getToken } = useAuth();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
@@ -58,11 +48,11 @@ export default function CalendarScreen() {
   const { data: calendarData, isLoading, error } = useQuery({
     queryKey: ['calendar', monthStr],
     queryFn: async () => {
-      const client = await getAuthenticatedClient();
-      const response = await client.get<CalendarMonthResponse>(
-        `/engagement/calendar?month=${monthStr}`
-      );
-      return response.data;
+      const token = await getToken();
+      if (!token) {
+        throw new Error('Authentication required');
+      }
+      return getCalendarMonth(token, monthStr);
     },
   });
 
