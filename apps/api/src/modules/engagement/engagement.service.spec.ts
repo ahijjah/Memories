@@ -22,6 +22,12 @@ describe('EngagementService', () => {
             rediscoveryFeedback: {
               upsert: jest.fn(),
             },
+            aIInference: {
+              findMany: jest.fn(),
+            },
+            userConfirmation: {
+              findMany: jest.fn(),
+            },
             $queryRaw: jest.fn(),
           },
         },
@@ -1215,6 +1221,137 @@ describe('EngagementService', () => {
       expect(result.items[0].date).toBe('2026-09-20');
       // Title must use precedence: confirmed > inferred
       expect(result.items[0].title).toBe('Confirmed Title');
+    });
+  });
+
+  describe('getNearMe', () => {
+    // $queryRaw is mocked at this layer, so these tests check the SQL Prisma actually sends
+    // (rebuilt from the tagged-template call) and the service's handling of returned rows.
+    // Postgres itself does the filtering, ordering and limiting.
+    const nearMeSql = async (latitude = 51.5, longitude = -0.12, radiusKm?: number) => {
+      jest.spyOn(prismaService, '$queryRaw').mockResolvedValue([]);
+      await service.getNearMe('user-123', latitude, longitude, radiusKm);
+      const [strings, ...values] = (prismaService.$queryRaw as jest.Mock).mock.calls[0];
+      return Prisma.sql(strings, ...values);
+    };
+    const normalize = (text: string) => text.replace(/\s+/g, ' ');
+    const clampedAcos = /6371 \* acos\(LEAST\(1, GREATEST\(-1, (.+?)\)\)\) \)/g;
+
+    it('only includes active Memories (excludes archived, deleted_pending and deleted)', async () => {
+      const text = normalize((await nearMeSql()).text);
+
+      expect(text).toContain(`AND m."lifecycleState" = 'active'`);
+      expect(text).not.toContain(`!= 'deleted'`);
+      expect(text).not.toMatch(/lifecycleState" (?:!=|<>|IN|NOT IN)/);
+    });
+
+    it('scopes to the user, excludes Vault and requires both coordinates', async () => {
+      const sql = await nearMeSql();
+      const text = normalize(sql.text);
+
+      expect(text).toMatch(/WHERE m\."userId" = \$\d+/);
+      expect(sql.values).toContain('user-123');
+      expect(text).toContain(`AND m."securityScope" != 'vault'`);
+      expect(text).toContain('AND m."latitude" IS NOT NULL');
+      expect(text).toContain('AND m."longitude" IS NOT NULL');
+    });
+
+    it('clamps the acos input to [-1, 1] with the same expression for the distance and the radius filter', async () => {
+      const text = normalize((await nearMeSql()).text);
+
+      const clamped = [...text.matchAll(clampedAcos)];
+      expect(clamped).toHaveLength(2);
+      // Identical apart from parameter numbering (each use binds the coordinates again).
+      const withoutParamNumbers = (expr: string) => expr.replace(/\$\d+/g, '$n');
+      expect(withoutParamNumbers(clamped[0][0])).toBe(withoutParamNumbers(clamped[1][0]));
+      expect(text).toContain(`${clamped[0][0]} AS "distance"`);
+      expect(text).toMatch(new RegExp(`${clamped[1][0].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} <= \\$\\d+`));
+      // Every acos in the query is clamped.
+      expect(text.match(/acos\(/g)).toHaveLength(2);
+      expect(text.match(/acos\(LEAST\(1, GREATEST\(-1,/g)).toHaveLength(2);
+    });
+
+    it('binds the caller coordinates and radius as parameters, keeping kilometres and the 6371 km Earth radius', async () => {
+      const sql = await nearMeSql(48.85, 2.35, 10);
+
+      expect(sql.values).toEqual(expect.arrayContaining([48.85, 2.35, 10]));
+      expect(normalize(sql.text)).not.toMatch(/48\.85|2\.35/);
+      expect(normalize(sql.text).match(/6371 \* acos/g)).toHaveLength(2);
+    });
+
+    it('defaults the radius to 5 km', async () => {
+      const sql = await nearMeSql(48.85, 2.35);
+      const text = normalize(sql.text);
+      const radiusParam = Number(text.match(/\)\)\) \) <= \$(\d+)/)![1]);
+
+      expect(sql.values[radiusParam - 1]).toBe(5);
+    });
+
+    it('orders nearest first and returns at most 20 rows', async () => {
+      const text = normalize((await nearMeSql()).text);
+
+      expect(text).toMatch(/ORDER BY "distance" ASC LIMIT 20\s*$/);
+    });
+
+    it('needs the clamp: identical coordinates can put the unclamped cosine above 1', () => {
+      // Same double-precision expression Postgres evaluates, for a point compared with itself.
+      const rad = (deg: number) => (deg * Math.PI) / 180;
+      const unclamped = (lat: number, lon: number) =>
+        Math.cos(rad(lat)) * Math.cos(rad(lat)) * Math.cos(rad(lon) - rad(lon)) +
+        Math.sin(rad(lat)) * Math.sin(rad(lat));
+      const clampedDistance = (lat: number, lon: number) =>
+        6371 * Math.acos(Math.min(1, Math.max(-1, unclamped(lat, lon))));
+
+      const samples: number[] = [];
+      for (let i = 0; i < 2000; i++) samples.push(-89 + (178 * i) / 1999);
+      const outOfRange = samples.filter((lat) => unclamped(lat, 0) > 1);
+
+      expect(outOfRange.length).toBeGreaterThan(0);
+      expect(Number.isNaN(Math.acos(unclamped(outOfRange[0], 0)))).toBe(true);
+      for (const lat of samples) {
+        const distance = clampedDistance(lat, 0);
+        expect(Number.isFinite(distance)).toBe(true);
+        expect(distance).toBeLessThan(0.001); // under 1 m: rounding residue only
+      }
+      expect(clampedDistance(outOfRange[0], 0)).toBe(0);
+    });
+
+    it('returns rows in the order the query produced them, with resolved titles', async () => {
+      jest.spyOn(prismaService, '$queryRaw').mockResolvedValue([
+        { id: 'mem-near', title: 'Raw near', summary: 'S1', sourceUri: null, distance: 0, createdAt: new Date() },
+        { id: 'mem-far', title: 'Raw far', summary: 'S2', sourceUri: null, distance: 3.2, createdAt: new Date() },
+      ] as any);
+      jest.spyOn(prismaService.aIInference, 'findMany').mockResolvedValue([
+        { memoryId: 'mem-near', field: 'title', valueJson: 'AI near' },
+        { memoryId: 'mem-far', field: 'title', valueJson: 'AI far' },
+      ] as any);
+      jest.spyOn(prismaService.userConfirmation, 'findMany').mockResolvedValue([
+        { memoryId: 'mem-far', field: 'title', confirmedValue: 'Confirmed far' },
+      ] as any);
+
+      const result = await service.getNearMe('user-123', 51.5, -0.12, 5);
+
+      expect(result.map((r) => r.id)).toEqual(['mem-near', 'mem-far']);
+      expect(result.map((r) => r.distance)).toEqual([0, 3.2]);
+      expect(result[0].title).toBe('AI near');
+      expect(result[1].title).toBe('Confirmed far');
+      expect(prismaService.aIInference.findMany).toHaveBeenCalledWith({
+        where: { memoryId: { in: ['mem-near', 'mem-far'] }, field: 'title' },
+      });
+      expect(prismaService.userConfirmation.findMany).toHaveBeenCalledWith({
+        where: { memoryId: { in: ['mem-near', 'mem-far'] }, field: 'title' },
+      });
+    });
+
+    it('skips title lookups when nothing is nearby', async () => {
+      const result = await (async () => {
+        jest.spyOn(prismaService, '$queryRaw').mockResolvedValue([]);
+        return service.getNearMe('user-123', 51.5, -0.12, 5);
+      })();
+
+      expect(result).toEqual([]);
+      expect(prismaService.aIInference.findMany).not.toHaveBeenCalled();
+      expect(prismaService.userConfirmation.findMany).not.toHaveBeenCalled();
     });
   });
 });
