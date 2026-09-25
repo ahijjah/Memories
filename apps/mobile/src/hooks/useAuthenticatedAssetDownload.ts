@@ -127,8 +127,9 @@ export async function performDownload(
   const dirInfo = Paths.info(assetsCacheDir.uri);
 
   if (!dirInfo.exists) {
-    // createDirectory is synchronous in v57.0.6
-    assetsCacheDir.createDirectory('');
+    // create() makes cache/assets itself; createDirectory(name) makes a named child and rejects
+    // an empty name on Android. idempotent: another first download may already have created it.
+    assetsCacheDir.create({ idempotent: true });
   }
 
   // User-scoped cache: filename includes userId to prevent cross-account cache reuse
