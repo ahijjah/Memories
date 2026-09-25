@@ -507,7 +507,7 @@ export default function MemoryDetailScreen() {
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Move to Vault',
-          style: 'destructive',
+          style: 'default',
           onPress: () => moveToVault(),
         },
       ],

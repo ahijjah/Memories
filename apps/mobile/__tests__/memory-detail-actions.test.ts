@@ -328,6 +328,8 @@ describe('Memory Detail action hierarchy', () => {
       expect(Alert.alert).toHaveBeenCalledWith('Move to Vault?', expect.any(String), expect.any(Array));
       expect(client.lockMemory).not.toHaveBeenCalled();
       const buttons = (Alert.alert as jest.Mock).mock.calls[0][2];
+      // Moving to the Vault is not destructive, so it must not use Delete's styling.
+      expect(buttons.find((b: any) => b.text === 'Move to Vault').style).toBe('default');
       await act(async () => buttons.find((b: any) => b.text === 'Move to Vault').onPress());
       await flush();
       expect(client.lockMemory).toHaveBeenCalledWith('token', 'mem-1');
@@ -342,6 +344,7 @@ describe('Memory Detail action hierarchy', () => {
       expect(Alert.alert).toHaveBeenCalledWith('Delete Memory?', expect.any(String), expect.any(Array));
       expect(client.deleteMemory).not.toHaveBeenCalled();
       const buttons = (Alert.alert as jest.Mock).mock.calls[0][2];
+      expect(buttons.find((b: any) => b.text === 'Delete').style).toBe('destructive');
       await act(async () => buttons.find((b: any) => b.text === 'Delete').onPress());
       await flush();
       expect(client.deleteMemory).toHaveBeenCalledWith('token', 'mem-1');
