@@ -11,6 +11,7 @@ import { isSensitiveField } from '../../common/crypto/sensitive-fields';
 import { toVectorLiteral } from '../../common/pgvector.util';
 import { EmbeddingService } from './embedding.service';
 import { UrlMetadataService } from './url-metadata.service';
+import { hostOf, isFacebookFamilyHost, isFacebookFamilyUrl } from './url-page-trust';
 import { AI_PROCESSING_QUEUE, AiProcessingJobData } from './ai-queue.service';
 
 @Processor(AI_PROCESSING_QUEUE)
@@ -132,7 +133,7 @@ export class AiProcessor extends WorkerHost {
 
       const provider = new AnthropicAiProvider(apiKey);
       let inputText = memory.title ?? memory.sourceUri ?? '(no text content captured)';
-      let ogImageUrl: string | undefined;
+      let ogImageUrl: string | null | undefined;
 
       // Check for user-uploaded assets first (higher priority than og:image)
       // For multi-page documents, include up to 5 pages in vision analysis, ordered by pageIndex.
@@ -172,12 +173,24 @@ export class AiProcessor extends WorkerHost {
         }
       }
 
+      // Evidence boundary: at this point `images` holds only the user's own uploaded assets
+      // (memory_assets via object storage). Page-derived evidence is added below only when the
+      // fetched page is trusted.
+      const userAssetImageCount = images.length;
+
       // Fetch URL metadata for url-sourced Memories to provide richer content to AI
       if (memory.sourceType === 'url' && memory.sourceUri) {
-        const urlMetadata = await this.urlMetadataService.fetchMetadata(
+        const metadataResult = await this.urlMetadataService.fetchMetadata(
           memory.sourceUri,
         );
-        if (urlMetadata) {
+        // Backstop for the service's Facebook deny-by-default: page metadata from a Facebook
+        // source or a Facebook final page is never used, even if a result came back `ok`.
+        const facebookInvolved =
+          isFacebookFamilyUrl(memory.sourceUri) ||
+          (metadataResult.status !== 'unavailable' &&
+            isFacebookFamilyHost(metadataResult.finalHost));
+        if (metadataResult.status === 'ok' && !facebookInvolved) {
+          const urlMetadata = metadataResult.metadata;
           // Use extracted metadata if available, falling back to title/sourceUri
           if (urlMetadata.title) {
             inputText = urlMetadata.title;
@@ -205,7 +218,7 @@ export class AiProcessor extends WorkerHost {
           }
 
           this.logger.debug(
-            `URL metadata extracted for Memory ${memoryId}: title="${urlMetadata.title}", hasImage=${!!urlMetadata.imageUrl}`,
+            `URL metadata extracted for Memory ${memoryId}: host=${metadataResult.finalHost}, title_len=${urlMetadata.title?.length ?? 0}, hasImage=${!!urlMetadata.imageUrl}`,
           );
 
           // Attempt to fetch and include the og:image for vision analysis (only if no user-uploaded images)
@@ -223,10 +236,41 @@ export class AiProcessor extends WorkerHost {
               );
             } else {
               this.logger.debug(
-                `Could not fetch og:image for Memory ${memoryId} from ${urlMetadata.imageUrl}, falling back to text-only analysis`,
+                `Could not fetch og:image for Memory ${memoryId} from host ${hostOf(urlMetadata.imageUrl)}, falling back to text-only analysis`,
               );
             }
           }
+        } else if (metadataResult.status === 'rejected' || facebookInvolved) {
+          // The page did not provide trustworthy post content (rejected wherever the source
+          // pointed, or any Facebook-involved result): nothing page-derived (metadata or
+          // og:image) is used, and a stale page image must not remain on the Memory.
+          const reason =
+            metadataResult.status === 'ok' ? 'FACEBOOK_DENY_BY_DEFAULT' : metadataResult.reason;
+          ogImageUrl = null;
+          if (userAssetImageCount === 0) {
+            // No trusted evidence at all: keep the Memory as a saved link instead of asking the
+            // AI to infer the post's contents from its URL. Returning normally avoids a retry.
+            // AI-derived data from an earlier run is removed atomically with the state change so
+            // the Memory cannot keep surfacing stale inferences or embeddings. User confirmations,
+            // title, sourceUri and assets are left untouched.
+            await this.prisma.$transaction(async (tx) => {
+              await tx.aIInference.deleteMany({
+                where: { memoryId, provenance: 'llm_extraction' },
+              });
+              await tx.$executeRaw`DELETE FROM "embeddings" WHERE "memoryId" = ${memoryId}`;
+              await tx.memory.update({
+                where: { id: memoryId },
+                data: { processingState: 'partial', ogImageUrl: null },
+              });
+            });
+            this.logger.log(
+              `Memory ${memoryId} saved as link without AI understanding: host=${metadataResult.requestedHost}, result=${metadataResult.status}, reason=${reason}`,
+            );
+            return;
+          }
+          this.logger.debug(
+            `Untrusted page metadata for Memory ${memoryId} (result=${metadataResult.status}, reason=${reason}); using ${userAssetImageCount} user-uploaded asset(s) only`,
+          );
         } else {
           this.logger.debug(
             `No URL metadata extracted for Memory ${memoryId}, using fallback text`,

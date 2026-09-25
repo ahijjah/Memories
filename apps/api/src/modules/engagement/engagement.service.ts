@@ -363,20 +363,26 @@ export class EngagementService {
     type TitleInference = Prisma.AIInferenceGetPayload<Record<string, never>>;
     type TitleConfirmation = Prisma.UserConfirmationGetPayload<Record<string, never>>;
 
-    // Haversine distance formula: distance in km
+    // Great-circle distance in km (spherical law of cosines). Floating-point rounding can push
+    // the cosine slightly outside [-1, 1] for identical or near-identical points, and Postgres
+    // acos() raises "input is out of range" there, so the input is clamped. The same expression
+    // is used for the returned distance and the radius filter.
+    const distanceKm = Prisma.sql`(
+      6371 * acos(LEAST(1, GREATEST(-1,
+        cos(radians(${latitude})) * cos(radians(m."latitude")) *
+        cos(radians(m."longitude") - radians(${longitude})) +
+        sin(radians(${latitude})) * sin(radians(m."latitude"))
+      )))
+    )`;
+
+    // Only active Memories: archived, deleted_pending and deleted are excluded.
     const rawResults = await this.prisma.$queryRaw<NearMeRawResult[]>`
       SELECT
         m."id",
         m."title",
         summary_inf."valueJson" #>> '{}' AS "summary",
         m."sourceUri",
-        (
-          6371 * acos(
-            cos(radians(${latitude})) * cos(radians(m."latitude")) *
-            cos(radians(m."longitude") - radians(${longitude})) +
-            sin(radians(${latitude})) * sin(radians(m."latitude"))
-          )
-        ) AS "distance",
+        ${distanceKm} AS "distance",
         m."createdAt"
       FROM "memories" m
       LEFT JOIN LATERAL (
@@ -386,17 +392,11 @@ export class EngagementService {
         LIMIT 1
       ) AS summary_inf ON true
       WHERE m."userId" = ${userId}
-        AND m."lifecycleState" != 'deleted'
+        AND m."lifecycleState" = 'active'
         AND m."securityScope" != 'vault'
         AND m."latitude" IS NOT NULL
         AND m."longitude" IS NOT NULL
-        AND (
-          6371 * acos(
-            cos(radians(${latitude})) * cos(radians(m."latitude")) *
-            cos(radians(m."longitude") - radians(${longitude})) +
-            sin(radians(${latitude})) * sin(radians(m."latitude"))
-          )
-        ) <= ${radiusKm}
+        AND ${distanceKm} <= ${radiusKm}
       ORDER BY "distance" ASC
       LIMIT 20
     `;
@@ -503,7 +503,7 @@ export class EngagementService {
         AND (COALESCE(
           uc_date."confirmedValue" #>> '{}',
           ai_date."valueJson" #>> '{}'
-        )) ~ '^\d{4}-\d{2}-\d{2}$'
+        )) ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
       ORDER BY COALESCE(
         uc_date."confirmedValue" #>> '{}',
         ai_date."valueJson" #>> '{}'
