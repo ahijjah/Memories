@@ -854,7 +854,11 @@ export default function MemoryDetailScreen() {
 
         {/* Back Button */}
         <TouchableOpacity
-          onPress={() => router.back()}
+          onPress={() => {
+            // A share or deep link can open this screen with no history; fall back to Home.
+            if (router.canGoBack()) router.back();
+            else router.replace('/(tabs)/');
+          }}
           className="bg-gray-200 rounded-lg py-3"
         >
           <Text className="text-gray-900 text-center font-semibold">Back</Text>
