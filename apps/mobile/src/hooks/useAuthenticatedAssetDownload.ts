@@ -63,6 +63,15 @@ export function useAuthenticatedAssetDownload(assetId: string, contentUrl: strin
   const [error, setError] = useState<Error | null>(null);
   const mountedRef = useRef(true);
 
+  // @clerk/clerk-expo's useAuth() returns a new getToken function on every render. Keep the
+  // latest one in a ref so the download effect depends only on its semantic inputs; otherwise
+  // every render re-runs the effect (loaded -> loading -> loaded ...: "Maximum update depth").
+  // Each download still calls the current getToken, so tokens are always fresh.
+  const getTokenRef = useRef(getToken);
+  useEffect(() => {
+    getTokenRef.current = getToken;
+  }, [getToken]);
+
   // Track mounted state only; unmounting this hook does NOT cancel shared download
   useEffect(() => {
     mountedRef.current = true;
@@ -85,7 +94,9 @@ export function useAuthenticatedAssetDownload(assetId: string, contentUrl: strin
         }
 
         // Call production helper: synchronously deduplicates concurrent requests
-        const uri = await getOrStartAssetDownload(userId, assetId, contentUrl, getToken);
+        const uri = await getOrStartAssetDownload(userId, assetId, contentUrl, () =>
+          getTokenRef.current(),
+        );
         if (mountedRef.current) {
           setLocalUri(uri);
           setState('loaded');
@@ -100,7 +111,7 @@ export function useAuthenticatedAssetDownload(assetId: string, contentUrl: strin
     };
 
     download();
-  }, [assetId, contentUrl, getToken, userId]);
+  }, [assetId, contentUrl, userId]);
 
   return { localUri, state, error };
 }

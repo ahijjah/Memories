@@ -303,4 +303,127 @@ describe('useAuthenticatedAssetDownload', () => {
       ).rejects.toThrow('Failed to obtain authentication token');
     });
   });
+
+  describe('G. UNSTABLE getToken IDENTITY - no render/effect loop', () => {
+    // @clerk/clerk-expo's useAuth() wraps getToken in a new arrow function on every render.
+    // Model that exactly: every useAuth() call returns a fresh function delegating to tokenSource.
+    // Each getToken identity yields the token that was current when it was issued, so a hook
+    // that kept calling an old (mount-time) getToken would observe a stale token. Token
+    // retrieval takes a real (timer) tick, as Clerk's does, so a loop stays observable instead
+    // of starving the test's own timers.
+    const tokenSource = jest.fn(
+      (token: string) => new Promise<string>((r) => setTimeout(() => r(token), 5)),
+    );
+    let currentUserId: string | null;
+    let currentToken: string;
+
+    let prevActEnv: unknown;
+    beforeAll(() => {
+      prevActEnv = (globalThis as any).IS_REACT_ACT_ENVIRONMENT;
+      // Async resolutions below happen outside act(); don't flood the output with act warnings.
+      (globalThis as any).IS_REACT_ACT_ENVIRONMENT = false;
+    });
+    afterAll(() => {
+      (globalThis as any).IS_REACT_ACT_ENVIRONMENT = prevActEnv;
+    });
+
+    // Always unmount, even when an assertion fails, so a looping hook cannot keep Jest alive.
+    const mountedRoots: TestRenderer.ReactTestRenderer[] = [];
+    afterEach(() => {
+      while (mountedRoots.length) {
+        const r = mountedRoots.pop()!;
+        TestRenderer.act(() => r.unmount());
+      }
+    });
+
+    beforeEach(() => {
+      currentUserId = mockUserId;
+      currentToken = 'token-1';
+      (useAuth as jest.Mock).mockImplementation(() => {
+        const issuedToken = currentToken;
+        return { getToken: () => tokenSource(issuedToken), userId: currentUserId };
+      });
+    });
+
+    // Plain timed wait (not act()): with a render/effect loop act() may never settle.
+    const flush = () => new Promise<void>((r) => setTimeout(r, 50));
+
+    function renderProbe(initial: { assetId: string; contentUrl: string }) {
+      const states: string[] = [];
+      const Probe = (props: { assetId: string; contentUrl: string; tick?: number }) => {
+        const { state } = useAuthenticatedAssetDownload(props.assetId, props.contentUrl);
+        states.push(state);
+        return React.createElement('div', null, state);
+      };
+      let root!: TestRenderer.ReactTestRenderer;
+      TestRenderer.act(() => {
+        root = TestRenderer.create(React.createElement(Probe, initial));
+      });
+      mountedRoots.push(root);
+      const rerender = (props: { assetId: string; contentUrl: string; tick?: number }) =>
+        TestRenderer.act(() => {
+          root.update(React.createElement(Probe, props));
+        });
+      return { states, rerender };
+    }
+
+    it('a new getToken identity on re-render does not restart the download or cycle loaded -> loading', async () => {
+      const props = { assetId: 'asset-456', contentUrl: '/assets/asset-456/content' };
+      const { states, rerender } = renderProbe(props);
+      await flush();
+
+      expect(states[states.length - 1]).toBe('loaded');
+      expect(tokenSource).toHaveBeenCalledTimes(1);
+      expect(File.downloadFileAsync as jest.Mock).toHaveBeenCalledTimes(1);
+
+      // Parent re-renders with unchanged semantic inputs: useAuth() hands out new getToken
+      // identities, but userId/session are unchanged.
+      const loadedAt = states.length;
+      for (let tick = 1; tick <= 3; tick++) rerender({ ...props, tick });
+      await flush();
+
+      expect(tokenSource).toHaveBeenCalledTimes(1);
+      expect(File.downloadFileAsync as jest.Mock).toHaveBeenCalledTimes(1);
+      expect(states.slice(loadedAt)).not.toContain('loading');
+      expect(states[states.length - 1]).toBe('loaded');
+    });
+
+    it('a genuine assetId/contentUrl change still downloads, using the latest getToken', async () => {
+      const { states, rerender } = renderProbe({
+        assetId: 'asset-456',
+        contentUrl: '/assets/asset-456/content',
+      });
+      await flush();
+      expect(tokenSource).toHaveBeenCalledTimes(1);
+
+      // Token rotates (Clerk refresh); the next real download must use the current getToken.
+      currentToken = 'token-2';
+      rerender({ assetId: 'asset-789', contentUrl: '/assets/asset-789/content' });
+      await flush();
+
+      expect(tokenSource).toHaveBeenCalledTimes(2);
+      const calls = (File.downloadFileAsync as jest.Mock).mock.calls;
+      expect(calls).toHaveLength(2);
+      expect(calls[1][0]).toBe('http://localhost:3000/assets/asset-789/content');
+      expect(calls[1][2].headers.Authorization).toBe('Bearer token-2');
+      expect(states[states.length - 1]).toBe('loaded');
+    });
+
+    it('a genuine userId change still downloads under the new user', async () => {
+      const props = { assetId: 'asset-456', contentUrl: '/assets/asset-456/content' };
+      const { rerender } = renderProbe(props);
+      await flush();
+      expect(File.downloadFileAsync as jest.Mock).toHaveBeenCalledTimes(1);
+
+      currentUserId = 'user-999';
+      rerender({ ...props });
+      await flush();
+
+      expect(tokenSource).toHaveBeenCalledTimes(2);
+      expect(File.downloadFileAsync as jest.Mock).toHaveBeenCalledTimes(2);
+      // expo-file-system is automocked: File is a mock constructor; check the cache filename.
+      const cacheFileNames = (File as unknown as jest.Mock).mock.calls.map((c: unknown[]) => c[1]);
+      expect(cacheFileNames).toContain('user-999:asset-456');
+    });
+  });
 });
