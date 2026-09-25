@@ -491,8 +491,9 @@ describe('UrlMetadataService', () => {
       expect(result).toMatchObject({ status: 'rejected', reason: 'CANONICAL_INTERSTITIAL' });
     });
 
-    it('D: accepts useful Facebook post metadata despite Facebook branding and a login form', async () => {
-      // Final URL is the /share/p/ wrapper; the canonical ITEM authoritatively identifies the post.
+    it('D: denies Facebook post metadata even when identity and text look trustworthy (deny-by-default)', async () => {
+      // Final URL is the /share/p/ wrapper and the canonical ITEM identifies a post; the page
+      // would pass every identity rule, but Facebook page content is never trusted for AI.
       fetchSpy.mockResolvedValueOnce(
         htmlResponse(
           page(
@@ -508,11 +509,14 @@ describe('UrlMetadataService', () => {
 
       const result = await service.fetchMetadata(SHARE_URL);
 
-      expect(result.status).toBe('ok');
-      if (result.status !== 'ok') throw new Error('expected ok');
-      expect(result.metadata.title).toBe('Jane Doe - Sunset at the beach | Facebook');
-      expect(result.metadata.description).toBe('Golden hour at the pier with friends.');
-      expect(result.metadata.imageUrl).toBe('https://scontent.xx.fbcdn.net/v/photo.jpg');
+      expect(result).toEqual({
+        status: 'rejected',
+        reason: 'FACEBOOK_DENY_BY_DEFAULT',
+        requestedHost: 'www.facebook.com',
+        finalHost: 'www.facebook.com',
+        redirectCount: 0,
+      });
+      expect(JSON.stringify(result)).not.toContain('fbcdn');
     });
 
     it('D2: rejects specific title and description when nothing identifies a content item', async () => {
@@ -755,7 +759,7 @@ describe('UrlMetadataService', () => {
         );
       await service.fetchMetadata(SHARE_URL);
 
-      // Trusted: redirect to a post item with canonical ITEM and a login form.
+      // Would-be trusted (all identity rules pass) but denied by default: post item + canonical ITEM.
       fetchSpy
         .mockResolvedValueOnce(redirect('https://www.facebook.com/SENTINELNAME/posts/987654321'))
         .mockResolvedValueOnce(
@@ -774,7 +778,7 @@ describe('UrlMetadataService', () => {
       expect(fetchLines).toEqual([
         'metadata fetch host=www.facebook.com final_host=www.facebook.com redirects=1 result=rejected reason=PROFILE_OR_PAGE_LANDING ' +
           'fb_final=PROFILE_OR_PAGE fb_canonical=none fb_og=PROFILE_OR_PAGE markers=none title_generic=false desc_generic=false',
-        'metadata fetch host=www.facebook.com final_host=www.facebook.com redirects=1 result=ok reason=- ' +
+        'metadata fetch host=www.facebook.com final_host=www.facebook.com redirects=1 result=rejected reason=FACEBOOK_DENY_BY_DEFAULT ' +
           'fb_final=ITEM fb_canonical=ITEM fb_og=none markers=login title_generic=false desc_generic=false',
       ]);
       for (const line of logged) {
@@ -791,6 +795,166 @@ describe('UrlMetadataService', () => {
       expect(debug).toHaveBeenCalledWith(
         'metadata fetch host=example.com final_host=example.com redirects=0 result=ok reason=-',
       );
+    });
+
+    describe('E2: Facebook page content is deny-by-default', () => {
+      const ITEM = 'https://www.facebook.com/SENTINELNAME/posts/987654321';
+      const TITLE_52 = 'SENTINELTITLE Example Networks fibre offer'.padEnd(52, '.');
+      const TITLE_68 = 'SENTINELTITLE Example Networks - Fast home internet in your area'.padEnd(68, '.');
+      const itemPage = (title: string, withImage = true) =>
+        page(
+          `<meta property="og:title" content="${title}">` +
+            '<meta property="og:description" content="SENTINELDESC Fibre internet plans with free installation.">' +
+            `<link rel="canonical" href="${ITEM}">` +
+            `<meta property="og:url" content="${ITEM}">` +
+            (withImage ? '<meta property="og:image" content="https://scontent.xx.fbcdn.net/v/SENTINELIMAGE.jpg">' : ''),
+        );
+      const articlePage = page(
+        '<meta property="og:title" content="SENTINELTITLE External article">' +
+          '<meta property="og:description" content="SENTINELDESC Article summary.">' +
+          '<meta property="og:image" content="https://cdn.example.com/SENTINELIMAGE.jpg">',
+      );
+
+      it.each([
+        ['52-char title', TITLE_52],
+        ['68-char title', TITLE_68],
+      ])('P3 production shape (%s): all-ITEM page with specific text and og:image is rejected', async (_l, title) => {
+        expect([52, 68]).toContain(title.length);
+        fetchSpy.mockResolvedValueOnce(redirect(ITEM)).mockResolvedValueOnce(htmlResponse(itemPage(title)));
+
+        const result = await service.fetchMetadata(SHARE_URL);
+
+        expect(result).toEqual({
+          status: 'rejected',
+          reason: 'FACEBOOK_DENY_BY_DEFAULT',
+          requestedHost: 'www.facebook.com',
+          finalHost: 'www.facebook.com',
+          redirectCount: 1,
+        });
+        expect(fetchSpy).toHaveBeenCalledTimes(2);
+      });
+
+      it('Facebook ITEM without og:image is rejected', async () => {
+        fetchSpy.mockResolvedValueOnce(htmlResponse(itemPage(TITLE_68, false)));
+
+        expect(await service.fetchMetadata(ITEM)).toMatchObject({
+          status: 'rejected',
+          reason: 'FACEBOOK_DENY_BY_DEFAULT',
+        });
+      });
+
+      it.each([
+        ['wrapper', 'https://www.facebook.com/share/p/SENTINELPATH/', 'NO_CONTENT_ITEM'],
+        ['profile/page', 'https://www.facebook.com/SENTINELPAGE/', 'PROFILE_OR_PAGE_LANDING'],
+        ['root', 'https://www.facebook.com/', 'NO_CONTENT_ITEM'],
+        ['interstitial', 'https://www.facebook.com/login/?next=SENTINELQUERY', 'FINAL_PATH_INTERSTITIAL'],
+      ])('%s final keeps its more specific rejection reason', async (_l, finalUrl, reason) => {
+        fetchSpy
+          .mockResolvedValueOnce(redirect(finalUrl))
+          .mockResolvedValueOnce(
+            htmlResponse(
+              page(
+                '<meta property="og:title" content="SENTINELTITLE Specific">' +
+                  '<meta property="og:description" content="SENTINELDESC Specific text.">',
+              ),
+            ),
+          );
+
+        expect(await service.fetchMetadata(SHARE_URL)).toMatchObject({ status: 'rejected', reason });
+      });
+
+      it.each([
+        ['fb.me', 'https://fb.me/SENTINELPATH', 'fb.me'],
+        ['fb.watch', 'https://fb.watch/SENTINELPATH/', 'fb.watch'],
+      ])('%s source -> Facebook ITEM is rejected', async (_l, source, requestedHost) => {
+        fetchSpy.mockResolvedValueOnce(redirect(ITEM)).mockResolvedValueOnce(htmlResponse(itemPage(TITLE_68)));
+
+        expect(await service.fetchMetadata(source)).toEqual({
+          status: 'rejected',
+          reason: 'FACEBOOK_DENY_BY_DEFAULT',
+          requestedHost,
+          finalHost: 'www.facebook.com',
+          redirectCount: 1,
+        });
+      });
+
+      it.each([
+        ['www.facebook.com', SHARE_URL, 'www.facebook.com'],
+        ['l.facebook.com', 'https://l.facebook.com/l.php?u=SENTINELQUERY', 'l.facebook.com'],
+      ])('Facebook source (%s) -> non-Facebook final is rejected (locked policy)', async (_l, source, requestedHost) => {
+        fetchSpy
+          .mockResolvedValueOnce(redirect('https://example.com/article/SENTINELPATH'))
+          .mockResolvedValueOnce(htmlResponse(articlePage));
+
+        const result = await service.fetchMetadata(source);
+
+        expect(result).toEqual({
+          status: 'rejected',
+          reason: 'FACEBOOK_DENY_BY_DEFAULT',
+          requestedHost,
+          finalHost: 'example.com',
+          redirectCount: 1,
+        });
+      });
+
+      it('non-Facebook source -> Facebook final is rejected', async () => {
+        fetchSpy.mockResolvedValueOnce(redirect(ITEM)).mockResolvedValueOnce(htmlResponse(itemPage(TITLE_68)));
+
+        expect(await service.fetchMetadata('https://example.com/go/SENTINELPATH')).toEqual({
+          status: 'rejected',
+          reason: 'FACEBOOK_DENY_BY_DEFAULT',
+          requestedHost: 'example.com',
+          finalHost: 'www.facebook.com',
+          redirectCount: 1,
+        });
+      });
+
+      it('non-Facebook source -> non-Facebook final is unchanged (ok with metadata)', async () => {
+        fetchSpy
+          .mockResolvedValueOnce(redirect('https://news.example.org/story'))
+          .mockResolvedValueOnce(htmlResponse(articlePage));
+
+        const result = await service.fetchMetadata('https://example.com/go');
+
+        expect(result).toEqual({
+          status: 'ok',
+          metadata: service['extractMetadata'](articlePage),
+          requestedHost: 'example.com',
+          finalHost: 'news.example.org',
+          redirectCount: 1,
+        });
+      });
+
+      it('logs only hosts, counts, codes and labels for every deny shape', async () => {
+        const logged: string[] = [];
+        for (const level of ['log', 'warn', 'debug', 'error', 'verbose'] as const) {
+          jest.spyOn(Logger.prototype, level).mockImplementation((...args: unknown[]) => {
+            logged.push(args.map(String).join(' '));
+          });
+        }
+
+        fetchSpy.mockResolvedValueOnce(redirect(ITEM)).mockResolvedValueOnce(htmlResponse(itemPage(TITLE_68)));
+        await service.fetchMetadata(SHARE_URL);
+        fetchSpy.mockResolvedValueOnce(redirect(ITEM)).mockResolvedValueOnce(htmlResponse(itemPage(TITLE_52)));
+        await service.fetchMetadata('https://fb.me/SENTINELPATH');
+        fetchSpy
+          .mockResolvedValueOnce(redirect('https://example.com/article/SENTINELPATH'))
+          .mockResolvedValueOnce(htmlResponse(articlePage));
+        await service.fetchMetadata(SHARE_URL);
+        fetchSpy.mockResolvedValueOnce(redirect(ITEM)).mockResolvedValueOnce(htmlResponse(itemPage(TITLE_68)));
+        await service.fetchMetadata('https://example.com/go/SENTINELPATH');
+
+        const fetchLines = logged.filter((line) => line.startsWith('metadata fetch'));
+        expect(fetchLines).toEqual([
+          'metadata fetch host=www.facebook.com final_host=www.facebook.com redirects=1 result=rejected reason=FACEBOOK_DENY_BY_DEFAULT fb_final=ITEM fb_canonical=ITEM fb_og=ITEM markers=none title_generic=false desc_generic=false',
+          'metadata fetch host=fb.me final_host=www.facebook.com redirects=1 result=rejected reason=FACEBOOK_DENY_BY_DEFAULT fb_final=ITEM fb_canonical=ITEM fb_og=ITEM markers=none title_generic=false desc_generic=false',
+          'metadata fetch host=www.facebook.com final_host=example.com redirects=1 result=rejected reason=FACEBOOK_DENY_BY_DEFAULT',
+          'metadata fetch host=example.com final_host=www.facebook.com redirects=1 result=rejected reason=FACEBOOK_DENY_BY_DEFAULT fb_final=ITEM fb_canonical=ITEM fb_og=ITEM markers=none title_generic=false desc_generic=false',
+        ]);
+        for (const line of logged) {
+          expect(line).not.toMatch(/SENTINEL|987654321|\/posts\/|share\/p|article/);
+        }
+      });
     });
   });
 

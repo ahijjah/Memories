@@ -11,7 +11,7 @@ import { isSensitiveField } from '../../common/crypto/sensitive-fields';
 import { toVectorLiteral } from '../../common/pgvector.util';
 import { EmbeddingService } from './embedding.service';
 import { UrlMetadataService } from './url-metadata.service';
-import { hostOf, isFacebookFamilyUrl } from './url-page-trust';
+import { hostOf, isFacebookFamilyHost, isFacebookFamilyUrl } from './url-page-trust';
 import { AI_PROCESSING_QUEUE, AiProcessingJobData } from './ai-queue.service';
 
 @Processor(AI_PROCESSING_QUEUE)
@@ -183,7 +183,13 @@ export class AiProcessor extends WorkerHost {
         const metadataResult = await this.urlMetadataService.fetchMetadata(
           memory.sourceUri,
         );
-        if (metadataResult.status === 'ok') {
+        // Backstop for the service's Facebook deny-by-default: page metadata from a Facebook
+        // source or a Facebook final page is never used, even if a result came back `ok`.
+        const facebookInvolved =
+          isFacebookFamilyUrl(memory.sourceUri) ||
+          (metadataResult.status !== 'unavailable' &&
+            isFacebookFamilyHost(metadataResult.finalHost));
+        if (metadataResult.status === 'ok' && !facebookInvolved) {
           const urlMetadata = metadataResult.metadata;
           // Use extracted metadata if available, falling back to title/sourceUri
           if (urlMetadata.title) {
@@ -234,13 +240,12 @@ export class AiProcessor extends WorkerHost {
               );
             }
           }
-        } else if (
-          metadataResult.status === 'rejected' ||
-          isFacebookFamilyUrl(memory.sourceUri)
-        ) {
+        } else if (metadataResult.status === 'rejected' || facebookInvolved) {
           // The page did not provide trustworthy post content (rejected wherever the source
-          // pointed, or unavailable for a Facebook source): nothing page-derived (metadata or
+          // pointed, or any Facebook-involved result): nothing page-derived (metadata or
           // og:image) is used, and a stale page image must not remain on the Memory.
+          const reason =
+            metadataResult.status === 'ok' ? 'FACEBOOK_DENY_BY_DEFAULT' : metadataResult.reason;
           ogImageUrl = null;
           if (userAssetImageCount === 0) {
             // No trusted evidence at all: keep the Memory as a saved link instead of asking the
@@ -259,12 +264,12 @@ export class AiProcessor extends WorkerHost {
               });
             });
             this.logger.log(
-              `Memory ${memoryId} saved as link without AI understanding: host=${metadataResult.requestedHost}, result=${metadataResult.status}, reason=${metadataResult.reason}`,
+              `Memory ${memoryId} saved as link without AI understanding: host=${metadataResult.requestedHost}, result=${metadataResult.status}, reason=${reason}`,
             );
             return;
           }
           this.logger.debug(
-            `Untrusted page metadata for Memory ${memoryId} (result=${metadataResult.status}, reason=${metadataResult.reason}); using ${userAssetImageCount} user-uploaded asset(s) only`,
+            `Untrusted page metadata for Memory ${memoryId} (result=${metadataResult.status}, reason=${reason}); using ${userAssetImageCount} user-uploaded asset(s) only`,
           );
         } else {
           this.logger.debug(

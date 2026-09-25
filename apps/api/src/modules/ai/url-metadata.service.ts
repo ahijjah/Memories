@@ -100,6 +100,11 @@ export class UrlMetadataService {
       const metadata = this.extractMetadata(page.html);
       const finalHost = page.finalUrl.hostname;
 
+      // Facebook page-derived content is deny-by-default for AI enrichment: a Facebook-family
+      // source or final host never yields `ok`, whatever the page looks like. Classification
+      // still runs for sanitized diagnostics and to keep a more specific rejection reason.
+      const facebookInvolved = isFacebookFamilyHost(hostname) || isFacebookFamilyHost(finalHost);
+      let facebookReason: PageRejectReason = 'FACEBOOK_DENY_BY_DEFAULT';
       let facebookSignals: string | undefined;
       if (isFacebookFamilyHost(finalHost)) {
         const signals = this.extractPageSignals(page.html);
@@ -114,17 +119,21 @@ export class UrlMetadataService {
         facebookSignals = describeFacebookPageSignals(pageSignals);
         const decision = evaluateFacebookPageTrust(pageSignals);
         if (!decision.trusted) {
-          return {
-            result: {
-              status: 'rejected',
-              reason: decision.reason,
-              requestedHost,
-              finalHost,
-              redirectCount: page.redirectCount,
-            },
-            facebookSignals,
-          };
+          facebookReason = decision.reason;
         }
+      }
+
+      if (facebookInvolved) {
+        return {
+          result: {
+            status: 'rejected',
+            reason: facebookReason,
+            requestedHost,
+            finalHost,
+            redirectCount: page.redirectCount,
+          },
+          facebookSignals,
+        };
       }
 
       return {

@@ -315,23 +315,59 @@ describe('AiProcessor - URL page trust and evidence boundary', () => {
     expect(updateCallsWith('understood')).toHaveLength(1);
   });
 
-  it('Facebook source redirected to a trusted external page keeps normal processing', async () => {
-    prisma.memory.findUnique.mockResolvedValue(urlMemory());
-    urlMetadata.fetchMetadata.mockResolvedValue({
-      status: 'ok',
-      metadata: { title: 'An article', description: 'Article body summary.' },
-      requestedHost: 'l.facebook.com',
-      finalHost: 'example.com',
-      redirectCount: 1,
+  describe('processor backstop: a (regressed) `ok` result is never used when Facebook is involved', () => {
+    const OK_PAGE = {
+      title: 'SENTINELTITLE An article',
+      description: 'SENTINELDESC Article body summary.',
+      imageUrl: 'https://cdn.example.com/SENTINELIMAGE.jpg',
+      author: 'SENTINELJSONLD author',
+    };
+
+    it.each([
+      ['a) Facebook source, non-Facebook final', FB_URL, 'www.facebook.com', 'example.com'],
+      ['a) l.facebook.com source, non-Facebook final', 'https://l.facebook.com/l.php?u=SENTINELPATH', 'l.facebook.com', 'example.com'],
+      ['b) non-Facebook source, Facebook final', 'https://example.com/go/SENTINELPATH', 'example.com', 'www.facebook.com'],
+    ])('%s: denied, partial, no og:image fetch and no understand', async (_label, source, requestedHost, finalHost) => {
+      prisma.memory.findUnique.mockResolvedValue(urlMemory({ title: source, sourceUri: source }));
+      urlMetadata.fetchMetadata.mockResolvedValue({
+        status: 'ok',
+        metadata: OK_PAGE,
+        requestedHost,
+        finalHost,
+        redirectCount: 1,
+      });
+
+      await expect(processor.process(job('mem-fb'))).resolves.toBeUndefined();
+
+      expect(urlMetadata.fetchImageBytes).not.toHaveBeenCalled();
+      expect(provider.understand).not.toHaveBeenCalled();
+      expectAtomicPartialCleanup('mem-fb');
+      expect(updateCallsWith('understood')).toHaveLength(0);
     });
 
-    await processor.process(job('mem-fb'));
+    it('with a user asset: only the user asset and the Memory title reach understand', async () => {
+      prisma.memory.findUnique.mockResolvedValue(urlMemory());
+      prisma.memoryAsset.findMany.mockResolvedValue([
+        { id: 'asset-1', memoryId: 'mem-fb', objectKey: 'user-1/uploads/photo.png', mimeType: 'image/png', pageIndex: 0 },
+      ]);
+      urlMetadata.fetchMetadata.mockResolvedValue({
+        status: 'ok',
+        metadata: OK_PAGE,
+        requestedHost: 'www.facebook.com',
+        finalHost: 'www.facebook.com',
+        redirectCount: 1,
+      });
 
-    expect(provider.understand).toHaveBeenCalledTimes(1);
-    expect(provider.understand.mock.calls[0][0].text).toContain('Article body summary.');
-    expect(updateCallsWith('understood')).toHaveLength(1);
-    expect(updateCallsWith('partial')).toHaveLength(0);
-    expect(tx.aIInference.deleteMany).not.toHaveBeenCalled();
+      await processor.process(job('mem-fb'));
+
+      expect(urlMetadata.fetchImageBytes).not.toHaveBeenCalled();
+      expect(provider.understand).toHaveBeenCalledTimes(1);
+      const input = provider.understand.mock.calls[0][0];
+      expect(input.text).toBe(FB_URL); // memory.title ?? memory.sourceUri
+      expect(input.images).toEqual([{ base64: 'USER-UPLOADED-BYTES', mediaType: 'image/png' }]);
+      expect(JSON.stringify(input)).not.toMatch(/SENTINELTITLE|SENTINELDESC|SENTINELIMAGE|SENTINELJSONLD/);
+      expect(updateCallsWith('understood')[0][0].data.ogImageUrl).toBeNull();
+    });
   });
 
   it('rejected Facebook metadata + real user-uploaded asset: uses only the user asset, never the page image', async () => {
@@ -360,30 +396,32 @@ describe('AiProcessor - URL page trust and evidence boundary', () => {
     expect(updateCallsWith('partial')).toHaveLength(0);
   });
 
-  it('trusted Facebook metadata: normal processing with page metadata and og:image vision', async () => {
-    prisma.memory.findUnique.mockResolvedValue(urlMemory());
+  it('trusted non-Facebook metadata: normal processing with page metadata and og:image vision (unchanged)', async () => {
+    prisma.memory.findUnique.mockResolvedValue(
+      urlMemory({ title: 'https://example.com/article', sourceUri: 'https://example.com/article' }),
+    );
     urlMetadata.fetchMetadata.mockResolvedValue({
       status: 'ok',
       metadata: {
-        title: 'Jane Doe - Sunset at the beach | Facebook',
+        title: 'Sunset at the beach',
         description: 'Golden hour at the pier with friends.',
-        imageUrl: 'https://scontent.xx.fbcdn.net/v/photo.jpg',
+        imageUrl: 'https://cdn.example.com/photo.jpg',
       },
-      requestedHost: 'www.facebook.com',
-      finalHost: 'www.facebook.com',
-      redirectCount: 1,
+      requestedHost: 'example.com',
+      finalHost: 'example.com',
+      redirectCount: 0,
     });
 
     await processor.process(job('mem-fb'));
 
-    expect(urlMetadata.fetchImageBytes).toHaveBeenCalledWith('https://scontent.xx.fbcdn.net/v/photo.jpg');
+    expect(urlMetadata.fetchImageBytes).toHaveBeenCalledWith('https://cdn.example.com/photo.jpg');
     const input = provider.understand.mock.calls[0][0];
     expect(input.text).toContain('Golden hour at the pier with friends.');
     expect(input.images).toEqual([
       { base64: Buffer.from('page-image').toString('base64'), mediaType: 'image/jpeg' },
     ]);
     const understood = updateCallsWith('understood');
-    expect(understood[0][0].data.ogImageUrl).toBe('https://scontent.xx.fbcdn.net/v/photo.jpg');
+    expect(understood[0][0].data.ogImageUrl).toBe('https://cdn.example.com/photo.jpg');
     expect(embedding.embed).toHaveBeenCalled();
   });
 
@@ -448,7 +486,8 @@ describe('AiProcessor - URL page trust and evidence boundary', () => {
       realService = new UrlMetadataService();
       jest.spyOn(realService as any, 'isValidHostname').mockResolvedValue(true);
       imageFetch = jest.spyOn(realService, 'fetchImageBytes');
-      fetchSpy = jest.spyOn(global, 'fetch');
+      // Any request not explicitly stubbed (e.g. an og:image download) fails loudly.
+      fetchSpy = jest.spyOn(global, 'fetch').mockRejectedValue(new Error('unexpected network request'));
 
       const module: TestingModule = await Test.createTestingModule({
         providers: [
@@ -495,11 +534,132 @@ describe('AiProcessor - URL page trust and evidence boundary', () => {
       expect(updateCallsWith('failed')).toHaveLength(0);
     });
 
-    it('a canonical post item with specific text is still trusted and analysed (control)', async () => {
+    // Production P3: final + canonical + og:url all ITEM, no markers, specific title/description,
+    // og:image present. Deny-by-default must stop this before any og:image request.
+    const ITEM = 'https://www.facebook.com/SENTINELNAME/posts/987654321';
+    const itemPage = (title: string, withImage = true) =>
+      new Response(
+        html(
+          `<meta property="og:title" content="${title}">` +
+            '<meta property="og:description" content="SENTINELDESC Fibre internet plans with free installation this month.">' +
+            `<link rel="canonical" href="${ITEM}">` +
+            `<meta property="og:url" content="${ITEM}">` +
+            '<script type="application/ld+json">{"@type":"Article","author":"SENTINELJSONLD"}</script>' +
+            (withImage ? '<meta property="og:image" content="https://scontent.xx.fbcdn.net/v/SENTINELIMAGE.jpg">' : ''),
+        ),
+        { status: 200, headers: { 'content-type': 'text/html' } },
+      );
+    const TITLE_52 = 'SENTINELTITLE Example Networks fibre offer'.padEnd(52, '.');
+    const TITLE_68 = 'SENTINELTITLE Example Networks - Fast home internet in your area'.padEnd(68, '.');
+
+    it.each([
+      ['52-char title', TITLE_52],
+      ['68-char title', TITLE_68],
+    ])('P3 (%s): all-ITEM page is denied - no og:image request, no Vision, no understand, no embedding, partial', async (_label, title) => {
+      expect(title.length === 52 || title.length === 68).toBe(true);
+      const debug = jest.spyOn(Logger.prototype, 'debug').mockImplementation(() => undefined);
+      fetchSpy.mockResolvedValueOnce(redirectTo(ITEM)).mockResolvedValueOnce(itemPage(title));
+
+      await expect(processor.process(job('mem-fb'))).resolves.toBeUndefined();
+
+      expect(fetchSpy).toHaveBeenCalledTimes(2); // share URL + one redirect only
+      expect(imageFetch).not.toHaveBeenCalled();
+      expect(provider.understand).not.toHaveBeenCalled();
+      expect(embedding.embed).not.toHaveBeenCalled();
+      expectAtomicPartialCleanup('mem-fb');
+      expect(updateCallsWith('failed')).toHaveLength(0);
+      expect(debug).toHaveBeenCalledWith(
+        'metadata fetch host=www.facebook.com final_host=www.facebook.com redirects=1 result=rejected reason=FACEBOOK_DENY_BY_DEFAULT ' +
+          'fb_final=ITEM fb_canonical=ITEM fb_og=ITEM markers=none title_generic=false desc_generic=false',
+      );
+    });
+
+    it('Facebook ITEM page without og:image is denied (partial, no understand)', async () => {
+      fetchSpy.mockResolvedValueOnce(redirectTo(ITEM)).mockResolvedValueOnce(itemPage(TITLE_68, false));
+
+      await processor.process(job('mem-fb'));
+
+      expect(provider.understand).not.toHaveBeenCalled();
+      expectAtomicPartialCleanup('mem-fb');
+    });
+
+    it.each([
+      ['fb.me source -> Facebook ITEM', 'https://fb.me/SENTINELPATH'],
+      ['fb.watch source -> Facebook ITEM', 'https://fb.watch/SENTINELPATH/'],
+      ['non-Facebook source -> Facebook ITEM', 'https://example.com/go/SENTINELPATH'],
+    ])('%s: denied', async (_label, source) => {
+      prisma.memory.findUnique.mockResolvedValue(urlMemory({ title: source, sourceUri: source }));
+      fetchSpy.mockResolvedValueOnce(redirectTo(ITEM)).mockResolvedValueOnce(itemPage(TITLE_68));
+
+      await processor.process(job('mem-fb'));
+
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+      expect(imageFetch).not.toHaveBeenCalled();
+      expect(provider.understand).not.toHaveBeenCalled();
+      expectAtomicPartialCleanup('mem-fb');
+    });
+
+    it('Facebook source -> non-Facebook final page is denied (locked policy)', async () => {
       fetchSpy
-        .mockResolvedValueOnce(redirectTo('https://www.facebook.com/jane.doe/posts/123456'))
+        .mockResolvedValueOnce(redirectTo('https://example.com/article/SENTINELPATH'))
         .mockResolvedValueOnce(
-          landingPage('<link rel="canonical" href="https://www.facebook.com/jane.doe/posts/123456">'),
+          new Response(
+            html(
+              '<meta property="og:title" content="SENTINELTITLE External article">' +
+                '<meta property="og:description" content="SENTINELDESC Article summary.">' +
+                '<meta property="og:image" content="https://cdn.example.com/SENTINELIMAGE.jpg">',
+            ),
+            { status: 200, headers: { 'content-type': 'text/html' } },
+          ),
+        );
+
+      await processor.process(job('mem-fb'));
+
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+      expect(imageFetch).not.toHaveBeenCalled();
+      expect(provider.understand).not.toHaveBeenCalled();
+      expectAtomicPartialCleanup('mem-fb');
+    });
+
+    it('Facebook source + user asset: only the user asset and Memory title reach understand', async () => {
+      prisma.memoryAsset.findMany.mockResolvedValue([
+        { id: 'asset-1', memoryId: 'mem-fb', objectKey: 'user-1/uploads/photo.png', mimeType: 'image/png', pageIndex: 0 },
+      ]);
+      jest
+        .spyOn(processor as any, 'fetchImageAsBase64')
+        .mockResolvedValue({ base64: 'USER-UPLOADED-BYTES', mediaType: 'image/png' });
+      fetchSpy.mockResolvedValueOnce(redirectTo(ITEM)).mockResolvedValueOnce(itemPage(TITLE_68));
+
+      await processor.process(job('mem-fb'));
+
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+      expect(imageFetch).not.toHaveBeenCalled();
+      expect(provider.understand).toHaveBeenCalledTimes(1);
+      const input = provider.understand.mock.calls[0][0];
+      expect(input.text).toBe(FB_URL); // memory.title ?? memory.sourceUri
+      expect(input.sourceUri).toBe(FB_URL);
+      expect(input.images).toEqual([{ base64: 'USER-UPLOADED-BYTES', mediaType: 'image/png' }]);
+      expect(JSON.stringify(input)).not.toMatch(/SENTINELTITLE|SENTINELDESC|SENTINELIMAGE|SENTINELJSONLD/);
+      const understood = updateCallsWith('understood');
+      expect(understood).toHaveLength(1);
+      expect(understood[0][0].data.ogImageUrl).toBeNull();
+      expect(updateCallsWith('partial')).toHaveLength(0);
+    });
+
+    it('non-Facebook source -> non-Facebook final is unchanged: page metadata and og:image Vision', async () => {
+      prisma.memory.findUnique.mockResolvedValue(
+        urlMemory({ title: 'https://example.com/article', sourceUri: 'https://example.com/article' }),
+      );
+      fetchSpy
+        .mockResolvedValueOnce(
+          new Response(
+            html(
+              '<meta property="og:title" content="Sunset at the beach">' +
+                '<meta property="og:description" content="Golden hour at the pier.">' +
+                '<meta property="og:image" content="https://cdn.example.com/photo.jpg">',
+            ),
+            { status: 200, headers: { 'content-type': 'text/html' } },
+          ),
         )
         .mockResolvedValueOnce(
           new Response(Buffer.from('img'), { status: 200, headers: { 'content-type': 'image/jpeg' } }),
@@ -507,9 +667,12 @@ describe('AiProcessor - URL page trust and evidence boundary', () => {
 
       await processor.process(job('mem-fb'));
 
-      expect(imageFetch).toHaveBeenCalledTimes(1);
+      expect(imageFetch).toHaveBeenCalledWith('https://cdn.example.com/photo.jpg');
       expect(provider.understand).toHaveBeenCalledTimes(1);
-      expect(updateCallsWith('understood')).toHaveLength(1);
+      const input = provider.understand.mock.calls[0][0];
+      expect(input.text).toContain('Golden hour at the pier.');
+      expect(input.images).toHaveLength(1);
+      expect(updateCallsWith('understood')[0][0].data.ogImageUrl).toBe('https://cdn.example.com/photo.jpg');
       expect(updateCallsWith('partial')).toHaveLength(0);
     });
   });
