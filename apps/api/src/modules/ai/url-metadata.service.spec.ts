@@ -1,7 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { Logger } from '@nestjs/common';
 import { UrlMetadataService } from './url-metadata.service';
-import { evaluateFacebookPageTrust, isGenericFacebookTitle } from './url-page-trust';
+import {
+  evaluateFacebookPageTrust,
+  isFacebookFamilyUrl,
+  isGenericFacebookTitle,
+} from './url-page-trust';
 
 describe('UrlMetadataService', () => {
   let service: UrlMetadataService;
@@ -520,6 +524,25 @@ describe('UrlMetadataService', () => {
       expect((await service.fetchMetadata(SHARE_URL)).status).toBe('ok');
     });
 
+    it('D3: login markers + content og:url + specific title but generic login description is rejected', async () => {
+      fetchSpy.mockResolvedValueOnce(
+        htmlResponse(
+          page(
+            '<meta property="og:title" content="Jane Doe - Sunset at the beach | Facebook">' +
+              '<meta property="og:description" content="Log in to Facebook to start sharing and connecting with your friends.">' +
+              '<meta property="og:url" content="https://www.facebook.com/jane.doe/posts/123456">' +
+              '<meta property="og:image" content="https://static.xx.fbcdn.net/rsrc.php/login.png">',
+            LOGIN_FORM,
+          ),
+        ),
+      );
+
+      const result = await service.fetchMetadata(SHARE_URL);
+
+      expect(result).toMatchObject({ status: 'rejected', reason: 'LOGIN_OR_CHECKPOINT_MARKERS' });
+      expect(result).not.toHaveProperty('metadata');
+    });
+
     it('E: rejects a redirect chain ending at the login page and validates every hop', async () => {
       fetchSpy
         .mockResolvedValueOnce(redirect('https://www.facebook.com/jane.doe/posts/123456', 301))
@@ -670,6 +693,50 @@ describe('UrlMetadataService', () => {
       ).toEqual({ trusted: false, reason });
     });
 
+    describe('login/checkpoint/consent markers require specific page text', () => {
+      const contentOgUrl = 'https://www.facebook.com/jane.doe/posts/123456';
+
+      it.each([
+        ['hasLoginForm'],
+        ['hasCheckpointForm'],
+        ['hasConsentDialog'],
+      ] as const)('%s + content og:url + specific title + generic description is rejected', (marker) => {
+        expect(
+          evaluateFacebookPageTrust({
+            finalUrl: at('/share/p/abc/'),
+            title: 'Jane Doe - Sunset at the beach | Facebook',
+            description: 'Log in to Facebook to start sharing and connecting with your friends.',
+            ogUrl: contentOgUrl,
+            canonicalUrl: contentOgUrl,
+            markers: { ...noMarkers, [marker]: true },
+          }),
+        ).toEqual({ trusted: false, reason: 'LOGIN_OR_CHECKPOINT_MARKERS' });
+      });
+
+      it('markers + content og:url alone (no description) is rejected', () => {
+        expect(
+          evaluateFacebookPageTrust({
+            finalUrl: at('/share/p/abc/'),
+            title: 'Jane Doe - Sunset at the beach | Facebook',
+            ogUrl: contentOgUrl,
+            markers: { ...noMarkers, hasLoginForm: true },
+          }),
+        ).toEqual({ trusted: false, reason: 'LOGIN_OR_CHECKPOINT_MARKERS' });
+      });
+
+      it('markers + content og:url + specific title + specific description is trusted', () => {
+        expect(
+          evaluateFacebookPageTrust({
+            finalUrl: at('/share/p/abc/'),
+            title: 'Jane Doe - Sunset at the beach | Facebook',
+            description: 'Golden hour at the pier with friends.',
+            ogUrl: contentOgUrl,
+            markers: { ...noMarkers, hasLoginForm: true },
+          }),
+        ).toEqual({ trusted: true });
+      });
+    });
+
     it('requires positive content evidence', () => {
       expect(
         evaluateFacebookPageTrust({ finalUrl: at('/jane.doe'), title: 'Jane Doe', markers: noMarkers }),
@@ -683,6 +750,34 @@ describe('UrlMetadataService', () => {
           markers: noMarkers,
         }),
       ).toEqual({ trusted: true });
+    });
+
+    describe('isFacebookFamilyUrl', () => {
+      it.each([
+        'https://www.facebook.com/share/p/abc/',
+        'https://m.facebook.com/story.php?id=1',
+        'https://fb.watch/xyz/',
+        'www.facebook.com/share/p/abc/',
+        'facebook.com/jane.doe/posts/1',
+        '  m.facebook.com/share/v/abc  ',
+        'fb.me/abc',
+        'www.facebook.com:443/share/p/abc/',
+      ])('recognises %s', (url) => {
+        expect(isFacebookFamilyUrl(url)).toBe(true);
+      });
+
+      it.each([
+        'https://www.facebook.com.example.com/share/p/abc/',
+        'www.facebook.com.example.com/share/p/abc/',
+        'https://notfacebook.com/share/p/abc/',
+        'https://example.com/?next=www.facebook.com',
+        'https://example.com/www.facebook.com/share',
+        'ftp://example.com/facebook.com',
+        'not a url',
+        '',
+      ])('does not recognise %s', (url) => {
+        expect(isFacebookFamilyUrl(url)).toBe(false);
+      });
     });
   });
 });

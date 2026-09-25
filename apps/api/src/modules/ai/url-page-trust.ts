@@ -53,12 +53,23 @@ export function isFacebookFamilyHost(hostname: string): boolean {
   );
 }
 
-export function isFacebookFamilyUrl(urlString: string): boolean {
+function parseHostname(urlString: string): string | null {
   try {
-    return isFacebookFamilyHost(new URL(urlString).hostname);
+    return new URL(urlString).hostname;
   } catch {
-    return false;
+    return null;
   }
+}
+
+// Recognises Facebook-family URLs by exact host match, including scheme-less shares such as
+// "www.facebook.com/share/p/..." (retried with https://).
+export function isFacebookFamilyUrl(urlString: string): boolean {
+  const trimmed = urlString.trim();
+  let hostname = parseHostname(trimmed);
+  if (!hostname && !/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) {
+    hostname = parseHostname(`https://${trimmed}`);
+  }
+  return !!hostname && isFacebookFamilyHost(hostname);
 }
 
 function isInterstitialLocation(url: URL): boolean {
@@ -114,9 +125,11 @@ export function evaluateFacebookPageTrust(signals: FacebookPageSignals): PageTru
     !isGenericFacebookTitle(title) && !isGenericFacebookDescription(description);
   const hasPositiveEvidence = hasContentUrl || hasSpecificText;
 
+  // A login/checkpoint/consent page can still declare a content og:url or canonical, so when
+  // such markers are present only specific (non-generic) page text counts as evidence.
   if (
     (markers.hasLoginForm || markers.hasCheckpointForm || markers.hasConsentDialog) &&
-    !hasPositiveEvidence
+    !hasSpecificText
   ) {
     return { trusted: false, reason: 'LOGIN_OR_CHECKPOINT_MARKERS' };
   }

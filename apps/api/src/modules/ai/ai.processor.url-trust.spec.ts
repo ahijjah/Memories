@@ -32,6 +32,14 @@ const UNAVAILABLE: UrlMetadataResult = {
   requestedHost: 'www.facebook.com',
 };
 
+const REJECTED_FROM_EXTERNAL: UrlMetadataResult = {
+  status: 'rejected',
+  reason: 'FINAL_PATH_INTERSTITIAL',
+  requestedHost: 'example.com',
+  finalHost: 'www.facebook.com',
+  redirectCount: 1,
+};
+
 const UNDERSTANDING = {
   title: 'Sunset at the beach',
   summary: 'A photo of a sunset.',
@@ -44,6 +52,7 @@ const UNDERSTANDING = {
 describe('AiProcessor - URL page trust and evidence boundary', () => {
   let processor: AiProcessor;
   let prisma: any;
+  let tx: any;
   let embedding: any;
   let urlMetadata: { fetchMetadata: jest.Mock; fetchImageBytes: jest.Mock };
   let provider: { understand: jest.Mock };
@@ -66,16 +75,94 @@ describe('AiProcessor - URL page trust and evidence boundary', () => {
   });
 
   const updateCallsWith = (state: string) =>
-    prisma.memory.update.mock.calls.filter(
+    [...prisma.memory.update.mock.calls, ...tx.memory.update.mock.calls].filter(
       ([args]: any[]) => args.data?.processingState === state,
     );
 
+  const rawSql = (call: any[]) => (call[0] as TemplateStringsArray).join('?');
+
+  // Asserts the partial transition happened as one interactive transaction: the stale-AI cleanup
+  // and the state change all ran on the transaction client, none on the root client, and no new
+  // AI output was produced.
+  const expectAtomicPartialCleanup = (memoryId: string) => {
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(typeof prisma.$transaction.mock.calls[0][0]).toBe('function');
+
+    expect(tx.aIInference.deleteMany).toHaveBeenCalledTimes(1);
+    expect(tx.aIInference.deleteMany).toHaveBeenCalledWith({
+      where: { memoryId, provenance: 'llm_extraction' },
+    });
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
+    expect(rawSql(tx.$executeRaw.mock.calls[0])).toBe(
+      'DELETE FROM "embeddings" WHERE "memoryId" = ?',
+    );
+    expect(tx.$executeRaw.mock.calls[0][1]).toBe(memoryId);
+    expect(tx.memory.update).toHaveBeenCalledTimes(1);
+    expect(tx.memory.update).toHaveBeenCalledWith({
+      where: { id: memoryId },
+      data: { processingState: 'partial', ogImageUrl: null },
+    });
+
+    // Nothing went through the root client, and nothing new was written.
+    expect(prisma.aIInference.deleteMany).not.toHaveBeenCalled();
+    expect(prisma.$executeRaw).not.toHaveBeenCalled();
+    // The only root-client update is the initial 'processing' claim made before the fetch.
+    expect(prisma.memory.update.mock.calls.map(([args]: any[]) => args.data)).toEqual([
+      { processingState: 'processing' },
+    ]);
+    expect(prisma.aIInference.create).not.toHaveBeenCalled();
+    expect(tx.aIInference.create).not.toHaveBeenCalled();
+    expect(embedding.embed).not.toHaveBeenCalled();
+
+    // User data is never touched.
+    for (const client of [prisma, tx]) {
+      for (const fn of Object.values(client.userConfirmation)) {
+        expect(fn).not.toHaveBeenCalled();
+      }
+      for (const fn of Object.values(client.memoryAsset).filter((f) => f !== prisma.memoryAsset.findMany)) {
+        expect(fn).not.toHaveBeenCalled();
+      }
+    }
+    const [[partialUpdate]] = tx.memory.update.mock.calls;
+    expect(Object.keys(partialUpdate.data).sort()).toEqual(['ogImageUrl', 'processingState']);
+  };
+
   beforeEach(async () => {
+    const userConfirmationMock = () => ({
+      create: jest.fn(),
+      update: jest.fn(),
+      upsert: jest.fn(),
+      delete: jest.fn(),
+      deleteMany: jest.fn(),
+    });
+    tx = {
+      memory: { update: jest.fn().mockResolvedValue({}) },
+      aIInference: {
+        create: jest.fn().mockResolvedValue({}),
+        deleteMany: jest.fn().mockResolvedValue({ count: 2 }),
+      },
+      memoryAsset: { delete: jest.fn(), deleteMany: jest.fn(), update: jest.fn() },
+      userConfirmation: userConfirmationMock(),
+      $executeRaw: jest.fn().mockResolvedValue(1),
+    };
     prisma = {
       memory: { findUnique: jest.fn(), update: jest.fn().mockResolvedValue({}) },
-      aIInference: { create: jest.fn().mockResolvedValue({}) },
-      memoryAsset: { findMany: jest.fn().mockResolvedValue([]) },
-      $transaction: jest.fn().mockResolvedValue([]),
+      aIInference: {
+        create: jest.fn().mockResolvedValue({}),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      memoryAsset: {
+        findMany: jest.fn().mockResolvedValue([]),
+        delete: jest.fn(),
+        deleteMany: jest.fn(),
+        update: jest.fn(),
+      },
+      userConfirmation: userConfirmationMock(),
+      // Interactive form runs the callback on the separate transaction client; the array form
+      // (used by the success path) just resolves.
+      $transaction: jest.fn().mockImplementation((arg: unknown) =>
+        typeof arg === 'function' ? (arg as (t: unknown) => Promise<unknown>)(tx) : Promise.resolve([]),
+      ),
       $executeRaw: jest.fn().mockResolvedValue(null),
     };
     embedding = {
@@ -139,9 +226,12 @@ describe('AiProcessor - URL page trust and evidence boundary', () => {
 
       expect(provider.understand).not.toHaveBeenCalled();
       expect(prisma.aIInference.create).not.toHaveBeenCalled();
-      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(tx.aIInference.create).not.toHaveBeenCalled();
       expect(embedding.embed).not.toHaveBeenCalled();
-      expect(prisma.$executeRaw).not.toHaveBeenCalled();
+      const inserts = [...prisma.$executeRaw.mock.calls, ...tx.$executeRaw.mock.calls].filter(
+        (call) => /INSERT/i.test(rawSql(call)),
+      );
+      expect(inserts).toHaveLength(0);
     });
 
     it('persists the Memory as a partial saved link with no page image', async () => {
@@ -156,6 +246,92 @@ describe('AiProcessor - URL page trust and evidence boundary', () => {
       expect(updateCallsWith('understood')).toHaveLength(0);
       expect(updateCallsWith('failed')).toHaveLength(0);
     });
+
+    it('atomically removes stale AI inferences and the embedding with the partial transition', async () => {
+      await processor.process(job('mem-fb'));
+      expectAtomicPartialCleanup('mem-fb');
+    });
+  });
+
+  it('partial cleanup failure propagates (no partial state without cleanup)', async () => {
+    prisma.memory.findUnique.mockResolvedValue(urlMemory());
+    urlMetadata.fetchMetadata.mockResolvedValue(REJECTED);
+    tx.$executeRaw.mockRejectedValueOnce(new Error('db down'));
+
+    await expect(processor.process(job('mem-fb'))).rejects.toThrow('db down');
+    // The update never ran on either client: the transaction aborted before the state change.
+    expect(tx.memory.update).not.toHaveBeenCalled();
+    expect(prisma.memory.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ processingState: 'partial' }) }),
+    );
+  });
+
+  it('A: non-Facebook source redirected to a rejected Facebook interstitial is a partial link', async () => {
+    const source = 'https://example.com/go/SENTINELPATH?q=SENTINELQUERY';
+    prisma.memory.findUnique.mockResolvedValue(
+      urlMemory({ title: source, sourceUri: source, ogImageUrl: PAGE_IMAGE_URL }),
+    );
+    urlMetadata.fetchMetadata.mockResolvedValue(REJECTED_FROM_EXTERNAL);
+
+    await expect(processor.process(job('mem-fb'))).resolves.toBeUndefined();
+
+    // The raw URL never reaches understand(), and no page Vision happens.
+    expect(provider.understand).not.toHaveBeenCalled();
+    expect(urlMetadata.fetchImageBytes).not.toHaveBeenCalled();
+    // Stale ogImageUrl is cleared and stale AI output removed in the same transaction.
+    expectAtomicPartialCleanup('mem-fb');
+    expect(updateCallsWith('understood')).toHaveLength(0);
+  });
+
+  it('B: scheme-less www.facebook.com source with unavailable metadata is a partial link', async () => {
+    const source = 'www.facebook.com/share/p/SENTINELPATH/';
+    prisma.memory.findUnique.mockResolvedValue(urlMemory({ title: source, sourceUri: source }));
+    urlMetadata.fetchMetadata.mockResolvedValue({
+      status: 'unavailable',
+      reason: 'INVALID_URL',
+      requestedHost: '(invalid-url)',
+    });
+
+    await processor.process(job('mem-fb'));
+
+    expect(provider.understand).not.toHaveBeenCalled();
+    expectAtomicPartialCleanup('mem-fb');
+  });
+
+  it('C: deceptive www.facebook.com.example.com source is not Facebook-family (raw fallback kept)', async () => {
+    const source = 'https://www.facebook.com.example.com/share/p/abc/';
+    prisma.memory.findUnique.mockResolvedValue(urlMemory({ title: source, sourceUri: source }));
+    urlMetadata.fetchMetadata.mockResolvedValue({
+      status: 'unavailable',
+      reason: 'FETCH_FAILED',
+      requestedHost: 'www.facebook.com.example.com',
+    });
+
+    await processor.process(job('mem-fb'));
+
+    expect(provider.understand).toHaveBeenCalledTimes(1);
+    expect(updateCallsWith('partial')).toHaveLength(0);
+    expect(tx.aIInference.deleteMany).not.toHaveBeenCalled();
+    expect(updateCallsWith('understood')).toHaveLength(1);
+  });
+
+  it('Facebook source redirected to a trusted external page keeps normal processing', async () => {
+    prisma.memory.findUnique.mockResolvedValue(urlMemory());
+    urlMetadata.fetchMetadata.mockResolvedValue({
+      status: 'ok',
+      metadata: { title: 'An article', description: 'Article body summary.' },
+      requestedHost: 'l.facebook.com',
+      finalHost: 'example.com',
+      redirectCount: 1,
+    });
+
+    await processor.process(job('mem-fb'));
+
+    expect(provider.understand).toHaveBeenCalledTimes(1);
+    expect(provider.understand.mock.calls[0][0].text).toContain('Article body summary.');
+    expect(updateCallsWith('understood')).toHaveLength(1);
+    expect(updateCallsWith('partial')).toHaveLength(0);
+    expect(tx.aIInference.deleteMany).not.toHaveBeenCalled();
   });
 
   it('rejected Facebook metadata + real user-uploaded asset: uses only the user asset, never the page image', async () => {

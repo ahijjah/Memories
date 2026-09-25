@@ -234,16 +234,29 @@ export class AiProcessor extends WorkerHost {
               );
             }
           }
-        } else if (isFacebookFamilyUrl(memory.sourceUri)) {
-          // The page did not provide trustworthy post content: nothing page-derived (metadata
-          // or og:image) is used, and a stale page image must not remain on the Memory.
+        } else if (
+          metadataResult.status === 'rejected' ||
+          isFacebookFamilyUrl(memory.sourceUri)
+        ) {
+          // The page did not provide trustworthy post content (rejected wherever the source
+          // pointed, or unavailable for a Facebook source): nothing page-derived (metadata or
+          // og:image) is used, and a stale page image must not remain on the Memory.
           ogImageUrl = null;
           if (userAssetImageCount === 0) {
             // No trusted evidence at all: keep the Memory as a saved link instead of asking the
             // AI to infer the post's contents from its URL. Returning normally avoids a retry.
-            await this.prisma.memory.update({
-              where: { id: memoryId },
-              data: { processingState: 'partial', ogImageUrl: null },
+            // AI-derived data from an earlier run is removed atomically with the state change so
+            // the Memory cannot keep surfacing stale inferences or embeddings. User confirmations,
+            // title, sourceUri and assets are left untouched.
+            await this.prisma.$transaction(async (tx) => {
+              await tx.aIInference.deleteMany({
+                where: { memoryId, provenance: 'llm_extraction' },
+              });
+              await tx.$executeRaw`DELETE FROM "embeddings" WHERE "memoryId" = ${memoryId}`;
+              await tx.memory.update({
+                where: { id: memoryId },
+                data: { processingState: 'partial', ogImageUrl: null },
+              });
             });
             this.logger.log(
               `Memory ${memoryId} saved as link without AI understanding: host=${metadataResult.requestedHost}, result=${metadataResult.status}, reason=${metadataResult.reason}`,
