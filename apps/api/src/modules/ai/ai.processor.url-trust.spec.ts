@@ -433,4 +433,84 @@ describe('AiProcessor - URL page trust and evidence boundary', () => {
       expect(line).not.toMatch(/SENTINEL/);
     }
   });
+
+  describe('production shape end-to-end with the real UrlMetadataService', () => {
+    // Real metadata service (fetch stubbed): share wrapper -> one redirect -> Facebook page landing
+    // with a 68-char non-generic title, specific description and an og:image. No user assets.
+    let realService: UrlMetadataService;
+    let fetchSpy: jest.SpyInstance;
+    let imageFetch: jest.SpyInstance;
+
+    const html = (head: string) => `<html><head>${head}</head><body></body></html>`;
+    const TITLE = 'SENTINELTITLE Example Networks - Fast home internet in your area'.padEnd(68, '.');
+
+    beforeEach(async () => {
+      realService = new UrlMetadataService();
+      jest.spyOn(realService as any, 'isValidHostname').mockResolvedValue(true);
+      imageFetch = jest.spyOn(realService, 'fetchImageBytes');
+      fetchSpy = jest.spyOn(global, 'fetch');
+
+      const module: TestingModule = await Test.createTestingModule({
+        providers: [
+          AiProcessor,
+          { provide: PrismaService, useValue: prisma },
+          { provide: EmbeddingService, useValue: embedding },
+          { provide: UrlMetadataService, useValue: realService },
+          { provide: ConfigService, useValue: { getOrThrow: jest.fn().mockReturnValue(Buffer.from('a'.repeat(32)).toString('base64')) } },
+          { provide: FieldEncryptionService, useValue: { encrypt: jest.fn((v) => v), decrypt: jest.fn((v) => v) } },
+          { provide: ObjectStorageSseService, useValue: { getSseParams: jest.fn().mockReturnValue({}) } },
+        ],
+      }).compile();
+      processor = module.get(AiProcessor);
+      prisma.memory.findUnique.mockResolvedValue(urlMemory());
+    });
+
+    const landingPage = (declared: string) =>
+      new Response(
+        html(
+          `<meta property="og:title" content="${TITLE}">` +
+            '<meta property="og:description" content="SENTINELDESC Internet service provider. 12,345 likes.">' +
+            declared +
+            '<meta property="og:image" content="https://scontent.xx.fbcdn.net/v/SENTINELIMAGE.jpg">',
+        ),
+        { status: 200, headers: { 'content-type': 'text/html' } },
+      );
+    const redirectTo = (location: string) => new Response(null, { status: 302, headers: { location } });
+
+    it.each([
+      ['page landing, og:url page', 'https://www.facebook.com/SENTINELPAGE/', '<meta property="og:url" content="https://www.facebook.com/SENTINELPAGE/">'],
+      ['page landing, no declared URLs', 'https://www.facebook.com/SENTINELPAGE/', ''],
+      ['wrapper with self-canonical', 'https://www.facebook.com/share/p/SENTINELPATH/?_rdr', '<link rel="canonical" href="https://www.facebook.com/share/p/SENTINELPATH/">'],
+      ['wrapper with og:url item only', 'https://www.facebook.com/share/p/SENTINELPATH/?_rdr', '<meta property="og:url" content="https://www.facebook.com/x/posts/123">'],
+    ])('%s: never reaches Vision or understand; saved as partial on the first attempt', async (_label, location, declared) => {
+      fetchSpy.mockResolvedValueOnce(redirectTo(location)).mockResolvedValueOnce(landingPage(declared));
+
+      await expect(processor.process(job('mem-fb'))).resolves.toBeUndefined();
+
+      expect(fetchSpy).toHaveBeenCalledTimes(2); // share URL + one redirect; no og:image request
+      expect(imageFetch).not.toHaveBeenCalled();
+      expect(provider.understand).not.toHaveBeenCalled();
+      expect(embedding.embed).not.toHaveBeenCalled();
+      expectAtomicPartialCleanup('mem-fb');
+      expect(updateCallsWith('failed')).toHaveLength(0);
+    });
+
+    it('a canonical post item with specific text is still trusted and analysed (control)', async () => {
+      fetchSpy
+        .mockResolvedValueOnce(redirectTo('https://www.facebook.com/jane.doe/posts/123456'))
+        .mockResolvedValueOnce(
+          landingPage('<link rel="canonical" href="https://www.facebook.com/jane.doe/posts/123456">'),
+        )
+        .mockResolvedValueOnce(
+          new Response(Buffer.from('img'), { status: 200, headers: { 'content-type': 'image/jpeg' } }),
+        );
+
+      await processor.process(job('mem-fb'));
+
+      expect(imageFetch).toHaveBeenCalledTimes(1);
+      expect(provider.understand).toHaveBeenCalledTimes(1);
+      expect(updateCallsWith('understood')).toHaveLength(1);
+      expect(updateCallsWith('partial')).toHaveLength(0);
+    });
+  });
 });

@@ -2,6 +2,8 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { Logger } from '@nestjs/common';
 import { UrlMetadataService } from './url-metadata.service';
 import {
+  classifyFacebookUrl,
+  describeFacebookPageSignals,
   evaluateFacebookPageTrust,
   isFacebookFamilyUrl,
   isGenericFacebookTitle,
@@ -490,12 +492,14 @@ describe('UrlMetadataService', () => {
     });
 
     it('D: accepts useful Facebook post metadata despite Facebook branding and a login form', async () => {
+      // Final URL is the /share/p/ wrapper; the canonical ITEM authoritatively identifies the post.
       fetchSpy.mockResolvedValueOnce(
         htmlResponse(
           page(
             '<meta property="og:title" content="Jane Doe - Sunset at the beach | Facebook">' +
               '<meta property="og:description" content="Golden hour at the pier with friends.">' +
               '<meta property="og:url" content="https://www.facebook.com/jane.doe/posts/123456">' +
+              '<link rel="canonical" href="https://www.facebook.com/jane.doe/posts/123456">' +
               '<meta property="og:image" content="https://scontent.xx.fbcdn.net/v/photo.jpg">',
             LOGIN_FORM,
           ),
@@ -511,7 +515,7 @@ describe('UrlMetadataService', () => {
       expect(result.metadata.imageUrl).toBe('https://scontent.xx.fbcdn.net/v/photo.jpg');
     });
 
-    it('D2: accepts a specific title and description without og:url', async () => {
+    it('D2: rejects specific title and description when nothing identifies a content item', async () => {
       fetchSpy.mockResolvedValueOnce(
         htmlResponse(
           page(
@@ -521,7 +525,76 @@ describe('UrlMetadataService', () => {
         ),
       );
 
-      expect((await service.fetchMetadata(SHARE_URL)).status).toBe('ok');
+      expect(await service.fetchMetadata(SHARE_URL)).toMatchObject({
+        status: 'rejected',
+        reason: 'NO_CONTENT_ITEM',
+      });
+    });
+
+    it('D4: a wrapper final URL is not rescued by an og:url ITEM without a canonical ITEM', async () => {
+      fetchSpy.mockResolvedValueOnce(
+        htmlResponse(
+          page(
+            '<meta property="og:title" content="Jane Doe - Sunset at the beach | Facebook">' +
+              '<meta property="og:description" content="Golden hour at the pier with friends.">' +
+              '<meta property="og:url" content="https://www.facebook.com/jane.doe/posts/123456">' +
+              '<meta property="og:image" content="https://scontent.xx.fbcdn.net/v/photo.jpg">',
+          ),
+        ),
+      );
+
+      const result = await service.fetchMetadata(SHARE_URL);
+
+      expect(result).toMatchObject({ status: 'rejected', reason: 'NO_CONTENT_ITEM' });
+      expect(JSON.stringify(result)).not.toContain('fbcdn');
+    });
+
+    it('P: production shape - share wrapper redirecting once to a page landing never yields metadata', async () => {
+      const title = 'SENTINELTITLE Example Networks - Fast home internet in your area'.padEnd(68, '.');
+      expect(title).toHaveLength(68);
+      fetchSpy
+        .mockResolvedValueOnce(redirect('https://www.facebook.com/SENTINELPAGE/', 302))
+        .mockResolvedValueOnce(
+          htmlResponse(
+            page(
+              `<meta property="og:title" content="${title}">` +
+                '<meta property="og:description" content="SENTINELDESC Internet service provider. 12,345 likes.">' +
+                '<meta property="og:url" content="https://www.facebook.com/SENTINELPAGE/">' +
+                '<meta property="og:image" content="https://scontent.xx.fbcdn.net/v/SENTINELIMAGE.jpg">',
+            ),
+          ),
+        );
+
+      const result = await service.fetchMetadata(SHARE_URL);
+
+      expect(result).toEqual({
+        status: 'rejected',
+        reason: 'PROFILE_OR_PAGE_LANDING',
+        requestedHost: 'www.facebook.com',
+        finalHost: 'www.facebook.com',
+        redirectCount: 1,
+      });
+    });
+
+    it('P2: production shape - share wrapper with self-canonical and a generic description is rejected', async () => {
+      fetchSpy
+        .mockResolvedValueOnce(redirect('https://www.facebook.com/share/p/SENTINELPATH/?_rdr', 302))
+        .mockResolvedValueOnce(
+          htmlResponse(
+            page(
+              '<meta property="og:title" content="SENTINELTITLE Example Networks | Facebook">' +
+                '<meta property="og:description" content="See posts, photos and more on Facebook.">' +
+                '<link rel="canonical" href="https://www.facebook.com/share/p/SENTINELPATH/">' +
+                '<meta property="og:image" content="https://scontent.xx.fbcdn.net/v/SENTINELIMAGE.jpg">',
+            ),
+          ),
+        );
+
+      expect(await service.fetchMetadata(SHARE_URL)).toMatchObject({
+        status: 'rejected',
+        reason: 'NO_CONTENT_ITEM',
+        redirectCount: 1,
+      });
     });
 
     it('D3: login markers + content og:url + specific title but generic login description is rejected', async () => {
@@ -659,6 +732,66 @@ describe('UrlMetadataService', () => {
         expect(line).not.toMatch(/SENTINEL/);
       }
     });
+
+    it('K2: the metadata-fetch line carries Facebook classification labels but no paths, IDs or text', async () => {
+      const logged: string[] = [];
+      for (const level of ['log', 'warn', 'debug', 'error', 'verbose'] as const) {
+        jest.spyOn(Logger.prototype, level).mockImplementation((...args: unknown[]) => {
+          logged.push(args.map(String).join(' '));
+        });
+      }
+
+      // Rejected: redirect to a page landing.
+      fetchSpy
+        .mockResolvedValueOnce(redirect('https://www.facebook.com/SENTINELPAGE/'))
+        .mockResolvedValueOnce(
+          htmlResponse(
+            page(
+              '<meta property="og:title" content="SENTINELTITLE">' +
+                '<meta property="og:description" content="SENTINELDESC">' +
+                '<meta property="og:url" content="https://www.facebook.com/SENTINELPAGE/">',
+            ),
+          ),
+        );
+      await service.fetchMetadata(SHARE_URL);
+
+      // Trusted: redirect to a post item with canonical ITEM and a login form.
+      fetchSpy
+        .mockResolvedValueOnce(redirect('https://www.facebook.com/SENTINELNAME/posts/987654321'))
+        .mockResolvedValueOnce(
+          htmlResponse(
+            page(
+              '<meta property="og:title" content="SENTINELTITLE post">' +
+                '<meta property="og:description" content="SENTINELDESC details">' +
+                '<link rel="canonical" href="https://www.facebook.com/SENTINELNAME/posts/987654321">',
+              LOGIN_FORM,
+            ),
+          ),
+        );
+      await service.fetchMetadata(SHARE_URL);
+
+      const fetchLines = logged.filter((line) => line.startsWith('metadata fetch'));
+      expect(fetchLines).toEqual([
+        'metadata fetch host=www.facebook.com final_host=www.facebook.com redirects=1 result=rejected reason=PROFILE_OR_PAGE_LANDING ' +
+          'fb_final=PROFILE_OR_PAGE fb_canonical=none fb_og=PROFILE_OR_PAGE markers=none title_generic=false desc_generic=false',
+        'metadata fetch host=www.facebook.com final_host=www.facebook.com redirects=1 result=ok reason=- ' +
+          'fb_final=ITEM fb_canonical=ITEM fb_og=none markers=login title_generic=false desc_generic=false',
+      ]);
+      for (const line of logged) {
+        expect(line).not.toMatch(/SENTINEL|987654321|share\/p|\/posts\//);
+      }
+    });
+
+    it('K3: non-Facebook metadata-fetch lines carry no Facebook labels', async () => {
+      const debug = jest.spyOn(Logger.prototype, 'debug').mockImplementation(() => undefined);
+      fetchSpy.mockResolvedValueOnce(htmlResponse(page('<title>Article</title>')));
+
+      await service.fetchMetadata('https://example.com/article');
+
+      expect(debug).toHaveBeenCalledWith(
+        'metadata fetch host=example.com final_host=example.com redirects=0 result=ok reason=-',
+      );
+    });
   });
 
   describe('evaluateFacebookPageTrust (pure rules)', () => {
@@ -724,32 +857,231 @@ describe('UrlMetadataService', () => {
         ).toEqual({ trusted: false, reason: 'LOGIN_OR_CHECKPOINT_MARKERS' });
       });
 
-      it('markers + content og:url + specific title + specific description is trusted', () => {
+      it('markers + canonical ITEM + specific title + specific description is trusted', () => {
         expect(
           evaluateFacebookPageTrust({
             finalUrl: at('/share/p/abc/'),
             title: 'Jane Doe - Sunset at the beach | Facebook',
             description: 'Golden hour at the pier with friends.',
             ogUrl: contentOgUrl,
+            canonicalUrl: contentOgUrl,
             markers: { ...noMarkers, hasLoginForm: true },
           }),
         ).toEqual({ trusted: true });
       });
     });
 
-    it('requires positive content evidence', () => {
-      expect(
-        evaluateFacebookPageTrust({ finalUrl: at('/jane.doe'), title: 'Jane Doe', markers: noMarkers }),
-      ).toEqual({ trusted: false, reason: 'INSUFFICIENT_CONTENT_EVIDENCE' });
-
-      expect(
+    describe('content-item identity and signal authority', () => {
+      const TITLE = 'Jane Doe - Sunset at the beach | Facebook';
+      const DESC = 'Golden hour at the pier with friends.';
+      const GENERIC_DESC = 'See posts, photos and more on Facebook.';
+      const fb = (path: string) => `https://www.facebook.com${path}`;
+      const WRAPPER = '/share/p/SYNTHSHARE/';
+      const ITEM = '/jane.doe/posts/123456';
+      const ITEM_ALT = '/jane.doe/posts/pfbid0SynthItem';
+      const PROFILE = '/SomeISP/';
+      const decide = (
+        finalPath: string,
+        declared: { canonical?: string; og?: string } = {},
+        text: { title?: string; description?: string } = { title: TITLE, description: DESC },
+        markers = noMarkers,
+      ) =>
         evaluateFacebookPageTrust({
-          finalUrl: at('/jane.doe'),
-          title: 'Jane Doe',
-          ogUrl: 'https://www.facebook.com/jane.doe/videos/987',
-          markers: noMarkers,
-        }),
-      ).toEqual({ trusted: true });
+          finalUrl: at(finalPath),
+          title: text.title,
+          description: text.description,
+          canonicalUrl: declared.canonical && fb(declared.canonical),
+          ogUrl: declared.og && fb(declared.og),
+          markers,
+        });
+
+      it('1: wrapper + canonical same wrapper + non-generic title + generic description => reject', () => {
+        expect(
+          decide(WRAPPER, { canonical: WRAPPER, og: WRAPPER }, { title: TITLE, description: GENERIC_DESC }),
+        ).toEqual({ trusted: false, reason: 'NO_CONTENT_ITEM' });
+      });
+
+      it('2: wrapper + specific title/description but no ITEM identity => reject', () => {
+        expect(decide(WRAPPER)).toEqual({ trusted: false, reason: 'NO_CONTENT_ITEM' });
+        expect(decide(WRAPPER, { canonical: WRAPPER })).toEqual({ trusted: false, reason: 'NO_CONTENT_ITEM' });
+      });
+
+      it('3: profile/page landing + specific title/description => reject', () => {
+        expect(decide(PROFILE)).toEqual({ trusted: false, reason: 'PROFILE_OR_PAGE_LANDING' });
+        expect(decide('/profile.php?id=123')).toEqual({ trusted: false, reason: 'PROFILE_OR_PAGE_LANDING' });
+        expect(decide('/pages/Some-ISP/123')).toEqual({ trusted: false, reason: 'PROFILE_OR_PAGE_LANDING' });
+      });
+
+      it('4: ID-less page tab => reject', () => {
+        expect(decide('/SomeISP/photos/')).toEqual({ trusted: false, reason: 'PROFILE_OR_PAGE_LANDING' });
+        expect(decide('/SomeISP/videos/')).toEqual({ trusted: false, reason: 'PROFILE_OR_PAGE_LANDING' });
+      });
+
+      it('5: final ITEM + canonical same ITEM + specific text => trust', () => {
+        expect(decide(ITEM, { canonical: ITEM })).toEqual({ trusted: true });
+        expect(decide(ITEM)).toEqual({ trusted: true }); // no canonical: the page read is the item
+      });
+
+      it('6: final WRAPPER + canonical ITEM + specific text => trust (canonical is authoritative)', () => {
+        expect(decide(WRAPPER, { canonical: ITEM })).toEqual({ trusted: true });
+      });
+
+      it('7: final ITEM + canonical PROFILE_OR_PAGE => reject', () => {
+        expect(decide(ITEM, { canonical: PROFILE })).toEqual({ trusted: false, reason: 'PROFILE_OR_PAGE_LANDING' });
+      });
+
+      it('8: final ITEM + canonical ITEM + og:url PROFILE_OR_PAGE => not rejected for the ancillary og:url', () => {
+        expect(decide(ITEM, { canonical: ITEM_ALT, og: PROFILE })).toEqual({ trusted: true });
+      });
+
+      it('9: final PROFILE_OR_PAGE + og:url ITEM (no canonical ITEM) => reject', () => {
+        expect(decide(PROFILE, { og: ITEM })).toEqual({ trusted: false, reason: 'PROFILE_OR_PAGE_LANDING' });
+      });
+
+      it('9b: final PROFILE_OR_PAGE is never superseded, even by a canonical ITEM', () => {
+        expect(decide(PROFILE, { canonical: ITEM })).toEqual({ trusted: false, reason: 'PROFILE_OR_PAGE_LANDING' });
+      });
+
+      it('10: final WRAPPER + og:url ITEM without canonical ITEM => reject', () => {
+        expect(decide(WRAPPER, { og: ITEM })).toEqual({ trusted: false, reason: 'NO_CONTENT_ITEM' });
+        expect(decide(WRAPPER, { canonical: WRAPPER, og: ITEM })).toEqual({ trusted: false, reason: 'NO_CONTENT_ITEM' });
+      });
+
+      it('10b: og:url ITEM does not rescue a canonical PROFILE_OR_PAGE', () => {
+        expect(decide(WRAPPER, { canonical: PROFILE, og: ITEM })).toEqual({
+          trusted: false,
+          reason: 'PROFILE_OR_PAGE_LANDING',
+        });
+      });
+
+      it('10c: final ITEM + canonical WRAPPER keeps the final item identity', () => {
+        expect(decide(ITEM, { canonical: WRAPPER })).toEqual({ trusted: true });
+      });
+
+      it('11: login/checkpoint/consent markers without specific text still reject', () => {
+        for (const marker of ['hasLoginForm', 'hasCheckpointForm', 'hasConsentDialog'] as const) {
+          expect(
+            decide(ITEM, { canonical: ITEM }, { title: TITLE, description: 'Log in to Facebook to see more.' }, {
+              ...noMarkers,
+              [marker]: true,
+            }),
+          ).toEqual({ trusted: false, reason: 'LOGIN_OR_CHECKPOINT_MARKERS' });
+        }
+      });
+
+      it('12: generic title on a valid ITEM => reject', () => {
+        expect(decide(ITEM, { canonical: ITEM }, { title: 'Facebook', description: DESC })).toEqual({
+          trusted: false,
+          reason: 'GENERIC_TITLE',
+        });
+      });
+
+      it('13: valid ITEM + generic or empty description => reject', () => {
+        expect(decide(ITEM, { canonical: ITEM }, { title: TITLE, description: GENERIC_DESC })).toEqual({
+          trusted: false,
+          reason: 'INSUFFICIENT_CONTENT_EVIDENCE',
+        });
+        expect(decide(ITEM, { canonical: ITEM }, { title: TITLE })).toEqual({
+          trusted: false,
+          reason: 'INSUFFICIENT_CONTENT_EVIDENCE',
+        });
+      });
+
+      it('final ROOT => reject', () => {
+        expect(decide('/')).toEqual({ trusted: false, reason: 'NO_CONTENT_ITEM' });
+      });
+
+      it('describeFacebookPageSignals exposes classes and booleans only', () => {
+        const label = describeFacebookPageSignals({
+          finalUrl: at(WRAPPER),
+          title: 'SENTINELTITLE',
+          description: 'SENTINELDESC',
+          canonicalUrl: fb(ITEM),
+          ogUrl: 'https://example.com/SENTINELPATH',
+          markers: { ...noMarkers, hasConsentDialog: true },
+        });
+        expect(label).toBe(
+          'fb_final=WRAPPER fb_canonical=ITEM fb_og=non_facebook markers=consent title_generic=false desc_generic=false',
+        );
+      });
+    });
+
+    describe('classifyFacebookUrl (strict anchored taxonomy)', () => {
+      it.each([
+        'https://www.facebook.com/jane.doe/posts/123456',
+        'https://www.facebook.com/jane.doe/posts/pfbid02SynthABC/',
+        'https://m.facebook.com/permalink.php?story_fbid=123&id=456',
+        'https://www.facebook.com/story.php?story_fbid=pfbid0Synth&id=4',
+        'https://www.facebook.com/permalink.php?story_fbid=pfbidSYNTH&id=4',
+        'https://www.facebook.com/photo.php?fbid=123456',
+        'https://www.facebook.com/photo/?fbid=123456',
+        'https://www.facebook.com/jane.doe/photos/a.111/222/',
+        'https://www.facebook.com/jane.doe/photos/333',
+        'https://www.facebook.com/jane.doe/photos/123/',
+        'https://www.facebook.com/jane.doe/videos/123',
+        'https://www.facebook.com/jane.doe/videos/444/',
+        'https://www.facebook.com/jane.doe/videos/some-title/555/',
+        'https://www.facebook.com/watch/?v=666',
+        'https://www.facebook.com/reel/777',
+        'https://www.facebook.com/groups/somegroup/posts/888/',
+        'https://www.facebook.com/groups/123/permalink/999/',
+        'https://www.facebook.com/events/101010/',
+        'https://www.facebook.com/marketplace/item/121212/',
+      ])('ITEM: %s', (url) => {
+        expect(classifyFacebookUrl(new URL(url))).toBe('ITEM');
+      });
+
+      it.each([
+        'https://www.facebook.com/share/p/SYNTH/',
+        'https://www.facebook.com/share/v/SYNTH/',
+        'https://www.facebook.com/share/r/SYNTH/',
+        'https://www.facebook.com/share/SYNTH',
+        'https://www.facebook.com/l.php?u=https%3A%2F%2Fexample.com',
+        'https://l.facebook.com/l.php?u=https%3A%2F%2Fexample.com',
+        'https://fb.me/SYNTH',
+        'https://fb.watch/SYNTH/',
+      ])('WRAPPER: %s', (url) => {
+        expect(classifyFacebookUrl(new URL(url))).toBe('WRAPPER');
+      });
+
+      it.each([
+        'https://www.facebook.com/SomeISP/',
+        'https://www.facebook.com/SomeISP',
+        'https://www.facebook.com/profile.php?id=123',
+        'https://www.facebook.com/pages/Some-ISP/123456',
+        'https://www.facebook.com/people/Jane-Doe/100000/',
+        'https://www.facebook.com/SomeISP/photos/',
+        'https://www.facebook.com/SomeISP/videos/',
+        'https://www.facebook.com/SomeISP/posts/',
+        'https://www.facebook.com/SomeISP/photos/a.111/',
+        'https://www.facebook.com/watch/',
+        'https://www.facebook.com/watch/?v=notanid',
+        'https://www.facebook.com/permalink.php?id=456',
+        'https://www.facebook.com/photo.php?fbid=',
+        'https://www.facebook.com/events/',
+        'https://www.facebook.com/reel/',
+        'https://www.facebook.com/groups/somegroup/',
+        'https://www.facebook.com/some/unknown/format/123',
+        // More than one intermediate segment under photos/videos is not an evidenced item shape.
+        'https://www.facebook.com/SomeISP/photos/tab/archive/123',
+        'https://www.facebook.com/SomeISP/videos/list/archive/123',
+        // pfbid is accepted only for post paths and story_fbid; elsewhere it fails closed.
+        'https://www.facebook.com/groups/g/posts/pfbidSYNTH',
+        'https://www.facebook.com/groups/g/permalink/pfbidSYNTH',
+        'https://www.facebook.com/photo.php?fbid=pfbidSYNTH',
+        'https://www.facebook.com/photo/?fbid=pfbidSYNTH',
+        'https://www.facebook.com/watch?v=pfbidSYNTH',
+        'https://www.facebook.com/watch/?v=pfbidSYNTH',
+      ])('PROFILE_OR_PAGE (fail closed): %s', (url) => {
+        expect(classifyFacebookUrl(new URL(url))).toBe('PROFILE_OR_PAGE');
+      });
+
+      it('ROOT and INTERSTITIAL', () => {
+        expect(classifyFacebookUrl(new URL('https://www.facebook.com/'))).toBe('ROOT');
+        expect(classifyFacebookUrl(new URL('https://www.facebook.com/login/?next=x'))).toBe('INTERSTITIAL');
+        expect(classifyFacebookUrl(new URL('https://www.facebook.com/checkpoint/1/'))).toBe('INTERSTITIAL');
+        expect(classifyFacebookUrl(new URL('https://login.facebook.com/'))).toBe('INTERSTITIAL');
+      });
     });
 
     describe('isFacebookFamilyUrl', () => {

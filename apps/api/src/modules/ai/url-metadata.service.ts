@@ -5,6 +5,7 @@ import { promises as dns } from 'node:dns';
 import {
   PageMarkers,
   PageRejectReason,
+  describeFacebookPageSignals,
   evaluateFacebookPageTrust,
   hostOf,
   isFacebookFamilyHost,
@@ -61,72 +62,86 @@ export class UrlMetadataService {
   private readonly MAX_REDIRECTS = 3;
 
   async fetchMetadata(urlString: string): Promise<UrlMetadataResult> {
-    const result = await this.fetchMetadataResult(urlString);
+    const { result, facebookSignals } = await this.fetchMetadataResult(urlString);
     const finalHost = result.status === 'unavailable' ? '-' : result.finalHost;
     const redirects = result.status === 'unavailable' ? '-' : result.redirectCount;
     const reason = result.status === 'ok' ? '-' : result.reason;
     this.logger.debug(
-      `metadata fetch host=${result.requestedHost} final_host=${finalHost} redirects=${redirects} result=${result.status} reason=${reason}`,
+      `metadata fetch host=${result.requestedHost} final_host=${finalHost} redirects=${redirects} result=${result.status} reason=${reason}` +
+        (facebookSignals ? ` ${facebookSignals}` : ''),
     );
     return result;
   }
 
-  private async fetchMetadataResult(urlString: string): Promise<UrlMetadataResult> {
+  // `facebookSignals` holds non-identifying class/boolean labels for the debug line only; it
+  // never becomes part of the returned result.
+  private async fetchMetadataResult(
+    urlString: string,
+  ): Promise<{ result: UrlMetadataResult; facebookSignals?: string }> {
     const requestedHost = hostOf(urlString);
     try {
       const parsedUrl = this.validateUrl(urlString);
       if (!parsedUrl) {
-        return { status: 'unavailable', reason: 'INVALID_URL', requestedHost };
+        return { result: { status: 'unavailable', reason: 'INVALID_URL', requestedHost } };
       }
 
       // SSRF protection: resolve hostname and validate before making request
       const hostname = parsedUrl.hostname;
       if (!(await this.isValidHostname(hostname))) {
         this.logger.warn(`Invalid hostname for metadata fetch: ${hostname}`);
-        return { status: 'unavailable', reason: 'HOST_REJECTED', requestedHost };
+        return { result: { status: 'unavailable', reason: 'HOST_REJECTED', requestedHost } };
       }
 
       const page = await this.fetchHtml(urlString);
       if (!page) {
-        return { status: 'unavailable', reason: 'FETCH_FAILED', requestedHost };
+        return { result: { status: 'unavailable', reason: 'FETCH_FAILED', requestedHost } };
       }
 
       const metadata = this.extractMetadata(page.html);
       const finalHost = page.finalUrl.hostname;
 
+      let facebookSignals: string | undefined;
       if (isFacebookFamilyHost(finalHost)) {
         const signals = this.extractPageSignals(page.html);
-        const decision = evaluateFacebookPageTrust({
+        const pageSignals = {
           finalUrl: page.finalUrl,
           title: metadata.title,
           description: metadata.description,
           ogUrl: signals.ogUrl,
           canonicalUrl: signals.canonicalUrl,
           markers: signals.markers,
-        });
+        };
+        facebookSignals = describeFacebookPageSignals(pageSignals);
+        const decision = evaluateFacebookPageTrust(pageSignals);
         if (!decision.trusted) {
           return {
-            status: 'rejected',
-            reason: decision.reason,
-            requestedHost,
-            finalHost,
-            redirectCount: page.redirectCount,
+            result: {
+              status: 'rejected',
+              reason: decision.reason,
+              requestedHost,
+              finalHost,
+              redirectCount: page.redirectCount,
+            },
+            facebookSignals,
           };
         }
       }
 
       return {
-        status: 'ok',
-        metadata,
-        requestedHost,
-        finalHost,
-        redirectCount: page.redirectCount,
+        result: {
+          status: 'ok',
+          metadata,
+          requestedHost,
+          finalHost,
+          redirectCount: page.redirectCount,
+        },
+        facebookSignals,
       };
     } catch (err) {
       this.logger.warn(
         `Failed to fetch URL metadata for host ${requestedHost}: ${(err as Error).name}`,
       );
-      return { status: 'unavailable', reason: 'FETCH_FAILED', requestedHost };
+      return { result: { status: 'unavailable', reason: 'FETCH_FAILED', requestedHost } };
     }
   }
 
