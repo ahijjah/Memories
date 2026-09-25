@@ -1,335 +1,230 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
+import TestRenderer, { act, ReactTestInstance, ReactTestRenderer } from 'react-test-renderer';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
-import CalendarScreen from '../calendar';
+import { useAuth } from '@clerk/clerk-expo';
 import * as clientApi from '@/src/api/client';
+import CalendarScreen from '../calendar';
 
-jest.mock('expo-router');
-jest.mock('@/src/api/client');
+// Same host-component mocking approach as the other component specs (no react-native preset).
+jest.mock('react-native', () => {
+  const React = require('react');
+  return {
+    View: 'View',
+    Text: 'Text',
+    ScrollView: 'ScrollView',
+    ActivityIndicator: 'ActivityIndicator',
+    TouchableOpacity: 'TouchableOpacity',
+    FlatList: ({ data, renderItem, keyExtractor }: any) =>
+      React.createElement(
+        'FlatList',
+        null,
+        data.map((item: any, index: number) =>
+          React.createElement(React.Fragment, { key: keyExtractor(item) }, renderItem({ item, index })),
+        ),
+      ),
+  };
+});
+jest.mock('expo-router', () => ({ useRouter: jest.fn() }));
+// Real client module with only the network call replaced: importing an export that does not
+// exist (the original `getAuthenticatedClient` bug) yields undefined and fails these tests.
+jest.mock('@/src/api/client', () => ({
+  ...jest.requireActual('@/src/api/client'),
+  getCalendarMonth: jest.fn(),
+}));
+
+const mockGetCalendarMonth = clientApi.getCalendarMonth as jest.Mock;
+
+const SEPTEMBER = {
+  month: '2026-09',
+  items: [
+    { memoryId: 'mem-1', date: '2026-09-15', title: 'Conference', type: 'EVENT' },
+    { memoryId: 'mem-2', date: '2026-09-15', title: 'Meeting', type: 'EVENT' },
+    { memoryId: 'mem-3', date: '2026-09-20', title: 'Vacation', type: 'PLACE' },
+  ],
+};
+
+function textOf(node: ReactTestInstance): string {
+  return node.children
+    .map((child) => (typeof child === 'string' ? child : textOf(child)))
+    .join('');
+}
+
+const texts = (root: ReactTestRenderer) => root.root.findAllByType('Text' as any).map(textOf);
+const hasText = (root: ReactTestRenderer, value: string | RegExp) =>
+  texts(root).some((t) => (typeof value === 'string' ? t === value : value.test(t)));
+
+function pressText(root: ReactTestRenderer, value: string) {
+  const target = root.root
+    .findAllByType('TouchableOpacity' as any)
+    .find((node) => node.findAllByType('Text' as any).some((t) => textOf(t) === value));
+  if (!target) throw new Error(`No pressable with text ${value}`);
+  act(() => target.props.onPress());
+}
+
+const flush = () =>
+  act(async () => {
+    for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+  });
 
 describe('CalendarScreen', () => {
-  const mockPush = jest.fn();
-  const mockGetAuthenticatedClient = jest.fn();
-  let queryClient: QueryClient;
+  let getToken: jest.Mock;
+  let push: jest.Mock;
+  let root: ReactTestRenderer;
 
-  const mockCalendarResponse = {
-    month: '2026-09',
-    items: [
-      {
-        memoryId: 'mem-1',
-        date: '2026-09-15',
-        title: 'Conference',
-        type: 'EVENT',
-        assets: [],
-      },
-      {
-        memoryId: 'mem-2',
-        date: '2026-09-15',
-        title: 'Meeting',
-        type: 'EVENT',
-        assets: [{ id: 'asset-1', mimeType: 'image/jpeg' }],
-      },
-      {
-        memoryId: 'mem-3',
-        date: '2026-09-20',
-        title: 'Vacation',
-        type: 'PLACE',
-        assets: [],
-      },
-    ],
-  };
+  beforeAll(() => {
+    // Only Date is faked, so React Query's timers and promises behave normally.
+    jest.useFakeTimers({
+      now: new Date(2026, 8, 25),
+      doNotFake: [
+        'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'setImmediate',
+        'clearImmediate', 'nextTick', 'queueMicrotask', 'hrtime', 'performance',
+      ],
+    });
+  });
+  afterAll(() => jest.useRealTimers());
 
   beforeEach(() => {
     jest.clearAllMocks();
-    queryClient = new QueryClient({
-      defaultOptions: {
-        queries: { retry: false },
-      },
-    });
-    (useRouter as jest.Mock).mockReturnValue({ push: mockPush });
-    mockGetAuthenticatedClient.mockResolvedValue({
-      get: jest.fn().mockResolvedValue({ data: mockCalendarResponse }),
-    });
-    (clientApi.getAuthenticatedClient as jest.Mock) = mockGetAuthenticatedClient;
+    push = jest.fn();
+    (useRouter as jest.Mock).mockReturnValue({ push });
+    getToken = jest.fn().mockResolvedValue('clerk-token');
+    // Like @clerk/clerk-expo, hand out a new getToken identity on every render.
+    (useAuth as jest.Mock).mockImplementation(() => ({ getToken: (...args: unknown[]) => getToken(...args) }));
+    mockGetCalendarMonth.mockResolvedValue(SEPTEMBER);
   });
 
-  const renderCalendar = () => {
-    return render(
-      <QueryClientProvider client={queryClient}>
-        <CalendarScreen />
-      </QueryClientProvider>
-    );
+  afterEach(() => {
+    act(() => root?.unmount());
+  });
+
+  const render = async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    act(() => {
+      root = TestRenderer.create(
+        <QueryClientProvider client={queryClient}>
+          <CalendarScreen />
+        </QueryClientProvider>,
+      );
+    });
+    await flush();
   };
 
-  describe('Initial render', () => {
-    it('displays current month initially', async () => {
-      renderCalendar();
+  it('obtains a Clerk token and requests the current month through the real client export', async () => {
+    await render();
 
-      await waitFor(() => {
-        const monthText = screen.queryByText(/September 2026/i);
-        expect(monthText).toBeTruthy();
-      });
-    });
-
-    it('shows loading state while fetching data', () => {
-      mockGetAuthenticatedClient.mockImplementation(
-        () =>
-          new Promise(() => {
-            /* never resolves */
-          })
-      );
-
-      renderCalendar();
-
-      const loader = screen.queryByTestId('loading-indicator');
-      expect(loader).toBeTruthy();
-    });
-
-    it('displays error message on API failure', async () => {
-      mockGetAuthenticatedClient.mockRejectedValue(new Error('Network error'));
-
-      renderCalendar();
-
-      await waitFor(() => {
-        const errorText = screen.queryByText(/Failed to load calendar/i);
-        expect(errorText).toBeTruthy();
-      });
-    });
+    expect(getToken).toHaveBeenCalledTimes(1);
+    expect(mockGetCalendarMonth).toHaveBeenCalledTimes(1);
+    expect(mockGetCalendarMonth).toHaveBeenCalledWith('clerk-token', '2026-09');
   });
 
-  describe('Month navigation', () => {
-    it('navigates to previous month on left arrow press', async () => {
-      renderCalendar();
+  it('renders the month and the selected day items from the response', async () => {
+    await render();
 
-      await waitFor(() => {
-        expect(screen.queryByText(/September 2026/i)).toBeTruthy();
-      });
+    expect(hasText(root, 'September 2026')).toBe(true);
+    expect(hasText(root, 'Sun')).toBe(true);
 
-      const prevButton = screen.getByText('‹').at(0);
-      if (prevButton) {
-        fireEvent.press(prevButton);
+    pressText(root, '15');
+    expect(hasText(root, 'Tuesday, September 15, 2026')).toBe(true);
+    expect(hasText(root, 'Conference')).toBe(true);
+    expect(hasText(root, 'Meeting')).toBe(true);
+    expect(hasText(root, 'Vacation')).toBe(false);
 
-        await waitFor(() => {
-          expect(screen.queryByText(/August 2026/i)).toBeTruthy();
-        });
-      }
-    });
-
-    it('navigates to next month on right arrow press', async () => {
-      renderCalendar();
-
-      await waitFor(() => {
-        expect(screen.queryByText(/September 2026/i)).toBeTruthy();
-      });
-
-      const nextButton = screen.getAllByText('›')[0];
-      if (nextButton) {
-        fireEvent.press(nextButton);
-
-        await waitFor(() => {
-          expect(screen.queryByText(/October 2026/i)).toBeTruthy();
-        });
-      }
-    });
+    pressText(root, 'Conference');
+    expect(push).toHaveBeenCalledWith('/memory/mem-1');
   });
 
-  describe('Calendar grid', () => {
-    it('marks days with memories', async () => {
-      renderCalendar();
+  it('shows "No memories for this day" for a day without items', async () => {
+    await render();
 
-      await waitFor(() => {
-        // Days 15 and 20 should be marked
-        const day15 = screen.queryByText('15');
-        const day20 = screen.queryByText('20');
-        expect(day15).toBeTruthy();
-        expect(day20).toBeTruthy();
-      });
-    });
-
-    it('displays day headers (Sun, Mon, etc.)', async () => {
-      renderCalendar();
-
-      await waitFor(() => {
-        expect(screen.queryByText('Sun')).toBeTruthy();
-        expect(screen.queryByText('Mon')).toBeTruthy();
-        expect(screen.queryByText('Fri')).toBeTruthy();
-      });
-    });
+    pressText(root, '10');
+    expect(hasText(root, 'No memories for this day')).toBe(true);
   });
 
-  describe('Day selection', () => {
-    it('shows memories when a day is selected', async () => {
-      renderCalendar();
+  it('shows the loading indicator while the request is pending', async () => {
+    mockGetCalendarMonth.mockImplementation(() => new Promise(() => undefined));
+    await render();
 
-      await waitFor(() => {
-        const day15 = screen.queryByText('15');
-        expect(day15).toBeTruthy();
-      });
-
-      const day15Button = screen.getByText('15');
-      fireEvent.press(day15Button);
-
-      await waitFor(() => {
-        expect(screen.queryByText('Conference')).toBeTruthy();
-        expect(screen.queryByText('Meeting')).toBeTruthy();
-      });
-    });
-
-    it('displays multiple memories on same day', async () => {
-      renderCalendar();
-
-      await waitFor(() => {
-        const day15 = screen.queryByText('15');
-        expect(day15).toBeTruthy();
-      });
-
-      const day15Button = screen.getByText('15');
-      fireEvent.press(day15Button);
-
-      await waitFor(() => {
-        expect(screen.queryByText('Conference')).toBeTruthy();
-        expect(screen.queryByText('Meeting')).toBeTruthy();
-      });
-    });
-
-    it('shows "No memories" message for empty days', async () => {
-      mockGetAuthenticatedClient.mockResolvedValue({
-        get: jest.fn().mockResolvedValue({
-          data: {
-            month: '2026-09',
-            items: [],
-          },
-        }),
-      });
-
-      renderCalendar();
-
-      await waitFor(() => {
-        const day10 = screen.queryByText('10');
-        if (day10) {
-          fireEvent.press(day10);
-
-          expect(screen.queryByText(/No memories for this day/i)).toBeTruthy();
-        }
-      });
-    });
+    expect(root.root.findAllByType('ActivityIndicator' as any)).toHaveLength(1);
+    expect(hasText(root, 'Sun')).toBe(false);
   });
 
-  describe('Memory navigation', () => {
-    it('navigates to memory detail on tap', async () => {
-      renderCalendar();
+  it('shows the existing error state when the request fails', async () => {
+    mockGetCalendarMonth.mockRejectedValue(new Error('Request failed with status 500'));
+    await render();
 
-      await waitFor(() => {
-        const day15 = screen.queryByText('15');
-        expect(day15).toBeTruthy();
-      });
-
-      const day15Button = screen.getByText('15');
-      fireEvent.press(day15Button);
-
-      await waitFor(() => {
-        expect(screen.queryByText('Conference')).toBeTruthy();
-      });
-
-      const conferenceButton = screen.getByText('Conference');
-      fireEvent.press(conferenceButton);
-
-      expect(mockPush).toHaveBeenCalledWith('/memory/mem-1');
-    });
+    expect(hasText(root, /Failed to load calendar/)).toBe(true);
   });
 
-  describe('Date-only semantics', () => {
-    it('displays date-only values without timezone conversion', async () => {
-      const testDate = '2026-09-15';
-      const expectedDisplayDate = 'Tuesday, September 15, 2026';
+  it('shows the error state and makes no request when no token is available', async () => {
+    getToken.mockResolvedValue(null);
+    await render();
 
-      renderCalendar();
-
-      await waitFor(() => {
-        const day15 = screen.queryByText('15');
-        expect(day15).toBeTruthy();
-      });
-
-      const day15Button = screen.getByText('15');
-      fireEvent.press(day15Button);
-
-      await waitFor(() => {
-        // Should display the date correctly without shifting due to timezone
-        const dateDisplay = screen.queryByText(expectedDisplayDate);
-        expect(dateDisplay).toBeTruthy();
-      });
-    });
-
-    it('uses safe date-only formatter that does not parse YYYY-MM-DD as UTC', async () => {
-      renderCalendar();
-
-      await waitFor(() => {
-        const day15 = screen.queryByText('15');
-        expect(day15).toBeTruthy();
-      });
-
-      const day15Button = screen.getByText('15');
-      fireEvent.press(day15Button);
-
-      await waitFor(() => {
-        // The formatter should use local Date constructor, not new Date("2026-09-15")
-        // which would parse as UTC and shift the day for timezones west of UTC
-        const dateDisplay = screen.queryByText(/September 15, 2026/);
-        expect(dateDisplay).toBeTruthy();
-        // Verify the exact day number appears (not shifted)
-        expect(screen.queryByText('15')).toBeTruthy();
-      });
-    });
+    expect(mockGetCalendarMonth).not.toHaveBeenCalled();
+    expect(hasText(root, /Failed to load calendar/)).toBe(true);
   });
 
-  describe('Selected day display', () => {
-    it('highlights selected day', async () => {
-      renderCalendar();
+  it('requests the next month with a fresh token after navigation', async () => {
+    await render();
+    getToken.mockResolvedValue('clerk-token-2');
 
-      await waitFor(() => {
-        const day15 = screen.queryByText('15');
-        expect(day15).toBeTruthy();
-      });
+    pressText(root, '›');
+    await flush();
 
-      const day15Button = screen.getByText('15');
-      fireEvent.press(day15Button);
-
-      // Selected day should have different styling
-      expect(day15Button).toBeTruthy();
-    });
-
-    it('displays formatted date heading for selected day', async () => {
-      renderCalendar();
-
-      await waitFor(() => {
-        const day15 = screen.queryByText('15');
-        expect(day15).toBeTruthy();
-      });
-
-      const day15Button = screen.getByText('15');
-      fireEvent.press(day15Button);
-
-      await waitFor(() => {
-        expect(screen.queryByText(/Tuesday, September 15, 2026/i)).toBeTruthy();
-      });
-    });
+    expect(hasText(root, 'October 2026')).toBe(true);
+    expect(mockGetCalendarMonth).toHaveBeenLastCalledWith('clerk-token-2', '2026-10');
   });
 
-  describe('API contract', () => {
-    it('requests calendar API with correct month parameter', async () => {
-      const mockClient = {
-        get: jest.fn().mockResolvedValue({ data: mockCalendarResponse }),
-      };
-      mockGetAuthenticatedClient.mockResolvedValue(mockClient);
+  it('does not refetch when re-renders hand out a new getToken identity', async () => {
+    await render();
+    pressText(root, '15');
+    pressText(root, '20');
+    await flush();
 
-      renderCalendar();
+    expect(mockGetCalendarMonth).toHaveBeenCalledTimes(1);
+    expect(getToken).toHaveBeenCalledTimes(1);
+  });
+});
 
-      await waitFor(() => {
-        expect(mockClient.get).toHaveBeenCalledWith(
-          expect.stringContaining('/engagement/calendar?month=2026-09')
-        );
-      });
-    });
+describe('getCalendarMonth (real client function)', () => {
+  const { getCalendarMonth } = jest.requireActual('@/src/api/client');
+  const originalFetch = global.fetch;
+  const originalApiUrl = process.env.EXPO_PUBLIC_API_URL;
+
+  beforeEach(() => {
+    process.env.EXPO_PUBLIC_API_URL = 'https://api.example.test';
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => SEPTEMBER,
+    }) as any;
+  });
+  afterEach(() => {
+    global.fetch = originalFetch;
+    process.env.EXPO_PUBLIC_API_URL = originalApiUrl;
+  });
+
+  it('is exported and sends an authenticated GET for the month', async () => {
+    expect(typeof getCalendarMonth).toBe('function');
+
+    await expect(getCalendarMonth('clerk-token', '2026-09')).resolves.toEqual(SEPTEMBER);
+
+    const [url, init] = (global.fetch as jest.Mock).mock.calls[0];
+    expect(url).toBe('https://api.example.test/engagement/calendar?month=2026-09');
+    expect(init.method).toBe('GET');
+    expect(init.headers.Authorization).toBe('Bearer clerk-token');
+  });
+
+  it('encodes the month query value', async () => {
+    await getCalendarMonth('clerk-token', '2026-09&x=1');
+
+    expect((global.fetch as jest.Mock).mock.calls[0][0]).toBe(
+      'https://api.example.test/engagement/calendar?month=2026-09%26x%3D1',
+    );
+  });
+
+  it('rejects on a non-OK response', async () => {
+    (global.fetch as jest.Mock).mockResolvedValue({ ok: false, status: 500 });
+
+    await expect(getCalendarMonth('clerk-token', '2026-09')).rejects.toThrow('Request failed with status 500');
   });
 });

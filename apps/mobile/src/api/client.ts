@@ -470,6 +470,25 @@ export async function getNearMe(
   return makeRequest(`/engagement/near-me?${params.toString()}`, 'GET', token);
 }
 
+export interface CalendarItem {
+  memoryId: string;
+  date: string;
+  title: string;
+  type?: string;
+}
+
+export interface CalendarMonthResponse {
+  month: string;
+  items: CalendarItem[];
+}
+
+export async function getCalendarMonth(
+  token: string,
+  month: string,
+): Promise<CalendarMonthResponse> {
+  return makeRequest(`/engagement/calendar?month=${encodeURIComponent(month)}`, 'GET', token);
+}
+
 export interface AccountExportData {
   user: {
     id: string;

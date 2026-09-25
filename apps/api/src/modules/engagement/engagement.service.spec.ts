@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { EngagementService } from './engagement.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 
@@ -808,6 +809,27 @@ describe('EngagementService', () => {
   });
 
   describe('getCalendarMonth', () => {
+    it('sends a date-shape regex that accepts real YYYY-MM-DD dates (SQL text Prisma actually generates)', async () => {
+      jest.spyOn(prismaService, '$queryRaw').mockResolvedValue([] as any);
+
+      await service.getCalendarMonth('user-123', '2026-09');
+
+      // Rebuild the query exactly as Prisma does from the tagged-template call, so this checks the
+      // SQL text Postgres receives (JS turns an unescaped `\d` into `d` in template strings).
+      const [strings, ...values] = (prismaService.$queryRaw as jest.Mock).mock.calls[0];
+      const sqlText = Prisma.sql(strings, ...values).text;
+      const match = sqlText.match(/~ '([^']+)'/);
+      expect(match).not.toBeNull();
+      const datePattern = new RegExp(match![1]);
+
+      for (const valid of ['2026-09-15', '2026-09-01', '2026-09-30', '1999-12-31']) {
+        expect(datePattern.test(valid)).toBe(true);
+      }
+      for (const invalid of ['dddd-dd-dd', '2026-9-15', '2026-09-15T10:00:00Z', 'next Friday', '']) {
+        expect(datePattern.test(invalid)).toBe(false);
+      }
+    });
+
     it('should reject invalid month format', async () => {
       const userId = 'user-123';
 
