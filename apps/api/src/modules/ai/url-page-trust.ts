@@ -13,24 +13,25 @@ const WRAPPER_PATH = /^\/(?:share(?:\/|$)|l\.php$)/i;
 
 // Strict, anchored item taxonomy: each pattern names ONE content item and requires its ID.
 // Anything not recognised here (profiles, pages, ID-less tabs, unknown formats) fails closed.
-const ITEM_ID = '(?:\\d+|pfbid[0-9A-Za-z]+)';
+// pfbid IDs are accepted only where evidenced (post paths and story_fbid); elsewhere digits only.
+const DIGITS_ID = '\\d+';
+const POST_ID = '(?:\\d+|pfbid[0-9A-Za-z]+)';
 const NAME = '[^/]+';
 const ITEM_PATHS: RegExp[] = [
-  new RegExp(`^/${NAME}/posts/${ITEM_ID}/?$`, 'i'),
-  new RegExp(`^/${NAME}/photos/(?:[^/]+/)*\\d+/?$`, 'i'),
-  new RegExp(`^/${NAME}/videos/(?:[^/]+/)*\\d+/?$`, 'i'),
-  new RegExp(`^/reel/\\d+/?$`, 'i'),
-  new RegExp(`^/groups/${NAME}/(?:posts|permalink)/${ITEM_ID}/?$`, 'i'),
-  new RegExp(`^/events/\\d+/?$`, 'i'),
-  new RegExp(`^/marketplace/item/\\d+/?$`, 'i'),
+  new RegExp(`^/${NAME}/posts/${POST_ID}/?$`, 'i'),
+  new RegExp(`^/${NAME}/photos/(?:[^/]+/)?${DIGITS_ID}/?$`, 'i'),
+  new RegExp(`^/${NAME}/videos/(?:[^/]+/)?${DIGITS_ID}/?$`, 'i'),
+  new RegExp(`^/reel/${DIGITS_ID}/?$`, 'i'),
+  new RegExp(`^/groups/${NAME}/(?:posts|permalink)/${DIGITS_ID}/?$`, 'i'),
+  new RegExp(`^/events/${DIGITS_ID}/?$`, 'i'),
+  new RegExp(`^/marketplace/item/${DIGITS_ID}/?$`, 'i'),
 ];
 // Item formats identified by a query parameter rather than the path.
-const ITEM_QUERY_PATHS: { path: RegExp; param: string }[] = [
-  { path: /^\/(?:permalink|story)\.php$/i, param: 'story_fbid' },
-  { path: /^\/photo(?:\.php)?\/?$/i, param: 'fbid' },
-  { path: /^\/watch\/?$/i, param: 'v' },
+const ITEM_QUERY_PATHS: { path: RegExp; param: string; id: RegExp }[] = [
+  { path: /^\/(?:permalink|story)\.php$/i, param: 'story_fbid', id: new RegExp(`^${POST_ID}$`, 'i') },
+  { path: /^\/photo(?:\.php)?\/?$/i, param: 'fbid', id: new RegExp(`^${DIGITS_ID}$`) },
+  { path: /^\/watch\/?$/i, param: 'v', id: new RegExp(`^${DIGITS_ID}$`) },
 ];
-const ITEM_ID_VALUE = new RegExp(`^${ITEM_ID}$`, 'i');
 
 const GENERIC_TITLE =
   /^(?:log ?in|log into|sign up|you must log in|security check|checkpoint|content not found|this (?:content|page) isn.t available|page not found|sorry,? something went wrong|error)\b/i;
@@ -117,8 +118,8 @@ export function classifyFacebookUrl(url: URL): FacebookUrlClass {
   if (path === '' || path === '/') return 'ROOT';
   if (WRAPPER_PATH.test(path)) return 'WRAPPER';
   if (ITEM_PATHS.some((pattern) => pattern.test(path))) return 'ITEM';
-  for (const { path: pattern, param } of ITEM_QUERY_PATHS) {
-    if (pattern.test(path) && ITEM_ID_VALUE.test(url.searchParams.get(param) ?? '')) return 'ITEM';
+  for (const { path: pattern, param, id } of ITEM_QUERY_PATHS) {
+    if (pattern.test(path) && id.test(url.searchParams.get(param) ?? '')) return 'ITEM';
   }
   return 'PROFILE_OR_PAGE';
 }

@@ -1012,10 +1012,13 @@ describe('UrlMetadataService', () => {
         'https://www.facebook.com/jane.doe/posts/pfbid02SynthABC/',
         'https://m.facebook.com/permalink.php?story_fbid=123&id=456',
         'https://www.facebook.com/story.php?story_fbid=pfbid0Synth&id=4',
+        'https://www.facebook.com/permalink.php?story_fbid=pfbidSYNTH&id=4',
         'https://www.facebook.com/photo.php?fbid=123456',
         'https://www.facebook.com/photo/?fbid=123456',
         'https://www.facebook.com/jane.doe/photos/a.111/222/',
         'https://www.facebook.com/jane.doe/photos/333',
+        'https://www.facebook.com/jane.doe/photos/123/',
+        'https://www.facebook.com/jane.doe/videos/123',
         'https://www.facebook.com/jane.doe/videos/444/',
         'https://www.facebook.com/jane.doe/videos/some-title/555/',
         'https://www.facebook.com/watch/?v=666',
@@ -1059,6 +1062,16 @@ describe('UrlMetadataService', () => {
         'https://www.facebook.com/reel/',
         'https://www.facebook.com/groups/somegroup/',
         'https://www.facebook.com/some/unknown/format/123',
+        // More than one intermediate segment under photos/videos is not an evidenced item shape.
+        'https://www.facebook.com/SomeISP/photos/tab/archive/123',
+        'https://www.facebook.com/SomeISP/videos/list/archive/123',
+        // pfbid is accepted only for post paths and story_fbid; elsewhere it fails closed.
+        'https://www.facebook.com/groups/g/posts/pfbidSYNTH',
+        'https://www.facebook.com/groups/g/permalink/pfbidSYNTH',
+        'https://www.facebook.com/photo.php?fbid=pfbidSYNTH',
+        'https://www.facebook.com/photo/?fbid=pfbidSYNTH',
+        'https://www.facebook.com/watch?v=pfbidSYNTH',
+        'https://www.facebook.com/watch/?v=pfbidSYNTH',
       ])('PROFILE_OR_PAGE (fail closed): %s', (url) => {
         expect(classifyFacebookUrl(new URL(url))).toBe('PROFILE_OR_PAGE');
       });
