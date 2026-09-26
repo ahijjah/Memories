@@ -162,7 +162,8 @@ describe('VaultService', () => {
         userConfirmations: true,
       },
     });
-    expect(result).toEqual(mockMemory);
+    // Existing shape unchanged, plus the additive `resolved` object (nothing resolvable here).
+    expect(result).toEqual({ ...mockMemory, resolved: {} });
   });
 
   it('should throw NotFoundException when retrieving a non-vault memory via vault endpoint', async () => {
@@ -246,5 +247,57 @@ describe('VaultService', () => {
     jest.spyOn(prismaService.memory, 'findUnique').mockResolvedValue(mockMemory as any);
 
     await expect(service.getProcessingStatus(userId, memoryId)).rejects.toThrow(NotFoundException);
+  });
+
+  describe('Resolved Memory public contract (PR2)', () => {
+    const t1 = new Date('2026-01-01T00:00:00.000Z');
+    const t2 = new Date('2026-02-01T00:00:00.000Z');
+    const vaultMemory = () => ({
+      id: 'vault-1',
+      userId: 'user-123',
+      title: 'Raw scan',
+      memoryType: 'DOCUMENT',
+      securityScope: 'vault',
+      assets: [],
+      aiInferences: [
+        { id: 'b', field: 'documentNumber', valueJson: 'encrypted:P7654321', confidence: 0.9, createdAt: t2 },
+        { id: 'a', field: 'title', valueJson: 'Passport', confidence: 0.8, createdAt: t1 },
+        { id: 'c', field: 'type', valueJson: 'DOCUMENT', confidence: 0.75, createdAt: t1 },
+      ],
+      userConfirmations: [
+        { id: 'uc1', field: 'owner', confirmedValue: 'encrypted:Jane Doe', createdAt: t1 },
+        { id: 'uc2', field: 'notes', confirmedValue: 'Keep in the safe', createdAt: t1 },
+      ],
+    });
+
+    it('adds resolved from decrypted rows, excludes notes, and keeps the raw arrays', async () => {
+      jest.spyOn(prismaService.memory, 'findUnique').mockResolvedValue(vaultMemory() as any);
+
+      const result: any = await service.findOneForUser('user-123', 'vault-1');
+
+      expect(result.resolved).toEqual({
+        title: { value: 'Passport', source: 'ai', confidence: 0.8 },
+        type: { value: 'DOCUMENT', source: 'ai', confidence: 0.75 },
+        documentNumber: { value: 'P7654321', source: 'ai', confidence: 0.9 },
+        owner: { value: 'Jane Doe', source: 'user', confidence: null },
+      });
+      expect(result.resolved).not.toHaveProperty('notes');
+      expect(JSON.stringify(result.resolved)).not.toContain('encrypted:');
+      // Raw evidence and history unchanged (existing decryption still applies to them).
+      expect(result.title).toBe('Raw scan');
+      expect(result.memoryType).toBe('DOCUMENT');
+      expect(result.aiInferences.map((row: any) => row.id)).toEqual(['b', 'a', 'c']);
+      expect(result.aiInferences[0].valueJson).toBe('P7654321');
+      expect(result.userConfirmations.map((row: any) => row.field)).toEqual(['owner', 'notes']);
+      expect(result.userConfirmations[1].confirmedValue).toBe('Keep in the safe');
+    });
+
+    it('keeps ownership and Vault scoping before any resolution', async () => {
+      jest.spyOn(prismaService.memory, 'findUnique').mockResolvedValue({ ...vaultMemory(), userId: 'other-user' } as any);
+      await expect(service.findOneForUser('user-123', 'vault-1')).rejects.toThrow(ForbiddenException);
+
+      jest.spyOn(prismaService.memory, 'findUnique').mockResolvedValue({ ...vaultMemory(), securityScope: 'private' } as any);
+      await expect(service.findOneForUser('user-123', 'vault-1')).rejects.toThrow(NotFoundException);
+    });
   });
 });

@@ -7,6 +7,14 @@ import { FieldEncryptionService } from '../../common/crypto/field-encryption.ser
 import { isSensitiveField } from '../../common/crypto/sensitive-fields';
 import { toVectorLiteral } from '../../common/pgvector.util';
 import { LATEST_AI_INFERENCE_ORDER, resolveMemoryField } from '../../common/resolve-memory-field.util';
+import {
+  buildResolvedMemory,
+  DETAIL_RESOLVED_FIELDS,
+  LIST_QUERY_CONFIRMATION_FIELDS,
+  LIST_QUERY_INFERENCE_FIELDS,
+  LIST_RAW_INFERENCE_FIELDS,
+  LIST_RESOLVED_FIELDS,
+} from '../../common/resolved-memory.projection';
 import { resolveTitleFromFields } from '../../common/resolve-title.util';
 import { AiQueueService } from '../ai/ai-queue.service';
 import { AssetsService } from '../assets/assets.service';
@@ -74,14 +82,31 @@ export class MemoryService {
         assets: true,
         aiInferences: {
           where: {
-            field: { in: ['date', 'location', 'price', 'category'] },
+            field: { in: [...LIST_QUERY_INFERENCE_FIELDS] },
           },
           orderBy: LATEST_AI_INFERENCE_ORDER,
+        },
+        userConfirmations: {
+          where: {
+            field: { in: [...LIST_QUERY_CONFIRMATION_FIELDS] },
+          },
         },
       },
       orderBy: { capturedAt: 'desc' },
     });
-    return Promise.all(memories.map((m: any) => this.enrichWithAssetUrls(m)));
+    return Promise.all(
+      memories.map((memory) => {
+        // The title/type inferences and the confirmations are loaded only to resolve the preview:
+        // the raw list contract keeps exactly its original inference fields and no confirmations.
+        const { userConfirmations, aiInferences, ...rest } = memory;
+        const resolved = buildResolvedMemory({ ...rest, aiInferences, userConfirmations }, LIST_RESOLVED_FIELDS);
+        return this.enrichWithAssetUrls({
+          ...rest,
+          aiInferences: aiInferences.filter((inference) => LIST_RAW_INFERENCE_FIELDS.includes(inference.field)),
+          resolved,
+        });
+      }),
+    );
   }
 
   async findOneForUser(userId: string, id: string) {
@@ -113,7 +138,12 @@ export class MemoryService {
       console.warn(`Failed to track view for memory ${id}: ${(err as Error).message}`);
     }
 
-    return this.enrichWithAssetUrls(this.decryptSensitiveFields(memory));
+    // Resolve from the decrypted rows; authorization and decryption stay with this endpoint.
+    const decrypted = this.decryptSensitiveFields(memory);
+    return this.enrichWithAssetUrls({
+      ...decrypted,
+      resolved: buildResolvedMemory(decrypted, DETAIL_RESOLVED_FIELDS),
+    });
   }
 
   async getProcessingStatus(userId: string, id: string) {

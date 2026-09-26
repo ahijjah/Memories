@@ -3,6 +3,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { FieldEncryptionService } from '../../common/crypto/field-encryption.service';
 import { isSensitiveField } from '../../common/crypto/sensitive-fields';
 import { LATEST_AI_INFERENCE_ORDER } from '../../common/resolve-memory-field.util';
+import { buildResolvedMemory, DETAIL_RESOLVED_FIELDS } from '../../common/resolved-memory.projection';
 import { AssetsService } from '../assets/assets.service';
 import { MemoryDeletionQueueService } from '../memory/deletion-queue.service';
 
@@ -70,7 +71,12 @@ export class VaultService {
     if (memory.securityScope !== 'vault') {
       throw new NotFoundException('Memory not found');
     }
-    return this.enrichWithAssetUrls(this.decryptSensitiveFields(memory));
+    // Resolve from the decrypted rows; authorization and decryption stay with this endpoint.
+    const decrypted = this.decryptSensitiveFields(memory);
+    return this.enrichWithAssetUrls({
+      ...decrypted,
+      resolved: buildResolvedMemory(decrypted, DETAIL_RESOLVED_FIELDS),
+    });
   }
 
   async getProcessingStatus(userId: string, id: string) {
