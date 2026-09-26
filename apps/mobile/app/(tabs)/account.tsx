@@ -1,5 +1,4 @@
 import { useAuth, useUser } from "@clerk/clerk-expo";
-import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity, Modal, Alert, TextInput } from 'react-native';
 import { useMutation } from '@tanstack/react-query';
@@ -10,7 +9,6 @@ import { exportAccountData, deleteAccount } from '@/src/api/client';
 export default function AccountScreen() {
   const { user } = useUser();
   const { getToken, signOut } = useAuth();
-  const router = useRouter();
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteConfirmEmail, setDeleteConfirmEmail] = useState('');
 
@@ -37,8 +35,8 @@ export default function AccountScreen() {
     },
     onSuccess: async () => {
       Alert.alert('Account Deleted', 'Your account has been permanently deleted.');
+      // Signing out removes every authenticated route (root Stack.Protected); no manual redirect.
       await signOut();
-      router.push('/(auth)/sign-in');
     },
     onError: (err) => {
       const message = err instanceof Error ? err.message : 'Failed to delete account';
@@ -57,7 +55,6 @@ export default function AccountScreen() {
   const handleSignOut = async () => {
     try {
       await signOut();
-      router.push('/(auth)/sign-in');
     } catch (err) {
       Alert.alert('Error', 'Failed to sign out');
     }

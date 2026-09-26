@@ -1,11 +1,10 @@
 import { useSignIn } from "@clerk/clerk-expo";
-import { Link, useRouter } from 'expo-router';
+import { Link } from 'expo-router';
 import { useState } from 'react';
 import { View, TextInput, TouchableOpacity, Text, ScrollView, Alert } from 'react-native';
 
 export default function SignIn() {
   const { signIn, setActive, isLoaded } = useSignIn();
-  const router = useRouter();
   const [emailAddress, setEmailAddress] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -22,7 +21,7 @@ export default function SignIn() {
 
       if (completeSignIn.status === 'complete') {
         await setActive({ session: completeSignIn.createdSessionId });
-        router.replace('/(tabs)/');
+        // The root Stack.Protected guard switches to the signed-in routes; no manual redirect.
       } else {
         console.error(JSON.stringify(completeSignIn, null, 2));
         Alert.alert('Error', 'Sign in failed. Please try again.');

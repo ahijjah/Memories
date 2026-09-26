@@ -43,6 +43,10 @@ export default function VaultDetailScreen() {
   useFocusEffect(
     useCallback(() => {
       checkVaultAuthentication();
+      // The root Stack keeps this screen mounted under later screens; lock it when it loses
+      // focus so unlocked Vault content never stays mounted underneath (and screen-capture
+      // protection is released with the unlock).
+      return () => setAuthState('locked');
     }, [])
   );
 

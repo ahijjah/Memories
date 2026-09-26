@@ -28,7 +28,7 @@ jest.mock('react-native', () => {
   };
 });
 
-const mockRouter = { push: jest.fn(), back: jest.fn() };
+const mockRouter = { push: jest.fn(), back: jest.fn(), replace: jest.fn(), canGoBack: jest.fn(() => true) };
 jest.mock('expo-router', () => ({
   useLocalSearchParams: () => ({ id: 'mem-1' }),
   useRouter: () => mockRouter,
@@ -361,9 +361,21 @@ describe('Memory Detail action hierarchy', () => {
     });
   });
 
-  it('Back remains because the memory route has no header back affordance', async () => {
-    const s = await renderScreen(buildMemory());
-    await s.press('Back');
-    expect(mockRouter.back).toHaveBeenCalled();
+  describe('Back (the memory route has no header back affordance)', () => {
+    it('goes back when there is history', async () => {
+      mockRouter.canGoBack.mockReturnValue(true);
+      const s = await renderScreen(buildMemory());
+      await s.press('Back');
+      expect(mockRouter.back).toHaveBeenCalledTimes(1);
+      expect(mockRouter.replace).not.toHaveBeenCalled();
+    });
+
+    it('falls back to Home when opened without history (share or deep link)', async () => {
+      mockRouter.canGoBack.mockReturnValue(false);
+      const s = await renderScreen(buildMemory());
+      await s.press('Back');
+      expect(mockRouter.back).not.toHaveBeenCalled();
+      expect(mockRouter.replace).toHaveBeenCalledWith('/(tabs)/');
+    });
   });
 });

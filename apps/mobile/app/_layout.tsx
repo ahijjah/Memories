@@ -1,8 +1,7 @@
 import '../global.css';
 import { ClerkProvider, useAuth } from "@clerk/clerk-expo";
 import * as SecureStore from 'expo-secure-store';
-import { useSegments, useRouter, Slot } from 'expo-router';
-import { useEffect } from 'react';
+import { Stack } from 'expo-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 const tokenCache = {
@@ -48,25 +47,47 @@ export default function RootLayout() {
   );
 }
 
-function RootLayoutNav() {
+// Every root route that needs a signed-in user. Stack.Protected only removes routes that are
+// explicitly declared under a false guard (unlisted filesystem routes stay registered), so each
+// authenticated root route must be listed here. __tests__/root-layout-routes.test.ts fails if a
+// root route is added without being listed. The first entry is the signed-in initial route.
+export const AUTHENTICATED_ROOT_ROUTES = [
+  '(tabs)',
+  'memory/[id]',
+  'vault/[id]',
+  'collection/[id]',
+  'compare/[id]',
+  'workspace/[workspaceId]',
+  'people/index',
+  'handle-share',
+] as const;
+
+export const SIGNED_OUT_ROOT_ROUTES = ['(auth)'] as const;
+
+export function RootLayoutNav() {
   const { isLoaded, isSignedIn } = useAuth();
-  const segments = useSegments();
-  const router = useRouter();
 
-  // Protect unsignedin users from accessing the (tabs) route
-  useEffect(() => {
-    if (!isLoaded) return;
+  // Don't register either route group until Clerk knows the auth state. An initial route that
+  // can't be shown yet (e.g. a share or deep link) is kept and restored once it is registered.
+  if (!isLoaded) return null;
 
-    const inAuthGroup = segments[0] === '(auth)';
+  const signedIn = isSignedIn === true;
 
-    if (isSignedIn && inAuthGroup) {
-      // User is signed in and in auth group, redirect to home
-      router.replace('/(tabs)/');
-    } else if (!isSignedIn && !inAuthGroup) {
-      // User is not signed in and not in auth group, redirect to sign in
-      router.replace('/(auth)/sign-in');
-    }
-  }, [isSignedIn, segments, isLoaded]);
-
-  return <Slot />;
+  // A root Stack keeps earlier routes mounted, so returning from a root-level detail route
+  // lands on the tab it was opened from. When a guard turns false, every route declared under
+  // it is removed from history, so no signed-in screen stays reachable after sign-out.
+  return (
+    <Stack screenOptions={{ headerShown: false, animation: 'none' }}>
+      <Stack.Protected guard={signedIn}>
+        {AUTHENTICATED_ROOT_ROUTES.map((name) => (
+          <Stack.Screen key={name} name={name} />
+        ))}
+      </Stack.Protected>
+      <Stack.Protected guard={!signedIn}>
+        {SIGNED_OUT_ROOT_ROUTES.map((name) => (
+          <Stack.Screen key={name} name={name} />
+        ))}
+      </Stack.Protected>
+    </Stack>
+  );
 }
