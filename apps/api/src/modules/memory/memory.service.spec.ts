@@ -714,8 +714,11 @@ describe('MemoryService', () => {
         include: {
           assets: true,
           aiInferences: {
-            where: { field: { in: ['date', 'location', 'price', 'category'] } },
+            where: { field: { in: ['date', 'location', 'price', 'category', 'title', 'type'] } },
             orderBy: latestFirst,
+          },
+          userConfirmations: {
+            where: { field: { in: ['title', 'type', 'date', 'location', 'price', 'category'] } },
           },
         },
         orderBy: { capturedAt: 'desc' },
@@ -771,6 +774,143 @@ describe('MemoryService', () => {
 
       expect(mockCompareProductsInput.products[0]).toMatchObject({ price: '$12', brand: 'User Brand' });
       prismaMock.memory.findUnique.mockReset();
+    });
+  });
+
+  describe('Resolved Memory public contract (PR2)', () => {
+    const t1 = new Date('2026-01-01T00:00:00.000Z');
+    const t2 = new Date('2026-02-01T00:00:00.000Z');
+
+    it('Detail adds resolved from decrypted rows and keeps raw evidence and history unchanged', async () => {
+      const memory = {
+        id: 'mem-1',
+        userId: 'user-1',
+        title: 'https://example.com/raw',
+        memoryType: 'event',
+        securityScope: 'private',
+        assets: [],
+        aiInferences: [
+          { id: 'b', field: 'title', valueJson: 'Concert B', confidence: 0.9, createdAt: t2 },
+          { id: 'e', field: 'issuer', valueJson: 'encrypted:City Hall', confidence: 0.6, createdAt: t2 },
+          { id: 'a', field: 'title', valueJson: 'Concert A', confidence: 0.8, createdAt: t1 },
+          { id: 'c', field: 'type', valueJson: 'EVENT', confidence: 0.77, createdAt: t1 },
+          { id: 'd', field: 'date', valueJson: '2026-10-01', confidence: 0.5, createdAt: t1 },
+        ],
+        userConfirmations: [{ id: 'uc', field: 'date', confirmedValue: '2026-10-02', createdAt: t1 }],
+      };
+      prismaMock.memory.findUnique.mockResolvedValueOnce(memory);
+      prismaMock.memory.update.mockResolvedValue({});
+
+      const result: any = await service.findOneForUser('user-1', 'mem-1');
+
+      expect(result.resolved).toEqual({
+        title: { value: 'Concert B', source: 'ai', confidence: 0.9 },
+        type: { value: 'EVENT', source: 'ai', confidence: 0.77 },
+        date: { value: '2026-10-02', source: 'user', confidence: null },
+        issuer: { value: 'City Hall', source: 'ai', confidence: 0.6 },
+      });
+      expect(result.title).toBe('https://example.com/raw');
+      expect(result.memoryType).toBe('event');
+      expect(result.aiInferences.map((row: any) => row.id)).toEqual(['b', 'e', 'a', 'c', 'd']);
+      expect(result.userConfirmations).toEqual(memory.userConfirmations);
+      expect(fieldEncryptionMock.decrypt).toHaveBeenCalledWith('encrypted:City Hall');
+    });
+
+    describe('Memories list', () => {
+      const listRow = () => ({
+        id: 'mem-1',
+        userId: 'user-1',
+        title: 'Raw title',
+        memoryType: 'PRODUCT',
+        securityScope: 'private',
+        capturedAt: t1,
+        assets: [{ id: 'asset-1', objectKey: 'k', mimeType: 'image/jpeg' }],
+        aiInferences: [
+          { id: 'i1', field: 'price', valueJson: '$10', confidence: 0.7, createdAt: t2 },
+          { id: 'i2', field: 'title', valueJson: 'AI Title', confidence: 0.9, createdAt: t2 },
+          { id: 'i3', field: 'type', valueJson: 'PRODUCT', confidence: 0.8, createdAt: t2 },
+          { id: 'i4', field: 'category', valueJson: 'Laptop', confidence: 0.6, createdAt: t1 },
+          { id: 'i5', field: 'date', valueJson: '2026-10-01', confidence: 0.5, createdAt: t1 },
+          { id: 'i6', field: 'location', valueJson: 'Amman', confidence: 0.4, createdAt: t1 },
+        ],
+        userConfirmations: [
+          { id: 'uc1', field: 'title', confirmedValue: 'My Laptop', createdAt: t1 },
+          { id: 'uc2', field: 'price', confirmedValue: '$9', createdAt: t1 },
+        ],
+      });
+
+      it('never loads sensitive fields for the list', async () => {
+        prismaMock.memory.findMany.mockResolvedValueOnce([]);
+        await service.findAllForUser('user-1');
+
+        const include = prismaMock.memory.findMany.mock.calls[0][0].include;
+        for (const sensitive of ['issuer', 'owner', 'documentNumber']) {
+          expect(include.aiInferences.where.field.in).not.toContain(sensitive);
+          expect(include.userConfirmations.where.field.in).not.toContain(sensitive);
+        }
+      });
+
+      it('adds a resolved preview and keeps the raw list contract unchanged', async () => {
+        prismaMock.memory.findMany.mockResolvedValueOnce([listRow()]);
+
+        const [result]: any[] = await service.findAllForUser('user-1');
+
+        expect(result).not.toHaveProperty('userConfirmations');
+        expect(result.aiInferences.map((row: any) => row.field)).toEqual(['price', 'category', 'date', 'location']);
+        for (const row of result.aiInferences) {
+          expect(['date', 'location', 'price', 'category']).toContain(row.field);
+        }
+        expect(result.resolved).toEqual({
+          title: { value: 'My Laptop', source: 'user', confidence: null },
+          type: { value: 'PRODUCT', source: 'ai', confidence: 0.8 },
+          date: { value: '2026-10-01', source: 'ai', confidence: 0.5 },
+          location: { value: 'Amman', source: 'ai', confidence: 0.4 },
+          price: { value: '$9', source: 'user', confidence: null },
+          category: { value: 'Laptop', source: 'ai', confidence: 0.6 },
+        });
+        for (const key of Object.keys(result.resolved)) {
+          expect(['title', 'type', 'date', 'location', 'price', 'category']).toContain(key);
+        }
+
+        // Everything else is exactly the previous list item: raw fields, raw inferences, enriched assets.
+        const previousShape = { ...result };
+        delete previousShape.resolved;
+        const row = listRow();
+        expect(previousShape).toEqual({
+          id: row.id,
+          userId: row.userId,
+          title: 'Raw title',
+          memoryType: 'PRODUCT',
+          securityScope: 'private',
+          capturedAt: t1,
+          assets: [{ id: 'asset-1', objectKey: 'k', mimeType: 'image/jpeg', url: '/assets/asset-1/content' }],
+          aiInferences: row.aiInferences.filter((i) => ['date', 'location', 'price', 'category'].includes(i.field)),
+        });
+      });
+
+      it('cannot leak sensitive rows through the preview even if a query returned them', async () => {
+        const row = listRow();
+        row.aiInferences.push({ id: 's1', field: 'documentNumber', valueJson: 'P1', confidence: 1, createdAt: t2 });
+        row.userConfirmations.push({ id: 's2', field: 'owner', confirmedValue: 'Jane', createdAt: t2 });
+        prismaMock.memory.findMany.mockResolvedValueOnce([row]);
+
+        const [result]: any[] = await service.findAllForUser('user-1');
+
+        const serialized = JSON.stringify(result);
+        expect(serialized).not.toContain('documentNumber');
+        expect(serialized).not.toContain('Jane');
+        expect(serialized).not.toContain('P1');
+      });
+
+      it('omits resolved.type when memoryType is null', async () => {
+        prismaMock.memory.findMany.mockResolvedValueOnce([
+          { ...listRow(), memoryType: null, aiInferences: [], userConfirmations: [] },
+        ]);
+
+        const [result]: any[] = await service.findAllForUser('user-1');
+
+        expect(result.resolved).toEqual({ title: { value: 'Raw title', source: 'original', confidence: null } });
+      });
     });
   });
 });
