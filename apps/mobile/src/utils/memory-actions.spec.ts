@@ -1,5 +1,6 @@
 import { getActionsForMemory } from './memory-actions';
 import { Memory, AIInference } from '@/src/api/client';
+import type { CanonicalMemoryType, ResolvedMemoryView } from '@/src/api/resolved';
 
 describe('getActionsForMemory', () => {
   // Helper to create mock memory
@@ -31,6 +32,21 @@ describe('getActionsForMemory', () => {
     createdAt: new Date().toISOString(),
   });
 
+  // Builds the server-shaped `resolved` object (PR2) from AI rows: each field becomes an
+  // AI-sourced value carrying its stored confidence. Non-canonical types map to GENERIC.
+  const CANONICAL: CanonicalMemoryType[] = ['GENERIC', 'EVENT', 'PLACE', 'PRODUCT', 'ARTICLE_LEARNING', 'VIDEO_SOCIAL', 'OFFER', 'DOCUMENT'];
+  const withResolved = (memory: Memory, inferences?: AIInference[]): Memory => {
+    const resolved: Record<string, unknown> = {};
+    for (const inference of inferences ?? []) {
+      const value =
+        inference.field === 'type'
+          ? CANONICAL.find((type) => type === String(inference.valueJson).toUpperCase()) ?? 'GENERIC'
+          : inference.valueJson;
+      resolved[inference.field] = { value, source: 'ai', confidence: inference.confidence };
+    }
+    return { ...memory, resolved: resolved as ResolvedMemoryView };
+  };
+
   describe('Type-specific actions based on classification confidence', () => {
     it('should show Share Event when memoryType is EVENT with confidence >= 0.7', () => {
       const memory = createMemory({ memoryType: 'EVENT' });
@@ -38,7 +54,7 @@ describe('getActionsForMemory', () => {
         createInference('type', 'EVENT', 0.95),
       ];
 
-      const actions = getActionsForMemory(memory, inferences);
+      const actions = getActionsForMemory(withResolved(memory, inferences));
       const shareEventAction = actions.find((a) => a.label === 'Share Event');
 
       expect(shareEventAction).toBeDefined();
@@ -51,7 +67,7 @@ describe('getActionsForMemory', () => {
         createInference('type', 'EVENT', 0.65),
       ];
 
-      const actions = getActionsForMemory(memory, inferences);
+      const actions = getActionsForMemory(withResolved(memory, inferences));
       const shareEventAction = actions.find((a) => a.label === 'Share Event');
 
       expect(shareEventAction).toBeUndefined();
@@ -64,7 +80,7 @@ describe('getActionsForMemory', () => {
         createInference('date', '2026-09-20', 0.9),
       ];
 
-      const actions = getActionsForMemory(memory, inferences);
+      const actions = getActionsForMemory(withResolved(memory, inferences));
       const calendarAction = actions.find((a) => a.label === 'Add to Calendar');
 
       expect(calendarAction).toBeDefined();
@@ -78,7 +94,7 @@ describe('getActionsForMemory', () => {
         createInference('date', '2026-12-31', 0.9),
       ];
 
-      const actions = getActionsForMemory(memory, inferences);
+      const actions = getActionsForMemory(withResolved(memory, inferences));
       const calendarAction = actions.find((a) => a.kind === 'calendar');
       const expiryAction = actions.find((a) => a.label === 'Expiry Reminder');
 
@@ -94,7 +110,7 @@ describe('getActionsForMemory', () => {
         createInference('location', 'San Francisco, CA', 0.9),
       ];
 
-      const actions = getActionsForMemory(memory, inferences);
+      const actions = getActionsForMemory(withResolved(memory, inferences));
       const mapAction = actions.find((a) => a.kind === 'maps');
 
       expect(mapAction).toBeDefined();
@@ -108,7 +124,7 @@ describe('getActionsForMemory', () => {
         createInference('date', '2026-09-20', 0.9),
       ];
 
-      const actions = getActionsForMemory(memory, inferences);
+      const actions = getActionsForMemory(withResolved(memory, inferences));
       const shareEventAction = actions.find((a) => a.label === 'Share Event');
 
       expect(shareEventAction).toBeUndefined();
@@ -121,7 +137,7 @@ describe('getActionsForMemory', () => {
         createInference('location', 'San Francisco, CA', 0.9),
       ];
 
-      const actions = getActionsForMemory(memory, inferences);
+      const actions = getActionsForMemory(withResolved(memory, inferences));
       const mapAction = actions.find((a) => a.kind === 'maps');
 
       expect(mapAction).toBeDefined();
@@ -135,7 +151,7 @@ describe('getActionsForMemory', () => {
         createInference('type', 'PLACE', 0.8),
       ];
 
-      const actions = getActionsForMemory(memory, inferences);
+      const actions = getActionsForMemory(withResolved(memory, inferences));
       const saveTripAction = actions.find((a) => a.label === 'Save for Trip');
 
       expect(saveTripAction).toBeDefined();
@@ -148,7 +164,7 @@ describe('getActionsForMemory', () => {
         createInference('type', 'PLACE', 0.6),
       ];
 
-      const actions = getActionsForMemory(memory, inferences);
+      const actions = getActionsForMemory(withResolved(memory, inferences));
       const saveTripAction = actions.find((a) => a.label === 'Save for Trip');
 
       expect(saveTripAction).toBeUndefined();
@@ -160,7 +176,7 @@ describe('getActionsForMemory', () => {
         createInference('type', 'PRODUCT', 0.88),
       ];
 
-      const actions = getActionsForMemory(memory, inferences);
+      const actions = getActionsForMemory(withResolved(memory, inferences));
       const compareAction = actions.find((a) => a.label === 'Compare');
 
       expect(compareAction).toBeDefined();
@@ -173,7 +189,7 @@ describe('getActionsForMemory', () => {
         createInference('type', 'PRODUCT', 0.69),
       ];
 
-      const actions = getActionsForMemory(memory, inferences);
+      const actions = getActionsForMemory(withResolved(memory, inferences));
       const compareAction = actions.find((a) => a.label === 'Compare');
 
       expect(compareAction).toBeUndefined();
@@ -185,7 +201,7 @@ describe('getActionsForMemory', () => {
         createInference('type', 'ARTICLE_LEARNING', 0.92),
       ];
 
-      const actions = getActionsForMemory(memory, inferences);
+      const actions = getActionsForMemory(withResolved(memory, inferences));
       const summarizeAction = actions.find((a) => a.label === 'Summarize');
 
       expect(summarizeAction).toBeDefined();
@@ -198,7 +214,7 @@ describe('getActionsForMemory', () => {
         createInference('type', 'ARTICLE_LEARNING', 0.68),
       ];
 
-      const actions = getActionsForMemory(memory, inferences);
+      const actions = getActionsForMemory(withResolved(memory, inferences));
       const summarizeAction = actions.find((a) => a.label === 'Summarize');
 
       expect(summarizeAction).toBeUndefined();
@@ -211,7 +227,7 @@ describe('getActionsForMemory', () => {
         createInference('date', '2026-12-31', 0.9),
       ];
 
-      const actions = getActionsForMemory(memory, inferences);
+      const actions = getActionsForMemory(withResolved(memory, inferences));
       const expiryAction = actions.find((a) => a.label === 'Expiry Reminder');
 
       expect(expiryAction).toBeDefined();
@@ -225,7 +241,7 @@ describe('getActionsForMemory', () => {
         createInference('date', '2026-12-31', 0.9),
       ];
 
-      const actions = getActionsForMemory(memory, inferences);
+      const actions = getActionsForMemory(withResolved(memory, inferences));
       const expiryAction = actions.find((a) => a.label === 'Expiry Reminder');
 
       expect(expiryAction).toBeUndefined();
@@ -241,7 +257,7 @@ describe('getActionsForMemory', () => {
         createInference('date', '2026-10-15', 0.9),
       ];
 
-      const actions = getActionsForMemory(memory, inferences);
+      const actions = getActionsForMemory(withResolved(memory, inferences));
       const calendarAction = actions.find((a) => a.label === 'Add to Calendar');
 
       expect(calendarAction).toBeDefined();
@@ -254,7 +270,7 @@ describe('getActionsForMemory', () => {
         createInference('location', 'Paris, France', 0.9),
       ];
 
-      const actionsEvent = getActionsForMemory(memoryEvent, inferencesEvent);
+      const actionsEvent = getActionsForMemory(withResolved(memoryEvent, inferencesEvent));
       const locationActionEvent = actionsEvent.find((a) => a.kind === 'maps');
       expect(locationActionEvent?.label).toBe('Open Location'); // Event uses "Open Location"
 
@@ -264,17 +280,17 @@ describe('getActionsForMemory', () => {
         createInference('location', 'Tokyo, Japan', 0.9),
       ];
 
-      const actionsPlace = getActionsForMemory(memoryPlace, inferencesPlace);
+      const actionsPlace = getActionsForMemory(withResolved(memoryPlace, inferencesPlace));
       const locationActionPlace = actionsPlace.find((a) => a.kind === 'maps');
       expect(locationActionPlace?.label).toBe('Open Map'); // Place uses "Open Map"
     });
 
-    it('should handle missing aiInferences gracefully', () => {
+    it('should handle a memory with no resolved fields gracefully', () => {
       const memory = createMemory({ memoryType: 'event' });
 
-      const actions = getActionsForMemory(memory, undefined);
-      // Should fall back to memory.memoryType and not crash
-      expect(Array.isArray(actions)).toBe(true);
+      const actions = getActionsForMemory(withResolved(memory, undefined));
+      // No resolved fields: no actions, and the raw memoryType is never used as a fallback
+      expect(actions).toEqual([]);
     });
   });
 
@@ -286,7 +302,7 @@ describe('getActionsForMemory', () => {
         createInference('phone', '555-0100', 0.9),
       ];
 
-      const actions = getActionsForMemory(memory, inferences);
+      const actions = getActionsForMemory(withResolved(memory, inferences));
       const callAction = actions.find((a) => a.label === 'Call');
       const whatsappAction = actions.find((a) => a.label === 'WhatsApp');
 
@@ -305,7 +321,7 @@ describe('getActionsForMemory', () => {
         createInference('type', 'PRODUCT', 0.9),
       ];
 
-      const actions = getActionsForMemory(memory, inferences);
+      const actions = getActionsForMemory(withResolved(memory, inferences));
       const callAction = actions.find((a) => a.label === 'Call');
       const whatsappAction = actions.find((a) => a.label === 'WhatsApp');
 
@@ -320,7 +336,7 @@ describe('getActionsForMemory', () => {
         createInference('serviceArea', 'Ramallah and surrounding areas', 0.9),
       ];
 
-      const actions = getActionsForMemory(memory, inferences);
+      const actions = getActionsForMemory(withResolved(memory, inferences));
       const mapAction = actions.find((a) => a.kind === 'maps');
 
       expect(mapAction).toBeDefined();
@@ -336,7 +352,7 @@ describe('getActionsForMemory', () => {
         createInference('serviceArea', 'Ramallah and surrounding areas', 0.9),
       ];
 
-      const actions = getActionsForMemory(memory, inferences);
+      const actions = getActionsForMemory(withResolved(memory, inferences));
       const mapAction = actions.find((a) => a.kind === 'maps');
 
       expect(mapAction).toBeDefined();
@@ -351,7 +367,7 @@ describe('getActionsForMemory', () => {
         createInference('type', 'EVENT', 0.7),
       ];
 
-      const actions = getActionsForMemory(memory, inferences);
+      const actions = getActionsForMemory(withResolved(memory, inferences));
       const shareEventAction = actions.find((a) => a.label === 'Share Event');
 
       expect(shareEventAction).toBeDefined();
@@ -363,10 +379,97 @@ describe('getActionsForMemory', () => {
         createInference('type', 'EVENT', 0.6999),
       ];
 
-      const actions = getActionsForMemory(memory, inferences);
+      const actions = getActionsForMemory(withResolved(memory, inferences));
       const shareEventAction = actions.find((a) => a.label === 'Share Event');
 
       expect(shareEventAction).toBeUndefined();
+    });
+  });
+
+  describe('Resolved contract (PR3)', () => {
+    const typeView = (value: CanonicalMemoryType, source: 'user' | 'ai', confidence: number | null) => ({
+      value,
+      source,
+      confidence,
+    });
+    const labels = (memory: Memory) => getActionsForMemory(memory).map((a) => a.label);
+
+    it('enables type actions for a user-confirmed type, which has null confidence', () => {
+      const memory = createMemory({ resolved: { type: typeView('PLACE', 'user', null) } });
+      expect(labels(memory)).toEqual(['Save for Trip', 'Share Place']);
+    });
+
+    it('enables type actions for an AI type at >= 0.7 only', () => {
+      expect(labels(createMemory({ resolved: { type: typeView('EVENT', 'ai', 0.7) } }))).toContain('Share Event');
+      expect(labels(createMemory({ resolved: { type: typeView('EVENT', 'ai', 0.69) } }))).not.toContain('Share Event');
+    });
+
+    it('does not enable type actions for an AI type with null confidence', () => {
+      expect(labels(createMemory({ resolved: { type: typeView('PRODUCT', 'ai', null) } }))).toEqual([]);
+    });
+
+    it('does not enable type actions when resolved.type is missing, whatever the raw memoryType says', () => {
+      const memory = createMemory({
+        memoryType: 'PRODUCT',
+        aiInferences: [createInference('type', 'PRODUCT', 0.99)],
+        resolved: { date: { value: '2026-10-01', source: 'ai', confidence: 0.9 } },
+      });
+      expect(labels(memory)).toEqual(['Add to Calendar']);
+    });
+
+    it('uses resolved (confirmed) field values, not conflicting raw inferences', () => {
+      const memory = createMemory({
+        title: 'https://example.com/raw',
+        aiInferences: [
+          createInference('date', '1999-01-01', 0.99),
+          createInference('location', 'Raw Place', 0.99),
+          createInference('phone', '+1 000', 0.99),
+        ],
+        resolved: {
+          title: { value: 'Jazz Night', source: 'ai', confidence: 0.9 },
+          date: { value: '2026-10-02', source: 'user', confidence: null },
+          location: { value: 'Blue Hall', source: 'user', confidence: null },
+          phone: { value: '+962 7 1234', source: 'ai', confidence: 0.8 },
+        },
+      });
+
+      const actions = getActionsForMemory(memory);
+
+      expect(actions.find((a) => a.kind === 'calendar')?.payload).toEqual({ date: '2026-10-02', title: 'Jazz Night' });
+      expect(actions.find((a) => a.kind === 'maps')?.payload).toEqual({ location: 'Blue Hall' });
+      expect(actions.find((a) => a.label === 'Call')?.payload).toEqual({ phone: '+962 7 1234' });
+      expect(actions.find((a) => a.label === 'WhatsApp')?.payload).toEqual({ phone: '+962 7 1234' });
+    });
+
+    it('uses the resolved title in type-specific payloads, with raw title only as fallback', () => {
+      const article = createMemory({
+        title: 'https://example.com/raw',
+        resolved: {
+          title: { value: 'Deep Work', source: 'ai', confidence: 0.9 },
+          type: typeView('ARTICLE_LEARNING', 'ai', 0.9),
+        },
+      });
+      expect(getActionsForMemory(article).find((a) => a.kind === 'ask')?.payload).toEqual({
+        prefill: 'Tell me more about "Deep Work"',
+      });
+
+      const document = createMemory({
+        title: 'Raw scan',
+        resolved: { type: typeView('DOCUMENT', 'user', null), date: { value: '2027-01-01', source: 'ai', confidence: 0.8 } },
+      });
+      expect(getActionsForMemory(document).find((a) => a.label === 'Expiry Reminder')?.payload).toEqual({
+        date: '2027-01-01',
+        title: 'Expiry: Raw scan',
+      });
+    });
+
+    it('ignores raw memoryType and raw type inference entirely', () => {
+      const memory = createMemory({
+        memoryType: 'event',
+        aiInferences: [createInference('type', 'event', 0.99)],
+        resolved: { type: typeView('PLACE', 'ai', 0.9) },
+      });
+      expect(labels(memory)).toEqual(['Save for Trip', 'Share Place']);
     });
   });
 });

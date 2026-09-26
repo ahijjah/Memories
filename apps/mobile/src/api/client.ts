@@ -1,3 +1,5 @@
+import type { ResolvedMemoryView } from './resolved';
+
 export interface HealthResponse {
   status: string;
   timestamp?: string;
@@ -53,6 +55,8 @@ export interface Memory {
   assets?: MemoryAsset[];
   aiInferences?: AIInference[];
   userConfirmations?: UserConfirmation[];
+  /** Authoritative resolved fields (PR2). Present on GET /memories/:id, GET /vault/:id and GET /memories only. */
+  resolved?: ResolvedMemoryView;
   createdAt: string;
   updatedAt: string;
 }

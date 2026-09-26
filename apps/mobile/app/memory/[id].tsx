@@ -12,7 +12,8 @@ import ViewShot, { captureRef } from 'react-native-view-shot';
 
 type ViewShotRef = View & { capture: () => Promise<string> };
 
-import { fetchMemoryDetail, fetchProcessingStatus, Memory, ProcessingStatus, AIInference, listCollections, addMemoryToCollection, lockMemory, createReminder, reprocessMemory, deleteMemory, summarizeMemory, extractKeyPoints } from '@/src/api/client';
+import { fetchMemoryDetail, fetchProcessingStatus, Memory, ProcessingStatus, listCollections, addMemoryToCollection, lockMemory, createReminder, reprocessMemory, deleteMemory, summarizeMemory, extractKeyPoints } from '@/src/api/client';
+import type { ResolvedMemoryField } from '@/src/api/resolved';
 import { getActionsForMemory, MemoryAction } from '@/src/utils/memory-actions';
 import { splitDetailActions } from '@/src/utils/memory-detail-actions';
 import { ActionMenuModal, ActionMenuItem } from '@/src/components/ActionMenuModal';
@@ -236,28 +237,20 @@ export default function MemoryDetailScreen() {
     return () => clearInterval(interval);
   }, [processingStatus, refetchStatus]);
 
-  const getAIInferencesByField = (field: string): AIInference[] => {
-    return memory?.aiInferences?.filter((inf) => inf.field === field) || [];
-  };
+  // Structured fields come only from the server-resolved contract (ADR-003). A missing key means
+  // unresolved; raw aiInferences/userConfirmations are never consulted for these values.
+  const getFieldValue = (field: ResolvedMemoryField): any => memory?.resolved?.[field]?.value ?? null;
 
-  const getFieldValue = (field: string): any => {
-    // Check userConfirmations first (spec §6 precedence rule)
-    const confirmation = memory?.userConfirmations?.find((uc) => uc.field === field);
-    if (confirmation) return confirmation.confirmedValue;
+  const getFieldConfidence = (field: ResolvedMemoryField): number | null =>
+    memory?.resolved?.[field]?.confidence ?? null;
 
-    const inferences = getAIInferencesByField(field);
-    if (inferences.length === 0) return null;
-    return inferences[0].valueJson;
-  };
+  const isFieldConfirmed = (field: ResolvedMemoryField): boolean =>
+    memory?.resolved?.[field]?.source === 'user';
 
-  const getFieldConfidence = (field: string): number | null => {
-    const inferences = getAIInferencesByField(field);
-    if (inferences.length === 0) return null;
-    return inferences[0].confidence;
-  };
-
-  const isFieldConfirmed = (field: string): boolean => {
-    return memory?.userConfirmations?.some((uc) => uc.field === field) || false;
+  // A confirmation changes the resolved preview shown by the Memories list and Home as well.
+  const handleFieldConfirmed = () => {
+    refetch();
+    queryClient.invalidateQueries({ queryKey: ['memories'] });
   };
 
   const handleOpenURL = async (url: string) => {
@@ -468,7 +461,7 @@ export default function MemoryDetailScreen() {
   }
 
   const isProcessing = processingStatus?.processingState === 'queued' || processingStatus?.processingState === 'processing';
-  const aiTitle = getFieldValue('title');
+  const displayTitle = memory.resolved?.title?.value ?? memory.title;
   const aiSummary = getFieldValue('summary');
   const aiTopics = getFieldValue('topics');
   const aiIntent = getFieldValue('intent');
@@ -490,13 +483,13 @@ export default function MemoryDetailScreen() {
   // Check if banner should show: URL-sourced event with no date and no existing assets
   const shouldShowPhotoPrompt = memory
     && memory.sourceType === 'url'
-    && memory.memoryType?.toLowerCase() === 'event'
+    && memory.resolved?.type?.value === 'EVENT'
     && !aiDate
     && (!memory.assets || memory.assets.length === 0);
 
   const isVaultScoped = memory.securityScope === 'vault';
   const { primary: primaryAction, secondary: secondaryActions } = splitDetailActions(
-    getActionsForMemory(memory, memory.aiInferences),
+    getActionsForMemory(memory),
   );
 
   const confirmMoveToVault = () => {
@@ -583,7 +576,7 @@ export default function MemoryDetailScreen() {
           </View>
         )}
 
-        <CardHeader title={aiTitle ? aiTitle : memory.title} />
+        <CardHeader title={displayTitle} />
 
         {/* Card Display — type-specific layout */}
         <CardIdentity memory={memory} onOpenURL={handleOpenURL} />
@@ -603,7 +596,7 @@ export default function MemoryDetailScreen() {
                   memoryId={id}
                   dateConfidence={getFieldConfidence('date')}
                   isDateConfirmed={isFieldConfirmed('date')}
-                  onConfirmed={() => refetch()}
+                  onConfirmed={handleFieldConfirmed}
                 />
               );
             case 'place':
@@ -618,7 +611,7 @@ export default function MemoryDetailScreen() {
                   memoryId={id}
                   locationConfidence={getFieldConfidence('location')}
                   isLocationConfirmed={isFieldConfirmed('location')}
-                  onConfirmed={() => refetch()}
+                  onConfirmed={handleFieldConfirmed}
                 />
               );
             case 'product':
@@ -635,7 +628,7 @@ export default function MemoryDetailScreen() {
                   memoryId={id}
                   priceConfidence={getFieldConfidence('price')}
                   isPriceConfirmed={isFieldConfirmed('price')}
-                  onConfirmed={() => refetch()}
+                  onConfirmed={handleFieldConfirmed}
                 />
               );
             case 'offer':
@@ -656,7 +649,7 @@ export default function MemoryDetailScreen() {
                   isOfferPriceConfirmed={isFieldConfirmed('offerPrice')}
                   dateConfidence={getFieldConfidence('date')}
                   isDateConfirmed={isFieldConfirmed('date')}
-                  onConfirmed={() => refetch()}
+                  onConfirmed={handleFieldConfirmed}
                 />
               );
             case 'article_learning':
@@ -709,7 +702,7 @@ export default function MemoryDetailScreen() {
                     issueDate: isFieldConfirmed('issueDate'),
                     date: isFieldConfirmed('date'),
                   }}
-                  onFieldConfirmed={() => refetch()}
+                  onFieldConfirmed={handleFieldConfirmed}
                 />
               );
             case 'generic':
@@ -726,15 +719,6 @@ export default function MemoryDetailScreen() {
               );
           }
         })()}
-
-        {/* Raw AI Inferences (for debugging) */}
-        {memory.aiInferences && memory.aiInferences.length > 0 && !aiTitle && !aiSummary ? (
-          <View className="mb-6 p-4 bg-gray-50 rounded-lg">
-            <Text className="text-sm text-gray-600 font-mono">
-              {memory.aiInferences.length} AI inferences available
-            </Text>
-          </View>
-        ) : null}
 
         {/* Related Memories Section */}
         <RelatedMemoriesSection

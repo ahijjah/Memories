@@ -170,7 +170,7 @@ function renderHighlightBox(cardType: CardType, props: ShareCardViewProps): Reac
 
 export function ShareCardView(props: ShareCardViewProps) {
   const cardType = resolveCardType(props.memory);
-  const title = props.memory.title || 'Memory';
+  const title = props.memory.resolved?.title?.value || props.memory.title || 'Memory';
 
   return (
     <View className="bg-white p-8 min-h-screen flex justify-between">

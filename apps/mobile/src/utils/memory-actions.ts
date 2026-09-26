@@ -1,4 +1,4 @@
-import { Memory, AIInference } from '@/src/api/client';
+import { Memory } from '@/src/api/client';
 
 export type ActionKind = 'calendar' | 'maps' | 'share' | 'openUrl' | 'ask' | 'collection' | 'summarize' | 'keyPoints' | 'compare' | 'call' | 'whatsapp' | 'comingSoon';
 
@@ -8,62 +8,45 @@ export interface MemoryAction {
   payload?: any;
 }
 
-export function getActionsForMemory(
-  memory: Memory,
-  aiInferences?: AIInference[],
-): MemoryAction[] {
+export function getActionsForMemory(memory: Memory): MemoryAction[] {
   const actions: MemoryAction[] = [];
+  const resolved = memory.resolved ?? {};
 
-  // Helper to extract AI inference field values
-  const getFieldValue = (field: string): any => {
-    if (!aiInferences) return null;
-    const inferences = aiInferences.filter((inf) => inf.field === field);
-    if (inferences.length === 0) return null;
-    return inferences[0].valueJson;
-  };
+  // Type-specific actions need a trusted classification: a user-confirmed type, or an AI type
+  // with stored confidence >= 0.7. Low or unknown confidence falls back to generic field actions.
+  const resolvedType = resolved.type;
+  const hasTrustedType =
+    resolvedType !== undefined &&
+    (resolvedType.source === 'user' ||
+      (resolvedType.source === 'ai' && resolvedType.confidence !== null && resolvedType.confidence >= 0.7));
+  const memoryType = hasTrustedType ? resolvedType.value : null;
 
-  // Helper to extract field confidence
-  const getFieldConfidence = (field: string): number | null => {
-    if (!aiInferences) return null;
-    const inference = aiInferences.find((inf) => inf.field === field);
-    return inference?.confidence ?? null;
-  };
-
-  // Get type with confidence threshold check: treat missing/low confidence as unreliable
-  const typeInferenceValue = getFieldValue('type');
-  const typeConfidence = getFieldConfidence('type');
-  const hasHighConfidenceType = typeConfidence !== null && typeConfidence >= 0.7;
-  // Use high-confidence type only; low confidence uses neutral 'other' (never memory.memoryType,
-  // which is the same untrusted source as the low-confidence inference). This ensures
-  // generic action labels (Add to Calendar vs Expiry Reminder, Open Location vs Open Map)
-  // don't leak the untrusted classification.
-  const memoryType = hasHighConfidenceType ? typeInferenceValue : 'other';
-
-  const location = getFieldValue('location');
-  const date = getFieldValue('date');
-  const phone = getFieldValue('phone');
-  const serviceArea = getFieldValue('serviceArea');
+  const title = resolved.title?.value ?? memory.title;
+  const location = resolved.location?.value;
+  const date = resolved.date?.value;
+  const phone = resolved.phone?.value;
+  const serviceArea = resolved.serviceArea?.value;
 
   // Field-based actions: these apply across all types based on field presence
   // For date: add "Add to Calendar" unless it's a document (which gets "Expiry Reminder" instead)
-  // isDocumentType uses confidence-gated memoryType, so low-confidence classifications
-  // default to 'other' (neutral) instead of showing "Expiry Reminder"
-  const isDocumentType = memoryType === 'document' || memoryType === 'DOCUMENT';
+  // isDocumentType uses the trusted type only, so low-confidence classifications
+  // stay neutral instead of showing "Expiry Reminder"
+  const isDocumentType = memoryType === 'DOCUMENT';
   if (date && !isDocumentType) {
     actions.push({
       label: 'Add to Calendar',
       kind: 'calendar',
-      payload: { date, title: memory.title },
+      payload: { date, title },
     });
   }
 
   // For location or service area: offer "Open Map" for any type that has a location or service area
   // (events call it "Open Location", places call it "Open Map", but the action is the same)
-  // isEventType uses confidence-gated memoryType, so low-confidence EVENT classifications
-  // default to 'other' and show "Open Map" instead of "Open Location"
+  // isEventType uses the trusted type only, so low-confidence EVENT classifications
+  // show "Open Map" instead of "Open Location"
   // serviceArea enables map actions even when only a coverage area (not a specific venue) is present
   const effectiveLocation = location || serviceArea;
-  const isEventType = memoryType === 'event' || memoryType === 'EVENT';
+  const isEventType = memoryType === 'EVENT';
   if (effectiveLocation) {
     actions.push({
       label: isEventType ? 'Open Location' : 'Open Map',
@@ -87,21 +70,18 @@ export function getActionsForMemory(
     });
   }
 
-  // Type-specific actions: only if classification confidence is high (>= 0.7)
-  // Low-confidence classifications skip type-specific actions, preserving generic field-based actions
-  if (!hasHighConfidenceType) {
+  // Type-specific actions: only for a trusted classification (see hasTrustedType)
+  if (!hasTrustedType) {
     return actions;
   }
 
-  // Type-specific actions (handles both legacy lowercase and new uppercase taxonomy)
+  // Resolved types are always canonical uppercase (the server normalizes legacy values)
   switch (memoryType) {
-    case 'event':
     case 'EVENT':
       // Calendar and location actions already added above
       actions.push({ label: 'Share Event', kind: 'share' });
       break;
 
-    case 'place':
     case 'PLACE':
       // Map action already added above
       actions.push({
@@ -112,7 +92,6 @@ export function getActionsForMemory(
       actions.push({ label: 'Share Place', kind: 'share' });
       break;
 
-    case 'product':
     case 'PRODUCT':
       if (memory.sourceUri) {
         actions.push({
@@ -133,13 +112,11 @@ export function getActionsForMemory(
       });
       break;
 
-    case 'tutorial':
-    case 'article':
     case 'ARTICLE_LEARNING':
       actions.push({
         label: 'Ask About This',
         kind: 'ask',
-        payload: { prefill: `Tell me more about "${memory.title || 'this article'}"` },
+        payload: { prefill: `Tell me more about "${title || 'this article'}"` },
       });
       actions.push({
         label: 'Summarize',
@@ -150,15 +127,12 @@ export function getActionsForMemory(
         kind: 'comingSoon',
         payload: { message: 'Find similar content you saved' },
       });
-      if (memoryType === 'article' || memoryType === 'ARTICLE_LEARNING') {
-        actions.push({
-          label: 'Key Points',
-          kind: 'keyPoints',
-        });
-      }
+      actions.push({
+        label: 'Key Points',
+        kind: 'keyPoints',
+      });
       break;
 
-    case 'document':
     case 'DOCUMENT':
       actions.push({ label: 'Share Copy', kind: 'share' });
       // For documents with date, add "Expiry Reminder" instead of "Add to Calendar"
@@ -166,7 +140,7 @@ export function getActionsForMemory(
         actions.push({
           label: 'Expiry Reminder',
           kind: 'calendar',
-          payload: { date, title: `Expiry: ${memory.title}` },
+          payload: { date, title: `Expiry: ${title}` },
         });
       }
       break;
