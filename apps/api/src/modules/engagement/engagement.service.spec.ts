@@ -1354,4 +1354,173 @@ describe('EngagementService', () => {
       expect(prismaService.userConfirmation.findMany).not.toHaveBeenCalled();
     });
   });
+
+  describe('Resolved Memory: latest AI inference and confirmation precedence', () => {
+    const t1 = new Date('2026-01-01T00:00:00.000Z');
+    const t2 = new Date('2026-02-01T00:00:00.000Z');
+    const t3 = new Date('2026-03-01T00:00:00.000Z');
+    const latestFirst = [{ createdAt: 'desc' }, { id: 'desc' }];
+    const sqlOf = (call: unknown[]) => {
+      const [strings, ...values] = call as [TemplateStringsArray, ...unknown[]];
+      return Prisma.sql(strings, ...values).text.replace(/\s+/g, ' ');
+    };
+
+    it('Near Me summary LATERAL breaks createdAt ties by id', async () => {
+      jest.spyOn(prismaService, '$queryRaw').mockResolvedValue([]);
+      await service.getNearMe('user-123', 51.5, -0.12, 5);
+
+      const text = sqlOf((prismaService.$queryRaw as jest.Mock).mock.calls[0]);
+      expect(text).toContain(`ORDER BY ai."createdAt" DESC, ai."id" DESC LIMIT 1`);
+    });
+
+    it('Near Me title uses the latest AI title even when rows arrive oldest-first', async () => {
+      jest.spyOn(prismaService, '$queryRaw').mockResolvedValue([
+        { id: 'mem-1', title: 'Raw', summary: 'S', sourceUri: null, distance: 0, createdAt: t1 },
+      ] as any);
+      jest.spyOn(prismaService.aIInference, 'findMany').mockResolvedValue([
+        { id: 'a', memoryId: 'mem-1', field: 'title', valueJson: 'Title A', createdAt: t1 },
+        { id: 'b', memoryId: 'mem-1', field: 'title', valueJson: 'Title B', createdAt: t2 },
+      ] as any);
+      jest.spyOn(prismaService.userConfirmation, 'findMany').mockResolvedValue([] as any);
+
+      const result = await service.getNearMe('user-123', 51.5, -0.12, 5);
+
+      expect(result[0].title).toBe('Title B');
+    });
+
+    it('Calendar date LATERAL breaks createdAt ties by id and title/type include is ordered latest-first', async () => {
+      jest.spyOn(prismaService, '$queryRaw').mockResolvedValue([
+        { id: 'mem-1', title: 'Raw', effective_date: '2026-09-15' },
+      ] as any);
+      jest.spyOn(prismaService.memory, 'findMany').mockResolvedValue([] as any);
+
+      await service.getCalendarMonth('user-123', '2026-09');
+
+      const text = sqlOf((prismaService.$queryRaw as jest.Mock).mock.calls[0]);
+      expect(text).toContain(`WHERE "memoryId" = m."id" AND "field" = 'date' ORDER BY "createdAt" DESC, "id" DESC LIMIT 1`);
+      expect(prismaService.memory.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          include: expect.objectContaining({
+            aiInferences: { where: { field: { in: ['title', 'type'] } }, orderBy: latestFirst },
+          }),
+        }),
+      );
+    });
+
+    it('Calendar title: reprocess A → B returns B, and a confirmation stays effective after a later AI title', async () => {
+      jest.spyOn(prismaService, '$queryRaw').mockResolvedValue([
+        { id: 'mem-1', title: 'Raw 1', effective_date: '2026-09-15' },
+        { id: 'mem-2', title: 'Raw 2', effective_date: '2026-09-16' },
+      ] as any);
+      jest.spyOn(prismaService.memory, 'findMany').mockResolvedValue([
+        {
+          id: 'mem-1',
+          title: 'Raw 1',
+          aiInferences: [
+            { id: 'a', field: 'title', valueJson: 'A', createdAt: t1 },
+            { id: 'b', field: 'title', valueJson: 'B', createdAt: t2 },
+          ],
+          userConfirmations: [],
+        },
+        {
+          id: 'mem-2',
+          title: 'Raw 2',
+          aiInferences: [{ id: 'c', field: 'title', valueJson: 'Later AI', createdAt: t3 }],
+          userConfirmations: [{ field: 'title', confirmedValue: 'Confirmed', createdAt: t2 }],
+        },
+      ] as any);
+
+      const result = await service.getCalendarMonth('user-123', '2026-09');
+
+      expect(result.items.map((item) => item.title)).toEqual(['B', 'Confirmed']);
+    });
+
+    it('Calendar keeps its existing type precedence (confirmation, then first inference of the ordered include)', async () => {
+      jest.spyOn(prismaService, '$queryRaw').mockResolvedValue([
+        { id: 'mem-1', title: 'Raw', effective_date: '2026-09-15' },
+      ] as any);
+      jest.spyOn(prismaService.memory, 'findMany').mockResolvedValue([
+        {
+          id: 'mem-1',
+          title: 'Raw',
+          aiInferences: [{ id: 'a', field: 'type', valueJson: 'EVENT', createdAt: t1 }],
+          userConfirmations: [{ field: 'type', confirmedValue: 'PLACE' }],
+        },
+      ] as any);
+
+      const result = await service.getCalendarMonth('user-123', '2026-09');
+
+      expect(result.items[0].type).toBe('PLACE');
+    });
+
+    it('Upcoming orders the inference include latest-first and resolves the latest date and title', async () => {
+      const soon = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString();
+      const stale = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString();
+      jest.spyOn(prismaService.memory, 'findMany').mockResolvedValue([
+        {
+          id: 'mem-1',
+          title: 'Raw',
+          aiInferences: [
+            { id: 'a', field: 'date', valueJson: stale, createdAt: t1 },
+            { id: 'b', field: 'title', valueJson: 'Old AI', createdAt: t1 },
+            { id: 'c', field: 'date', valueJson: soon, createdAt: t2 },
+            { id: 'd', field: 'title', valueJson: 'New AI', createdAt: t2 },
+          ],
+          userConfirmations: [],
+        },
+      ] as any);
+
+      const result = await service.getUpcoming('user-123');
+
+      expect(prismaService.memory.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { userId: 'user-123', lifecycleState: 'active', securityScope: { not: 'vault' } },
+          include: {
+            aiInferences: { where: { field: { in: ['date', 'title'] } }, orderBy: latestFirst },
+            userConfirmations: { where: { field: { in: ['date', 'title'] } } },
+          },
+        }),
+      );
+      expect(result).toHaveLength(1);
+      expect(result[0].title).toBe('New AI');
+      expect(result[0].date).toBe(soon);
+    });
+
+    it('Upcoming: blank confirmations fall through; a confirmation beats a newer AI value', async () => {
+      const aiDate = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
+      const confirmedDate = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString();
+      jest.spyOn(prismaService.memory, 'findMany').mockResolvedValue([
+        {
+          id: 'mem-1',
+          title: 'Raw',
+          aiInferences: [
+            { id: 'a', field: 'date', valueJson: aiDate, createdAt: t3 },
+            { id: 'b', field: 'title', valueJson: 'AI Title', createdAt: t3 },
+          ],
+          userConfirmations: [
+            { field: 'date', confirmedValue: confirmedDate, createdAt: t1 },
+            { field: 'title', confirmedValue: '   ', createdAt: t1 },
+          ],
+        },
+      ] as any);
+
+      const result = await service.getUpcoming('user-123');
+
+      expect(result[0].date).toBe(confirmedDate);
+      expect(result[0].title).toBe('AI Title');
+    });
+
+    it('For You and Continue order their inference includes latest-first', async () => {
+      jest.spyOn(prismaService.memory, 'findMany').mockResolvedValue([] as any);
+
+      await service.getForYouSuggestions('user-123');
+      await service.getContinueSuggestions('user-123');
+
+      const calls = (prismaService.memory.findMany as jest.Mock).mock.calls;
+      expect(calls[0][0].where).toEqual(expect.objectContaining({ userId: 'user-123', securityScope: { not: 'vault' } }));
+      expect(calls[0][0].include.aiInferences).toEqual({ where: { field: 'category' }, orderBy: latestFirst });
+      expect(calls[1][0].where).toEqual(expect.objectContaining({ userId: 'user-123', securityScope: { not: 'vault' } }));
+      expect(calls[1][0].include.aiInferences).toEqual({ where: { field: 'topics' }, orderBy: latestFirst });
+    });
+  });
 });

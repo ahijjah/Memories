@@ -665,4 +665,112 @@ describe('MemoryService', () => {
       expect(calls[1]).toContain('FROM "embeddings" e');
     });
   });
+
+  describe('Resolved Memory: deterministic inference order and latest-wins resolution', () => {
+    const t1 = new Date('2026-01-01T00:00:00.000Z');
+    const t2 = new Date('2026-02-01T00:00:00.000Z');
+    const latestFirst = [{ createdAt: 'desc' }, { id: 'desc' }];
+
+    it('Detail orders aiInferences latest-first and still hides Vault content', async () => {
+      prismaMock.memory.findUnique.mockResolvedValueOnce({
+        id: 'mem-1',
+        userId: 'user-1',
+        securityScope: 'private',
+        assets: [],
+        aiInferences: [],
+        userConfirmations: [],
+      });
+      prismaMock.memory.update.mockResolvedValue({});
+
+      await service.findOneForUser('user-1', 'mem-1');
+
+      expect(prismaMock.memory.findUnique).toHaveBeenCalledWith({
+        where: { id: 'mem-1' },
+        include: { assets: true, aiInferences: { orderBy: latestFirst }, userConfirmations: true },
+      });
+
+      prismaMock.memory.findUnique.mockResolvedValueOnce({
+        id: 'vault-1',
+        userId: 'user-1',
+        securityScope: 'vault',
+        assets: [],
+        aiInferences: [],
+        userConfirmations: [],
+      });
+      await expect(service.findOneForUser('user-1', 'vault-1')).rejects.toThrow(NotFoundException);
+    });
+
+    it('list keeps user/Vault scoping and orders its filtered inference include latest-first', async () => {
+      prismaMock.memory.findMany.mockResolvedValueOnce([]);
+
+      await service.findAllForUser('user-1');
+
+      expect(prismaMock.memory.findMany).toHaveBeenCalledWith({
+        where: {
+          userId: 'user-1',
+          lifecycleState: { notIn: ['deleted', 'deleted_pending'] },
+          securityScope: { not: 'vault' },
+        },
+        include: {
+          assets: true,
+          aiInferences: {
+            where: { field: { in: ['date', 'location', 'price', 'category'] } },
+            orderBy: latestFirst,
+          },
+        },
+        orderBy: { capturedAt: 'desc' },
+      });
+    });
+
+    it('Related titles use the latest AI title when rows arrive oldest-first (reprocess A → B)', async () => {
+      prismaMock.memory.findUnique.mockResolvedValueOnce({
+        id: 'source-mem',
+        userId: 'user-1',
+        title: 'Source',
+        securityScope: 'private',
+        lifecycleState: 'active',
+        assets: [],
+        aiInferences: [],
+        userConfirmations: [],
+      });
+      (prismaMock.$queryRaw as jest.Mock)
+        .mockResolvedValueOnce([{ vector: [0.1, 0.2] }])
+        .mockResolvedValueOnce([
+          { id: 'cand-mem', title: 'Raw', memoryType: 'url', capturedAt: t1, securityScope: 'private', distance: 0.3 },
+        ]);
+      (prismaMock.aIInference.findMany as jest.Mock).mockResolvedValueOnce([
+        { id: 'a', memoryId: 'cand-mem', field: 'title', valueJson: 'A', createdAt: t1 },
+        { id: 'b', memoryId: 'cand-mem', field: 'title', valueJson: 'B', createdAt: t2 },
+      ]);
+      (prismaMock.userConfirmation.findMany as jest.Mock).mockResolvedValueOnce([]);
+      (prismaMock.memory.findMany as jest.Mock).mockResolvedValueOnce([{ id: 'cand-mem', assets: [] }]);
+
+      const result = await service.findRelatedForUser('user-1', 'source-mem', 5);
+
+      expect(result[0].title).toBe('B');
+    });
+
+    it('Compare resolves confirmation > latest AI per field', async () => {
+      const memory = (id: string) => ({
+        id,
+        userId: 'user-1',
+        title: `Raw ${id}`,
+        securityScope: 'private',
+        aiInferences: [
+          { id: `${id}-p1`, field: 'price', valueJson: '$10', createdAt: t1 },
+          { id: `${id}-p2`, field: 'price', valueJson: '$12', createdAt: t2 },
+          { id: `${id}-b1`, field: 'brand', valueJson: 'AI Brand', createdAt: t2 },
+        ],
+        userConfirmations: [{ field: 'brand', confirmedValue: 'User Brand' }],
+      });
+      prismaMock.memory.findUnique.mockImplementation(({ where }: { where: { id: string } }) =>
+        Promise.resolve(memory(where.id)),
+      );
+
+      await service.compareMemories('user-1', ['m1', 'm2']);
+
+      expect(mockCompareProductsInput.products[0]).toMatchObject({ price: '$12', brand: 'User Brand' });
+      prismaMock.memory.findUnique.mockReset();
+    });
+  });
 });

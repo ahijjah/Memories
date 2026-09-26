@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { FieldEncryptionService } from '../../common/crypto/field-encryption.service';
 import { isSensitiveField } from '../../common/crypto/sensitive-fields';
+import { LATEST_AI_INFERENCE_ORDER } from '../../common/resolve-memory-field.util';
 import { AssetsService } from '../assets/assets.service';
 import { MemoryDeletionQueueService } from '../memory/deletion-queue.service';
 
@@ -58,7 +59,11 @@ export class VaultService {
   async findOneForUser(userId: string, id: string) {
     const memory = await this.prisma.memory.findUnique({
       where: { id },
-      include: { assets: true, aiInferences: true, userConfirmations: true },
+      include: {
+        assets: true,
+        aiInferences: { orderBy: LATEST_AI_INFERENCE_ORDER },
+        userConfirmations: true,
+      },
     });
     if (!memory) throw new NotFoundException('Memory not found');
     this.assertOwnership(memory.userId, userId);

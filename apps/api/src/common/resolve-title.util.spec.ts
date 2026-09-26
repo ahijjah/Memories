@@ -191,3 +191,33 @@ describe('resolveTitleFromFields', () => {
     expect(result).toBe('Raw Title');
   });
 });
+
+describe('resolveTitleFromFields: reprocessing (Resolved Memory)', () => {
+  const t1 = new Date('2026-01-01T00:00:00.000Z');
+  const t2 = new Date('2026-02-01T00:00:00.000Z');
+
+  it('returns the latest AI title after reprocessing A → B, whatever the row order', () => {
+    const a = { id: 'a', field: 'title', valueJson: 'A', createdAt: t1 };
+    const b = { id: 'b', field: 'title', valueJson: 'B', createdAt: t2 };
+    expect(resolveTitleFromFields('Raw', [a, b], [])).toBe('B');
+    expect(resolveTitleFromFields('Raw', [b, a], [])).toBe('B');
+  });
+
+  it('keeps a confirmation C effective after a later AI title B', () => {
+    const result = resolveTitleFromFields(
+      'Raw',
+      [
+        { id: 'a', field: 'title', valueJson: 'A', createdAt: t1 },
+        { id: 'b', field: 'title', valueJson: 'B', createdAt: t2 },
+      ],
+      [{ field: 'title', confirmedValue: 'C', createdAt: t1 }],
+    );
+    expect(result).toBe('C');
+  });
+
+  it('treats whitespace-only confirmation and AI titles as absent', () => {
+    expect(
+      resolveTitleFromFields('Raw', [{ field: 'title', valueJson: '  ' }], [{ field: 'title', confirmedValue: ' ' }]),
+    ).toBe('Raw');
+  });
+});

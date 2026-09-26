@@ -81,4 +81,18 @@ describe('SearchService', () => {
 
     expect(results).toEqual(mockResults);
   });
+
+  it('resolves the latest AI title when inference rows arrive oldest-first (reprocess A → B)', async () => {
+    jest.spyOn(prismaService, '$queryRaw').mockResolvedValue([
+      { id: 'memory-1', title: 'Raw', summary: null, sourceUri: null, distance: 0.1, createdAt: new Date() },
+    ]);
+    (prismaService.aIInference.findMany as jest.Mock).mockResolvedValue([
+      { id: 'a', memoryId: 'memory-1', field: 'title', valueJson: 'A', createdAt: new Date('2026-01-01T00:00:00Z') },
+      { id: 'b', memoryId: 'memory-1', field: 'title', valueJson: 'B', createdAt: new Date('2026-02-01T00:00:00Z') },
+    ]);
+
+    const results = await service.search('user-1', 'query');
+
+    expect(results[0].title).toBe('B');
+  });
 });
