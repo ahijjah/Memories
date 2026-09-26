@@ -72,7 +72,19 @@ jest.mock('@/src/components/memory-cards/DocumentCard', () => ({ DocumentCard: '
 
 type Inference = [field: string, value: any, confidence?: number];
 
+// The server resolves each field (PR2); fixtures mirror that as AI-sourced values, with legacy
+// type names normalized to the canonical taxonomy the way the API does.
+const CANONICAL_TYPE: Record<string, string> = { event: 'EVENT', place: 'PLACE', product: 'PRODUCT', article: 'ARTICLE_LEARNING' };
+const resolvedFrom = (inferences: Inference[]) =>
+  Object.fromEntries(
+    inferences.map(([field, value, confidence = 0.95]) => [
+      field,
+      { value: field === 'type' ? CANONICAL_TYPE[value] ?? value : value, source: 'ai', confidence },
+    ]),
+  ) as client.Memory['resolved'];
+
 const buildMemory = (overrides: Partial<client.Memory> = {}, inferences: Inference[] = []): client.Memory => ({
+  resolved: resolvedFrom(inferences),
   id: 'mem-1',
   userId: 'user-1',
   sourceType: 'text',
@@ -377,5 +389,114 @@ describe('Memory Detail action hierarchy', () => {
       expect(mockRouter.back).not.toHaveBeenCalled();
       expect(mockRouter.replace).toHaveBeenCalledWith('/(tabs)/');
     });
+  });
+});
+
+describe('Memory Detail resolved adoption (PR3)', () => {
+  const card = (s: Awaited<ReturnType<typeof renderScreen>>, type: string) => s.root.findByType(type as any).props;
+  const view = (value: unknown, source: 'user' | 'ai' | 'original', confidence: number | null) => ({
+    value,
+    source,
+    confidence,
+  });
+  const eventMemory = (overrides: Partial<client.Memory> = {}) =>
+    buildMemory({
+      memoryType: 'place',
+      title: 'https://example.com/raw',
+      aiInferences: [
+        { id: 'a', memoryId: 'mem-1', field: 'date', valueJson: '1999-01-01', confidence: 0.99, modelVersion: 't', createdAt: '2026-09-01T10:00:00Z' },
+        { id: 'b', memoryId: 'mem-1', field: 'location', valueJson: 'Raw Hall', confidence: 0.99, modelVersion: 't', createdAt: '2026-09-01T10:00:00Z' },
+        { id: 'c', memoryId: 'mem-1', field: 'type', valueJson: 'PLACE', confidence: 0.99, modelVersion: 't', createdAt: '2026-09-01T10:00:00Z' },
+      ],
+      userConfirmations: [
+        { id: 'uc', memoryId: 'mem-1', userId: 'user-1', field: 'location', confirmedValue: 'Raw Confirmed', createdAt: '2026-09-01T10:00:00Z' },
+      ],
+      resolved: {
+        title: view('Jazz Night', 'ai', 0.9) as any,
+        type: view('EVENT', 'ai', 0.9) as any,
+        date: view('2026-10-02', 'user', null) as any,
+        summary: view('An evening of jazz', 'ai', 0.55) as any,
+      },
+      ...overrides,
+    });
+
+  it('renders resolved values and type, not conflicting raw inferences, confirmations or memoryType', async () => {
+    const s = await renderScreen(eventMemory());
+
+    expect(s.root.findAllByType('PlaceCard' as any)).toHaveLength(0);
+    const props = card(s, 'EventCard');
+    expect(props.aiDate).toBe('2026-10-02');
+    expect(props.aiSummary).toBe('An evening of jazz');
+    // location exists only in raw data: resolved omits it, so it is unresolved
+    expect(props.aiLocation).toBeNull();
+    expect(card(s, 'CardHeader').title).toBe('Jazz Night');
+  });
+
+  it('is independent of raw inference order', async () => {
+    const memory = eventMemory();
+    const reversed = { ...memory, aiInferences: [...(memory.aiInferences ?? [])].reverse() };
+    const first = card(await renderScreen(memory), 'EventCard');
+    const second = card(await renderScreen(reversed), 'EventCard');
+    expect(second.aiDate).toBe(first.aiDate);
+  });
+
+  it('derives confirmed state and confidence from resolved source/confidence', async () => {
+    const confirmed = card(await renderScreen(eventMemory()), 'EventCard');
+    expect(confirmed.isDateConfirmed).toBe(true);
+    expect(confirmed.dateConfidence).toBeNull();
+
+    const lowConfidence = card(
+      await renderScreen(eventMemory({ resolved: { type: view('EVENT', 'ai', 0.9) as any, date: view('2026-10-02', 'ai', 0.4) as any } })),
+      'EventCard',
+    );
+    expect(lowConfidence.isDateConfirmed).toBe(false);
+    expect(lowConfidence.dateConfidence).toBe(0.4);
+  });
+
+  it('falls back to the raw title only when resolved.title is missing', async () => {
+    const s = await renderScreen(eventMemory({ resolved: { type: view('EVENT', 'ai', 0.9) as any } }));
+    expect(card(s, 'CardHeader').title).toBe('https://example.com/raw');
+  });
+
+  it('renders generic when resolved.type is missing, ignoring raw memoryType', async () => {
+    const s = await renderScreen(buildMemory({ memoryType: 'event', resolved: {} }));
+    expect(s.root.findAllByType('GenericCard' as any)).toHaveLength(1);
+    expect(s.root.findAllByType('EventCard' as any)).toHaveLength(0);
+  });
+
+  it('passes resolved (server-decrypted) sensitive fields to DocumentCard', async () => {
+    const s = await renderScreen(
+      buildMemory({
+        resolved: {
+          type: view('DOCUMENT', 'ai', 0.9) as any,
+          documentNumber: view('P1234567', 'ai', 0.8) as any,
+          owner: view('Jane Doe', 'user', null) as any,
+        },
+      }),
+    );
+    const props = card(s, 'DocumentCard');
+    expect(props.aiDocumentNumber).toBe('P1234567');
+    expect(props.aiOwner).toBe('Jane Doe');
+    expect(props.fieldConfirmations.owner).toBe(true);
+    expect(props.aiIssuer).toBeNull();
+  });
+
+  it('no longer shows the raw "AI inferences available" text', async () => {
+    const s = await renderScreen(buildMemory({ resolved: {} }, [['category', 'x']]));
+    expect(textOf(s.root)).not.toContain('AI inferences available');
+  });
+
+  it('after a confirmation, refetches Detail and invalidates the Memories list', async () => {
+    const s = await renderScreen(eventMemory());
+    const invalidate = jest.spyOn(s.queryClient, 'invalidateQueries');
+    const fetchesBefore = (client.fetchMemoryDetail as jest.Mock).mock.calls.length;
+
+    await act(async () => {
+      card(s, 'EventCard').onConfirmed();
+    });
+    await flush();
+
+    expect((client.fetchMemoryDetail as jest.Mock).mock.calls.length).toBeGreaterThan(fetchesBefore);
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['memories'] });
   });
 });

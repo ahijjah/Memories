@@ -6,7 +6,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import * as ImagePicker from 'expo-image-picker';
 import * as Calendar from 'expo-calendar/legacy';
 
-import { getVaultMemoryDetail, unlockMemory, AIInference, reprocessMemory, deleteVaultMemory, listPeople, assignPersonToMemory, unassignPersonFromMemory, Person, confirmVaultField, getVaultProcessingStatus, ProcessingStatus } from '@/src/api/client';
+import { getVaultMemoryDetail, unlockMemory, reprocessMemory, deleteVaultMemory, listPeople, assignPersonToMemory, unassignPersonFromMemory, Person, confirmVaultField, getVaultProcessingStatus, ProcessingStatus } from '@/src/api/client';
+import type { ResolvedMemoryField } from '@/src/api/resolved';
 import { getActionsForMemory, MemoryAction } from '@/src/utils/memory-actions';
 import { uploadPhotoToExistingMemory } from '@/src/utils/photo-upload';
 import { CardHeader } from '@/src/components/memory-cards/CardHeader';
@@ -203,29 +204,21 @@ export default function VaultDetailScreen() {
     },
   });
 
-  const getAIInferencesByField = (field: string): AIInference[] => {
-    return memory?.aiInferences?.filter((inf) => inf.field === field) || [];
-  };
+  // Structured fields come only from the server-resolved contract (ADR-003), which the Vault
+  // endpoint builds after decrypting sensitive fields. A missing key means unresolved; raw
+  // aiInferences/userConfirmations are never consulted for these values.
+  const getFieldValue = (field: ResolvedMemoryField): any => memory?.resolved?.[field]?.value ?? null;
 
-  const getFieldValue = (field: string): any => {
-    // Check userConfirmations first (spec §6 precedence rule)
-    const confirmation = memory?.userConfirmations?.find((uc) => uc.field === field);
-    if (confirmation) return confirmation.confirmedValue;
+  const getFieldConfidence = (field: ResolvedMemoryField): number | null =>
+    memory?.resolved?.[field]?.confidence ?? null;
 
-    const inferences = getAIInferencesByField(field);
-    if (inferences.length === 0) return null;
-    return inferences[0].valueJson;
-  };
+  const isFieldConfirmed = (field: ResolvedMemoryField): boolean =>
+    memory?.resolved?.[field]?.source === 'user';
 
-  const getFieldConfidence = (field: string): number | null => {
-    const inferences = getAIInferencesByField(field);
-    if (inferences.length === 0) return null;
-    return inferences[0].confidence;
-  };
-
-  const isFieldConfirmed = (field: string): boolean => {
-    return memory?.userConfirmations?.some((uc) => uc.field === field) || false;
-  };
+  // Notes are user-authored Vault state, deliberately outside the resolved contract: read the raw
+  // confirmation as before.
+  const getVaultNotes = (): string | null =>
+    memory?.userConfirmations?.find((uc) => uc.field === 'notes')?.confirmedValue ?? null;
 
   const handleOpenURL = async (url: string) => {
     try {
@@ -525,7 +518,8 @@ export default function VaultDetailScreen() {
     );
   }
 
-  const aiTitle = getFieldValue('title');
+  const displayTitle = memory.resolved?.title?.value ?? memory.title;
+  const vaultActions = getActionsForMemory(memory);
   const aiSummary = getFieldValue('summary');
   const aiTopics = getFieldValue('topics');
   const aiIntent = getFieldValue('intent');
@@ -547,7 +541,7 @@ export default function VaultDetailScreen() {
   // Check if banner should show: URL-sourced event with no date and no existing assets (vault memories are excluded since reprocessing is blocked for vault content)
   const shouldShowPhotoPrompt = memory
     && memory.sourceType === 'url'
-    && memory.memoryType === 'event'
+    && memory.resolved?.type?.value === 'EVENT'
     && !aiDate
     && (!memory.assets || memory.assets.length === 0)
     && memory.securityScope !== 'vault';
@@ -668,15 +662,15 @@ export default function VaultDetailScreen() {
             <Text className="text-sm text-purple-700 font-semibold">Notes</Text>
             <TouchableOpacity
               onPress={() => {
-                setNotesText(getFieldValue('notes') || '');
+                setNotesText(getVaultNotes() || '');
                 setShowNotesModal(true);
               }}
             >
               <Text className="text-blue-600 font-semibold text-sm">Edit</Text>
             </TouchableOpacity>
           </View>
-          {getFieldValue('notes') ? (
-            <Text className="text-base text-gray-700">{getFieldValue('notes')}</Text>
+          {getVaultNotes() ? (
+            <Text className="text-base text-gray-700">{getVaultNotes()}</Text>
           ) : (
             <Text className="text-sm text-gray-500 italic">No notes yet. Add some context about this document.</Text>
           )}
@@ -753,7 +747,7 @@ export default function VaultDetailScreen() {
           </View>
         )}
 
-        <CardHeader title={aiTitle ? aiTitle : memory.title} />
+        <CardHeader title={displayTitle} />
 
         {/* Card Display — type-specific layout */}
         <CardIdentity memory={memory} onOpenURL={handleOpenURL} />
@@ -957,9 +951,9 @@ export default function VaultDetailScreen() {
         {/* Memory Actions */}
         {memory && (
           <View className="mb-6">
-            {getActionsForMemory(memory, memory.aiInferences).length > 0 && (
+            {vaultActions.length > 0 && (
               <View className="mb-4">
-                {getActionsForMemory(memory, memory.aiInferences).map((action, idx) => (
+                {vaultActions.map((action, idx) => (
                   <TouchableOpacity
                     key={idx}
                     onPress={() => handleActionPress(action)}

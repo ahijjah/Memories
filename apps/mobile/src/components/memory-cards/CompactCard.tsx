@@ -70,7 +70,9 @@ const getTypeLabel = (cardType: string): string => {
   }
 };
 
-const getSnippetField = (cardType: string): string | null => {
+type SnippetField = 'date' | 'price' | 'location';
+
+const getSnippetField = (cardType: string): SnippetField | null => {
   switch (cardType) {
     case 'event':
     case 'offer':
@@ -85,7 +87,11 @@ const getSnippetField = (cardType: string): string | null => {
   };
 };
 
-const getFieldValue = (memory: Memory, field: string): any => {
+const getFieldValue = (memory: Memory, field: SnippetField): any => {
+  // GET /memories returns a resolved preview, which is authoritative: a missing key is unresolved.
+  if (memory.resolved) return memory.resolved[field]?.value ?? null;
+
+  // Legacy path for Memory-shaped responses without `resolved` (Collections, Vault list, Workspaces).
   if (!memory.aiInferences) return null;
   const inference = memory.aiInferences.find((inf) => inf.field === field);
   return inference ? inference.valueJson : null;
@@ -150,7 +156,8 @@ export function CompactCard({ memory }: CompactCardProps) {
   const snippetValue = snippetField ? getFieldValue(memory, snippetField) : null;
   const processingStateColor = getProcessingStateColor(memory.processingState);
 
-  const displayTitle = memory.title || `${memory.sourceType} Memory`;
+  const title = memory.resolved ? memory.resolved.title?.value : memory.title;
+  const displayTitle = title || `${memory.sourceType} Memory`;
   const formattedTimestamp = formatTimestamp(memory.capturedAt);
 
   // Get first image asset with URL for thumbnail
