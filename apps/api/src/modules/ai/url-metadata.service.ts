@@ -116,7 +116,7 @@ export class UrlMetadataService {
           canonicalUrl: signals.canonicalUrl,
           markers: signals.markers,
         };
-        facebookSignals = describeFacebookPageSignals(pageSignals);
+        facebookSignals = describeFacebookPageSignals(pageSignals, urlString);
         const decision = evaluateFacebookPageTrust(pageSignals);
         if (!decision.trusted) {
           facebookReason = decision.reason;

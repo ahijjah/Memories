@@ -570,8 +570,51 @@ describe('AiProcessor - URL page trust and evidence boundary', () => {
       expect(updateCallsWith('failed')).toHaveLength(0);
       expect(debug).toHaveBeenCalledWith(
         'metadata fetch host=www.facebook.com final_host=www.facebook.com redirects=1 result=rejected reason=FACEBOOK_DENY_BY_DEFAULT ' +
-          'fb_final=ITEM fb_canonical=ITEM fb_og=ITEM markers=none title_generic=false desc_generic=false',
+          'fb_final=ITEM fb_canonical=ITEM fb_og=ITEM markers=none title_generic=false desc_generic=false ' +
+          // The /share/ source names no item, so a self-consistent final/canonical/og is only PARTIAL.
+          'fb_id_src=wrapper fb_id_final=item fb_id_canon=item fb_id_og=item fb_kind_src=na fb_kind_final=post fb_kind_canon=post fb_kind_og=post fb_idform_src=na fb_idform_final=numeric fb_idform_canon=numeric fb_idform_og=numeric fb_m_src_final=na fb_m_src_canon=na fb_m_final_canon=eq fb_m_final_og=eq fb_m_canon_og=eq fb_corr=PARTIAL',
       );
+    });
+
+    // PR-FB-A: correspondence diagnostics are log-only. Even the strongest possible identity
+    // correspondence (the shared URL itself names the item, and final = canonical = og:url)
+    // must not change processing.
+    it('STRONG direct-item Facebook source is still denied: partial, no og:image, no Vision, no understand', async () => {
+      const debug = jest.spyOn(Logger.prototype, 'debug').mockImplementation(() => undefined);
+      prisma.memory.findUnique.mockResolvedValue(urlMemory({ title: ITEM, sourceUri: ITEM }));
+      fetchSpy.mockResolvedValueOnce(itemPage(TITLE_68));
+
+      await expect(processor.process(job('mem-fb'))).resolves.toBeUndefined();
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1); // the page only; no og:image request
+      expect(imageFetch).not.toHaveBeenCalled();
+      expect(provider.understand).not.toHaveBeenCalled();
+      expect(embedding.embed).not.toHaveBeenCalled();
+      expectAtomicPartialCleanup('mem-fb');
+      expect(updateCallsWith('understood')).toHaveLength(0);
+      const fetchLine = debug.mock.calls.map((call) => String(call[0])).find((line) => line.startsWith('metadata fetch'));
+      expect(fetchLine).toContain('reason=FACEBOOK_DENY_BY_DEFAULT');
+      expect(fetchLine).toContain('fb_corr=STRONG');
+    });
+
+    it('STRONG direct-item Facebook source + user asset: only the user asset reaches understand', async () => {
+      prisma.memory.findUnique.mockResolvedValue(urlMemory({ title: ITEM, sourceUri: ITEM }));
+      prisma.memoryAsset.findMany.mockResolvedValue([
+        { id: 'asset-1', memoryId: 'mem-fb', objectKey: 'user-1/uploads/photo.png', mimeType: 'image/png', pageIndex: 0 },
+      ]);
+      jest
+        .spyOn(processor as any, 'fetchImageAsBase64')
+        .mockResolvedValue({ base64: 'USER-UPLOADED-BYTES', mediaType: 'image/png' });
+      fetchSpy.mockResolvedValueOnce(itemPage(TITLE_68));
+
+      await processor.process(job('mem-fb'));
+
+      expect(imageFetch).not.toHaveBeenCalled();
+      expect(provider.understand).toHaveBeenCalledTimes(1);
+      const input = provider.understand.mock.calls[0][0];
+      expect(input.images).toEqual([{ base64: 'USER-UPLOADED-BYTES', mediaType: 'image/png' }]);
+      expect(JSON.stringify(input)).not.toMatch(/SENTINELTITLE|SENTINELDESC|SENTINELIMAGE|SENTINELJSONLD/);
+      expect(updateCallsWith('understood')[0][0].data.ogImageUrl).toBeNull();
     });
 
     it('Facebook ITEM page without og:image is denied (partial, no understand)', async () => {
