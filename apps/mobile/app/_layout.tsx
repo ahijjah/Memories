@@ -3,6 +3,8 @@ import { ClerkProvider, useAuth } from "@clerk/clerk-expo";
 import * as SecureStore from 'expo-secure-store';
 import { Stack } from 'expo-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { useEffect } from 'react';
+import { logShareDiag } from '@/src/diagnostics/share-diag';
 
 const tokenCache = {
   async getToken(key: string) {
@@ -66,6 +68,11 @@ export const SIGNED_OUT_ROOT_ROUTES = ['(auth)'] as const;
 
 export function RootLayoutNav() {
   const { isLoaded, isSignedIn } = useAuth();
+
+  // Diagnostic only (share ingestion): logs auth-gate transitions as booleans, no identity.
+  useEffect(() => {
+    logShareDiag({ event: 'root_auth_state', clerkLoaded: isLoaded === true, signedIn: isSignedIn === true });
+  }, [isLoaded, isSignedIn]);
 
   // Don't register either route group until Clerk knows the auth state. An initial route that
   // can't be shown yet (e.g. a share or deep link) is kept and restored once it is registered.
