@@ -223,6 +223,21 @@ export default function MemoryDetailScreen() {
     },
   });
 
+  // When processing leaves queued/processing, the Memory now has its AI results (the server commits
+  // them atomically with the new state), so load them once and refresh the list preview. Only a
+  // transition observed on this screen triggers it: an already-finished Memory on mount does not.
+  const previousProcessingState = useRef<ProcessingStatus['processingState'] | undefined>(undefined);
+  useEffect(() => {
+    if (!processingStatus) return;
+    const isActive = (state?: ProcessingStatus['processingState']) => state === 'queued' || state === 'processing';
+    const previous = previousProcessingState.current;
+    previousProcessingState.current = processingStatus.processingState;
+    if (isActive(previous) && !isActive(processingStatus.processingState)) {
+      refetch();
+      queryClient.invalidateQueries({ queryKey: ['memories'] });
+    }
+  }, [processingStatus, refetch, queryClient]);
+
   // Stop polling once processing is complete
   useEffect(() => {
     if (!processingStatus) return;
