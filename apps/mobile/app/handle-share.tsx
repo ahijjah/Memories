@@ -6,17 +6,30 @@ import { useIncomingShare, type ResolvedSharePayload } from 'expo-sharing';
 import { v4 as uuidv4 } from 'uuid';
 import { createMemory } from '@/src/api/client';
 import { uploadPhotoToMemory } from '@/src/utils/photo-upload';
+import { logShareDiag } from '@/src/diagnostics/share-diag';
 
 type ProcessingState = 'loading' | 'processing' | 'success' | 'error';
 
 export default function HandleShareScreen() {
   const { getToken } = useAuth();
   const router = useRouter();
-  const { resolvedSharedPayloads, isResolving, error, clearSharedPayloads } = useIncomingShare();
+  const { sharedPayloads, resolvedSharedPayloads, isResolving, error, clearSharedPayloads } = useIncomingShare();
 
   const [state, setState] = useState<ProcessingState>('loading');
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [memoryId, setMemoryId] = useState<string>('');
+
+  // Diagnostics only (share ingestion): mount and hook-state transitions as booleans and counts.
+  // Never the payloads, their values or the error message.
+  useEffect(() => {
+    logShareDiag({ event: 'handle_share_mount' });
+  }, []);
+
+  const sharedCount = sharedPayloads?.length ?? 0;
+  const resolvedCount = resolvedSharedPayloads?.length ?? 0;
+  useEffect(() => {
+    logShareDiag({ event: 'share_hook_state', isResolving, hasError: !!error, sharedCount, resolvedCount });
+  }, [isResolving, error, sharedCount, resolvedCount]);
 
   useEffect(() => {
     if (isResolving) {
