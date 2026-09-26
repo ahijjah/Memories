@@ -35,7 +35,13 @@ describe('AssetsService', () => {
           provide: PrismaService,
           useValue: {
             memory: {
-              findUnique: jest.fn().mockResolvedValue({ id: 'mem-123', sourceType: 'camera' }),
+              findUnique: jest.fn().mockResolvedValue({
+                id: 'mem-123',
+                userId: 'user-1',
+                sourceType: 'camera',
+                lifecycleState: 'active',
+                securityScope: 'private',
+              }),
             },
             memoryAsset: {
               create: jest.fn().mockResolvedValue({ id: 'asset-123' }),
@@ -71,7 +77,7 @@ describe('AssetsService', () => {
 
   describe('createUploadTarget', () => {
     it('should generate a presigned URL without checksum parameters', async () => {
-      const result = await service.createUploadTarget('mem-123', 'image/jpeg');
+      const result = await service.createUploadTarget('mem-123', 'image/jpeg', 'user-1');
 
       expect(result).toBeDefined();
       expect(result.uploadUrl).toBeDefined();
@@ -105,7 +111,7 @@ describe('AssetsService', () => {
     });
 
     it('should add /storage routing prefix to PUT presigned URL', async () => {
-      const result = await service.createUploadTarget('mem-123', 'image/jpeg');
+      const result = await service.createUploadTarget('mem-123', 'image/jpeg', 'user-1');
 
       const url = new URL(result.uploadUrl);
       expect(url.hostname).toBe('minio.example.com');
@@ -114,7 +120,7 @@ describe('AssetsService', () => {
     });
 
     it('should preserve query string after adding /storage prefix', async () => {
-      const result = await service.createUploadTarget('mem-123', 'image/jpeg');
+      const result = await service.createUploadTarget('mem-123', 'image/jpeg', 'user-1');
 
       const url = new URL(result.uploadUrl);
       const params = new URLSearchParams(url.search);
