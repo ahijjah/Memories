@@ -1,12 +1,19 @@
-import { Injectable, NotFoundException, InternalServerErrorException, ForbiddenException, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+  InternalServerErrorException,
+  ForbiddenException,
+  Logger,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { S3Client, PutObjectCommand, HeadObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Readable } from 'stream';
-import { nanoid } from 'nanoid';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AiQueueService } from '../ai/ai-queue.service';
 import { ObjectStorageSseService } from '../../common/crypto/object-storage-sse.service';
+import { generateUserUploadObjectKey, isUserUploadObjectKey } from './upload-object-key';
 
 @Injectable()
 export class AssetsService {
@@ -97,11 +104,26 @@ export class AssetsService {
     }
   }
 
-  async createUploadTarget(memoryId: string, mimeType: string) {
+  /**
+   * Upload authorization: the Memory must exist, belong to the requesting user and not be deleted.
+   * Vault Memories are allowed; the owner adds pages/photos to them from Vault Detail.
+   */
+  private async findUploadableMemory(memoryId: string, userId: string) {
     const memory = await this.prisma.memory.findUnique({ where: { id: memoryId } });
     if (!memory) throw new NotFoundException('Memory not found');
+    if (memory.userId !== userId) {
+      throw new ForbiddenException('You do not have access to this Memory');
+    }
+    if (['deleted_pending', 'deleted'].includes(memory.lifecycleState)) {
+      throw new NotFoundException('Memory not found');
+    }
+    return memory;
+  }
 
-    const objectKey = `memories/${memoryId}/${nanoid()}`;
+  async createUploadTarget(memoryId: string, mimeType: string, userId: string) {
+    const memory = await this.findUploadableMemory(memoryId, userId);
+
+    const objectKey = generateUserUploadObjectKey(memory.id);
     const expiresInSeconds = 900;
 
     const sseParams = this.sseCrypto.getSseParams();
@@ -121,7 +143,21 @@ export class AssetsService {
     return { objectKey, uploadUrl, mimeType, expiresInSeconds, uploadHeaders };
   }
 
-  async completeUpload(memoryId: string, objectKey: string, mimeType: string, checksum?: string, pageIndex?: number) {
+  async completeUpload(
+    memoryId: string,
+    objectKey: string,
+    mimeType: string,
+    userId: string,
+    checksum?: string,
+    pageIndex?: number,
+  ) {
+    // Authorize and bind the key before touching object storage: only a key of the shape
+    // create-upload issues for this user's Memory can become a MemoryAsset.
+    const memory = await this.findUploadableMemory(memoryId, userId);
+    if (!isUserUploadObjectKey(objectKey, memory.id)) {
+      throw new BadRequestException('Invalid object key for this Memory');
+    }
+
     const sseParams = this.sseCrypto.getSseParams();
     const headCommand = new HeadObjectCommand({
       Bucket: this.bucket,
@@ -133,12 +169,6 @@ export class AssetsService {
       await this.s3Client.send(headCommand);
     } catch (error) {
       throw new InternalServerErrorException('Object not found in storage');
-    }
-
-    // Fetch the Memory to check its sourceType
-    const memory = await this.prisma.memory.findUnique({ where: { id: memoryId } });
-    if (!memory) {
-      throw new NotFoundException('Memory not found');
     }
 
     const asset = await this.prisma.memoryAsset.create({

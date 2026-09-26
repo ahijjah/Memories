@@ -16,16 +16,17 @@ export class AssetsController {
   constructor(private readonly assetsService: AssetsService) {}
 
   @Post('create-upload')
-  async createUpload(@Body() dto: CreateUploadDto) {
-    return this.assetsService.createUploadTarget(dto.memoryId, dto.mimeType);
+  async createUpload(@Body() dto: CreateUploadDto, @CurrentUser() user: CurrentUserPayload) {
+    return this.assetsService.createUploadTarget(dto.memoryId, dto.mimeType, user.sub);
   }
 
   @Post('complete-upload')
-  async completeUpload(@Body() dto: CompleteUploadDto) {
+  async completeUpload(@Body() dto: CompleteUploadDto, @CurrentUser() user: CurrentUserPayload) {
     return this.assetsService.completeUpload(
       dto.memoryId,
       dto.objectKey,
       dto.mimeType,
+      user.sub,
       dto.checksum,
       dto.pageIndex,
     );
