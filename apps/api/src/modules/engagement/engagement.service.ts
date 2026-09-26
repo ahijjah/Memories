@@ -1,6 +1,7 @@
 import { Injectable, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { LATEST_AI_INFERENCE_ORDER, resolveMemoryField } from '../../common/resolve-memory-field.util';
 import { resolveTitleFromFields } from '../../common/resolve-title.util';
 
 export interface CalendarItem {
@@ -114,6 +115,7 @@ export class EngagementService {
       include: {
         aiInferences: {
           where: { field: { in: ['date', 'title'] } },
+          orderBy: LATEST_AI_INFERENCE_ORDER,
         },
         userConfirmations: {
           where: { field: { in: ['date', 'title'] } },
@@ -132,15 +134,12 @@ export class EngagementService {
     }
 
     const getFieldValue = (memory: MemoryWithDatesAndTitles, field: string): string | undefined => {
-      const confirmation = memory.userConfirmations.find((c: typeof memory.userConfirmations[number]) => c.field === field);
-      if (confirmation && confirmation.confirmedValue) {
-        return String(confirmation.confirmedValue);
-      }
-      const inference = memory.aiInferences.find((i: typeof memory.aiInferences[number]) => i.field === field);
-      if (inference && inference.valueJson) {
-        return String(inference.valueJson);
-      }
-      return undefined;
+      const resolved = resolveMemoryField<string>(field, {
+        aiInferences: memory.aiInferences,
+        userConfirmations: memory.userConfirmations,
+        shape: 'string',
+      });
+      return resolved.value === null ? undefined : resolved.value;
     };
 
     const upcomingMemories = memories
@@ -192,6 +191,7 @@ export class EngagementService {
       include: {
         aiInferences: {
           where: { field: 'category' },
+          orderBy: LATEST_AI_INFERENCE_ORDER,
         },
       },
     });
@@ -251,6 +251,7 @@ export class EngagementService {
       include: {
         aiInferences: {
           where: { field: 'topics' },
+          orderBy: LATEST_AI_INFERENCE_ORDER,
         },
         collections: true,
       },
@@ -388,7 +389,7 @@ export class EngagementService {
       LEFT JOIN LATERAL (
         SELECT "valueJson" FROM "ai_inferences" ai
         WHERE ai."memoryId" = m."id" AND ai."field" = 'summary'
-        ORDER BY ai."createdAt" DESC
+        ORDER BY ai."createdAt" DESC, ai."id" DESC
         LIMIT 1
       ) AS summary_inf ON true
       WHERE m."userId" = ${userId}
@@ -486,7 +487,7 @@ export class EngagementService {
         SELECT "valueJson"
         FROM "ai_inferences"
         WHERE "memoryId" = m."id" AND "field" = 'date'
-        ORDER BY "createdAt" DESC
+        ORDER BY "createdAt" DESC, "id" DESC
         LIMIT 1
       ) ai_date ON true
       WHERE m."userId" = ${userId}
@@ -539,7 +540,7 @@ export class EngagementService {
       include: {
         aiInferences: {
           where: { field: { in: ['title', 'type'] } },
-          orderBy: { createdAt: 'desc' },
+          orderBy: LATEST_AI_INFERENCE_ORDER,
         },
         userConfirmations: {
           where: { field: { in: ['title', 'type'] } },

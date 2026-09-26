@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { LATEST_AI_INFERENCE_ORDER } from '../../common/resolve-memory-field.util';
+import { resolveTitleFromFields } from '../../common/resolve-title.util';
 
 export interface WorkspaceListItem {
   workspaceId: string;
@@ -418,6 +420,7 @@ export class WorkspaceService {
       include: {
         aiInferences: {
           where: { field: { in: ['title', 'type'] } },
+          orderBy: LATEST_AI_INFERENCE_ORDER,
         },
         userConfirmations: true,
         assets: true,
@@ -428,12 +431,8 @@ export class WorkspaceService {
       .map((memoryId) => memories.find((m) => m.id === memoryId))
       .filter((m): m is typeof memories[0] => !!m)
       .map((memory) => {
-        const titleConfirmation = memory.userConfirmations.find((uc) => uc.field === 'title');
-        const titleInference = memory.aiInferences.find((ai) => ai.field === 'title');
         const title =
-          (titleConfirmation?.confirmedValue as string) ||
-          (titleInference?.valueJson as string) ||
-          memory.title ||
+          resolveTitleFromFields(memory.title ?? '', memory.aiInferences, memory.userConfirmations) ||
           `${memory.sourceType} Memory`;
 
         const typeInference = memory.aiInferences.find((ai) => ai.field === 'type');

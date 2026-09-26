@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import { ConfirmationInput, InferenceInput, resolveMemoryField } from './resolve-memory-field.util';
 
 type MemoryWithTitleInferences = Prisma.MemoryGetPayload<{
   include: {
@@ -9,22 +10,7 @@ type MemoryWithTitleInferences = Prisma.MemoryGetPayload<{
 
 export function resolveTitle(memory: MemoryWithTitleInferences | null): string {
   if (!memory) return '';
-
-  const userConfirmation = memory.userConfirmations?.find(
-    (c: (typeof memory.userConfirmations)[number]) => c.field === 'title',
-  );
-  if (userConfirmation && userConfirmation.confirmedValue) {
-    return String(userConfirmation.confirmedValue);
-  }
-
-  const aiInference = memory.aiInferences?.find(
-    (i: (typeof memory.aiInferences)[number]) => i.field === 'title',
-  );
-  if (aiInference && aiInference.valueJson) {
-    return String(aiInference.valueJson);
-  }
-
-  return memory.title || '';
+  return resolveTitleFromFields(memory.title ?? '', memory.aiInferences, memory.userConfirmations);
 }
 
 type MemoryRow = {
@@ -44,20 +30,20 @@ export interface MemoryWithTitleFields extends MemoryRow {
   }>;
 }
 
+/**
+ * Title precedence: user confirmation → latest AI title → raw Memory.title → ''.
+ * Compatibility wrapper over resolveMemoryField; display placeholders stay with callers.
+ */
 export function resolveTitleFromFields(
   rawTitle: string,
-  aiInferences: Array<{ field: string; valueJson: any }> | null | undefined,
-  userConfirmations: Array<{ field: string; confirmedValue: any }> | null | undefined,
+  aiInferences: ReadonlyArray<InferenceInput> | null | undefined,
+  userConfirmations: ReadonlyArray<ConfirmationInput> | null | undefined,
 ): string {
-  const userConfirmation = userConfirmations?.find((c) => c.field === 'title');
-  if (userConfirmation && userConfirmation.confirmedValue) {
-    return String(userConfirmation.confirmedValue);
-  }
-
-  const aiInference = aiInferences?.find((i) => i.field === 'title');
-  if (aiInference && aiInference.valueJson) {
-    return String(aiInference.valueJson);
-  }
-
-  return rawTitle || '';
+  const resolved = resolveMemoryField<string>('title', {
+    aiInferences,
+    userConfirmations,
+    rawFallback: rawTitle,
+    shape: 'string',
+  });
+  return resolved.value === null ? '' : String(resolved.value);
 }

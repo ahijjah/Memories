@@ -592,4 +592,49 @@ describe('WorkspaceService', () => {
       expect((mockPrisma.$queryRaw as jest.Mock).mock.calls.length).toBeGreaterThan(0);
     });
   });
+
+  describe('Resolved Memory: workspace memory titles', () => {
+    it('orders the inference include latest-first and resolves the latest AI title with caller placeholder', async () => {
+      (mockPrisma.$queryRaw as jest.Mock)
+        .mockResolvedValueOnce([{ total_count: 2, display_label: 'AI' }])
+        .mockResolvedValueOnce([{ memory_id: 'mem-1' }, { memory_id: 'mem-2' }]);
+      (mockPrisma.memory.findMany as jest.Mock).mockResolvedValue([
+        {
+          id: 'mem-1',
+          title: 'Raw',
+          memoryType: 'GENERIC',
+          sourceType: 'url',
+          aiInferences: [
+            { id: 'a', field: 'title', valueJson: 'Title A', createdAt: new Date('2026-01-01T00:00:00Z') },
+            { id: 'b', field: 'title', valueJson: 'Title B', createdAt: new Date('2026-02-01T00:00:00Z') },
+          ],
+          userConfirmations: [{ field: 'title', confirmedValue: '' }],
+          assets: [],
+        },
+        {
+          id: 'mem-2',
+          title: null,
+          memoryType: 'GENERIC',
+          sourceType: 'text',
+          aiInferences: [],
+          userConfirmations: [],
+          assets: [],
+        },
+      ]);
+
+      const result = await service.getWorkspaceMemories('user-123', 'ai');
+
+      expect(mockPrisma.memory.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          include: expect.objectContaining({
+            aiInferences: {
+              where: { field: { in: ['title', 'type'] } },
+              orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+            },
+          }),
+        }),
+      );
+      expect(result.memories.map((m: { title: string }) => m.title)).toEqual(['Title B', 'text Memory']);
+    });
+  });
 });

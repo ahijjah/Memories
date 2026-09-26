@@ -156,7 +156,11 @@ describe('VaultService', () => {
 
     expect(prismaService.memory.findUnique).toHaveBeenCalledWith({
       where: { id: memoryId },
-      include: { assets: true, aiInferences: true, userConfirmations: true },
+      include: {
+        assets: true,
+        aiInferences: { orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] },
+        userConfirmations: true,
+      },
     });
     expect(result).toEqual(mockMemory);
   });

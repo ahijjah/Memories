@@ -6,6 +6,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { FieldEncryptionService } from '../../common/crypto/field-encryption.service';
 import { isSensitiveField } from '../../common/crypto/sensitive-fields';
 import { toVectorLiteral } from '../../common/pgvector.util';
+import { LATEST_AI_INFERENCE_ORDER, resolveMemoryField } from '../../common/resolve-memory-field.util';
 import { resolveTitleFromFields } from '../../common/resolve-title.util';
 import { AiQueueService } from '../ai/ai-queue.service';
 import { AssetsService } from '../assets/assets.service';
@@ -75,6 +76,7 @@ export class MemoryService {
           where: {
             field: { in: ['date', 'location', 'price', 'category'] },
           },
+          orderBy: LATEST_AI_INFERENCE_ORDER,
         },
       },
       orderBy: { capturedAt: 'desc' },
@@ -85,7 +87,11 @@ export class MemoryService {
   async findOneForUser(userId: string, id: string) {
     const memory = await this.prisma.memory.findUnique({
       where: { id },
-      include: { assets: true, aiInferences: true, userConfirmations: true },
+      include: {
+        assets: true,
+        aiInferences: { orderBy: LATEST_AI_INFERENCE_ORDER },
+        userConfirmations: true,
+      },
     });
     if (!memory) throw new NotFoundException('Memory not found');
     this.assertOwnership(memory.userId, userId);
@@ -359,15 +365,11 @@ export class MemoryService {
     // Extract product data for comparison
     const products = memories.map(memory => {
       const getFieldValue = (field: string): string | undefined => {
-        const confirmation = memory.userConfirmations.find((c: typeof memory.userConfirmations[number]) => c.field === field);
-        if (confirmation && confirmation.confirmedValue) {
-          return String(confirmation.confirmedValue);
-        }
-        const inference = memory.aiInferences.find((i: typeof memory.aiInferences[number]) => i.field === field);
-        if (inference && inference.valueJson) {
-          return String(inference.valueJson);
-        }
-        return undefined;
+        const resolved = resolveMemoryField(field, {
+          aiInferences: memory.aiInferences,
+          userConfirmations: memory.userConfirmations,
+        });
+        return resolved.value === null ? undefined : String(resolved.value);
       };
 
       const summary = getFieldValue('summary');
