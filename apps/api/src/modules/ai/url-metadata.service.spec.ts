@@ -5,6 +5,7 @@ import {
   classifyFacebookUrl,
   describeFacebookPageSignals,
   evaluateFacebookPageTrust,
+  extractFacebookIdentity,
   isFacebookFamilyUrl,
   isGenericFacebookTitle,
 } from './url-page-trust';
@@ -777,9 +778,17 @@ describe('UrlMetadataService', () => {
       const fetchLines = logged.filter((line) => line.startsWith('metadata fetch'));
       expect(fetchLines).toEqual([
         'metadata fetch host=www.facebook.com final_host=www.facebook.com redirects=1 result=rejected reason=PROFILE_OR_PAGE_LANDING ' +
-          'fb_final=PROFILE_OR_PAGE fb_canonical=none fb_og=PROFILE_OR_PAGE markers=none title_generic=false desc_generic=false',
+          'fb_final=PROFILE_OR_PAGE fb_canonical=none fb_og=PROFILE_OR_PAGE markers=none title_generic=false desc_generic=false ' +
+          'fb_id_src=wrapper fb_id_final=none fb_id_canon=none fb_id_og=none ' +
+          'fb_kind_src=na fb_kind_final=na fb_kind_canon=na fb_kind_og=na ' +
+          'fb_idform_src=na fb_idform_final=na fb_idform_canon=na fb_idform_og=na ' +
+          'fb_m_src_final=na fb_m_src_canon=na fb_m_final_canon=na fb_m_final_og=na fb_m_canon_og=na fb_corr=NONE',
         'metadata fetch host=www.facebook.com final_host=www.facebook.com redirects=1 result=rejected reason=FACEBOOK_DENY_BY_DEFAULT ' +
-          'fb_final=ITEM fb_canonical=ITEM fb_og=none markers=login title_generic=false desc_generic=false',
+          'fb_final=ITEM fb_canonical=ITEM fb_og=none markers=login title_generic=false desc_generic=false ' +
+          'fb_id_src=wrapper fb_id_final=item fb_id_canon=item fb_id_og=none ' +
+          'fb_kind_src=na fb_kind_final=post fb_kind_canon=post fb_kind_og=na ' +
+          'fb_idform_src=na fb_idform_final=numeric fb_idform_canon=numeric fb_idform_og=na ' +
+          'fb_m_src_final=na fb_m_src_canon=na fb_m_final_canon=eq fb_m_final_og=na fb_m_canon_og=na fb_corr=PARTIAL',
       ]);
       for (const line of logged) {
         expect(line).not.toMatch(/SENTINEL|987654321|share\/p|\/posts\//);
@@ -946,14 +955,129 @@ describe('UrlMetadataService', () => {
 
         const fetchLines = logged.filter((line) => line.startsWith('metadata fetch'));
         expect(fetchLines).toEqual([
-          'metadata fetch host=www.facebook.com final_host=www.facebook.com redirects=1 result=rejected reason=FACEBOOK_DENY_BY_DEFAULT fb_final=ITEM fb_canonical=ITEM fb_og=ITEM markers=none title_generic=false desc_generic=false',
-          'metadata fetch host=fb.me final_host=www.facebook.com redirects=1 result=rejected reason=FACEBOOK_DENY_BY_DEFAULT fb_final=ITEM fb_canonical=ITEM fb_og=ITEM markers=none title_generic=false desc_generic=false',
+          'metadata fetch host=www.facebook.com final_host=www.facebook.com redirects=1 result=rejected reason=FACEBOOK_DENY_BY_DEFAULT fb_final=ITEM fb_canonical=ITEM fb_og=ITEM markers=none title_generic=false desc_generic=false ' +
+            'fb_id_src=wrapper fb_id_final=item fb_id_canon=item fb_id_og=item fb_kind_src=na fb_kind_final=post fb_kind_canon=post fb_kind_og=post fb_idform_src=na fb_idform_final=numeric fb_idform_canon=numeric fb_idform_og=numeric fb_m_src_final=na fb_m_src_canon=na fb_m_final_canon=eq fb_m_final_og=eq fb_m_canon_og=eq fb_corr=PARTIAL',
+          'metadata fetch host=fb.me final_host=www.facebook.com redirects=1 result=rejected reason=FACEBOOK_DENY_BY_DEFAULT fb_final=ITEM fb_canonical=ITEM fb_og=ITEM markers=none title_generic=false desc_generic=false ' +
+            'fb_id_src=wrapper fb_id_final=item fb_id_canon=item fb_id_og=item fb_kind_src=na fb_kind_final=post fb_kind_canon=post fb_kind_og=post fb_idform_src=na fb_idform_final=numeric fb_idform_canon=numeric fb_idform_og=numeric fb_m_src_final=na fb_m_src_canon=na fb_m_final_canon=eq fb_m_final_og=eq fb_m_canon_og=eq fb_corr=PARTIAL',
           'metadata fetch host=www.facebook.com final_host=example.com redirects=1 result=rejected reason=FACEBOOK_DENY_BY_DEFAULT',
-          'metadata fetch host=example.com final_host=www.facebook.com redirects=1 result=rejected reason=FACEBOOK_DENY_BY_DEFAULT fb_final=ITEM fb_canonical=ITEM fb_og=ITEM markers=none title_generic=false desc_generic=false',
+          'metadata fetch host=example.com final_host=www.facebook.com redirects=1 result=rejected reason=FACEBOOK_DENY_BY_DEFAULT fb_final=ITEM fb_canonical=ITEM fb_og=ITEM markers=none title_generic=false desc_generic=false ' +
+            'fb_id_src=non_fb fb_id_final=item fb_id_canon=item fb_id_og=item fb_kind_src=na fb_kind_final=post fb_kind_canon=post fb_kind_og=post fb_idform_src=na fb_idform_final=numeric fb_idform_canon=numeric fb_idform_og=numeric fb_m_src_final=na fb_m_src_canon=na fb_m_final_canon=eq fb_m_final_og=eq fb_m_canon_og=eq fb_corr=PARTIAL',
         ]);
         for (const line of logged) {
           expect(line).not.toMatch(/SENTINEL|987654321|\/posts\/|share\/p|article/);
         }
+      });
+
+      describe('PR-FB-A correspondence diagnostics never change the result', () => {
+        // Unmistakable sentinels: item IDs, path names, share tokens, query keys/values and text.
+        const SRC_ID = '731731731731';
+        const OTHER_ID = '842842842842';
+        const direct = (itemId: string) =>
+          `https://www.facebook.com/SENTINELNAME/posts/${itemId}?SENTINELQK=SENTINELQV`;
+        const pageFor = (canonical: string, og: string | null, extra = '', description = 'SENTINELDESC Fibre plans.') =>
+          page(
+            '<meta property="og:title" content="SENTINELTITLE Example Networks offer">' +
+              `<meta property="og:description" content="${description}">` +
+              `<link rel="canonical" href="${canonical}">` +
+              (og ? `<meta property="og:url" content="${og}">` : '') +
+              '<meta property="og:image" content="https://scontent.xx.fbcdn.net/v/SENTINELIMAGE.jpg">',
+            extra,
+          );
+        const DENIED = {
+          status: 'rejected',
+          reason: 'FACEBOOK_DENY_BY_DEFAULT',
+          requestedHost: 'www.facebook.com',
+          finalHost: 'www.facebook.com',
+          redirectCount: 0,
+        };
+
+        let fetchLines: string[];
+        let logged: string[];
+        beforeEach(() => {
+          logged = [];
+          for (const level of ['log', 'warn', 'debug', 'error', 'verbose'] as const) {
+            jest.spyOn(Logger.prototype, level).mockImplementation((...args: unknown[]) => {
+              logged.push(args.map(String).join(' '));
+            });
+          }
+          fetchLines = [];
+        });
+        const collect = () => {
+          fetchLines = logged.filter((line) => line.startsWith('metadata fetch'));
+          return fetchLines;
+        };
+
+        it('STRONG (direct item = final = canonical = og) is still FACEBOOK_DENY_BY_DEFAULT with no metadata or image', async () => {
+          fetchSpy.mockResolvedValueOnce(htmlResponse(pageFor(direct(SRC_ID), direct(SRC_ID))));
+
+          const result = await service.fetchMetadata(direct(SRC_ID));
+
+          expect(result).toEqual(DENIED);
+          expect(result.status).not.toBe('ok');
+          expect(JSON.stringify(result)).not.toMatch(/SENTINEL|fbcdn/);
+          expect(fetchSpy).toHaveBeenCalledTimes(1); // no og:image request
+          expect(collect()).toHaveLength(1);
+          expect(fetchLines[0]).toContain('fb_corr=STRONG');
+          expect(fetchLines[0]).toContain('fb_m_src_final=eq fb_m_src_canon=eq fb_m_final_canon=eq');
+        });
+
+        it('CONFLICT (source 731... vs canonical 842...) is still FACEBOOK_DENY_BY_DEFAULT', async () => {
+          fetchSpy.mockResolvedValueOnce(htmlResponse(pageFor(direct(OTHER_ID), null)));
+
+          const result = await service.fetchMetadata(direct(SRC_ID));
+
+          expect(result).toEqual(DENIED);
+          expect(collect()[0]).toContain('fb_m_src_canon=ne');
+          expect(fetchLines[0]).toContain('fb_corr=CONFLICT');
+        });
+
+        it('explicit rejection reasons still win over correspondence (login markers + generic description)', async () => {
+          fetchSpy.mockResolvedValueOnce(
+            htmlResponse(pageFor(direct(SRC_ID), direct(SRC_ID), LOGIN_FORM, 'Log into Facebook to see this post.')),
+          );
+
+          const result = await service.fetchMetadata(direct(SRC_ID));
+
+          expect(result).toEqual({ ...DENIED, reason: 'LOGIN_OR_CHECKPOINT_MARKERS' });
+          expect(collect()[0]).toContain('fb_corr=STRONG');
+        });
+
+        it('a profile canonical still rejects as PROFILE_OR_PAGE_LANDING whatever the source identity', async () => {
+          fetchSpy.mockResolvedValueOnce(htmlResponse(pageFor('https://www.facebook.com/SENTINELPAGE/', null)));
+
+          expect(await service.fetchMetadata(direct(SRC_ID))).toEqual({ ...DENIED, reason: 'PROFILE_OR_PAGE_LANDING' });
+        });
+
+        it('logs no raw or hashed IDs, paths, share tokens, query values, URLs or text', async () => {
+          // STRONG, CONFLICT and a share-token PARTIAL, all with sentinel values.
+          fetchSpy.mockResolvedValueOnce(htmlResponse(pageFor(direct(SRC_ID), direct(SRC_ID))));
+          await service.fetchMetadata(direct(SRC_ID));
+          fetchSpy.mockResolvedValueOnce(htmlResponse(pageFor(direct(OTHER_ID), direct(OTHER_ID))));
+          await service.fetchMetadata(direct(SRC_ID));
+          fetchSpy
+            .mockResolvedValueOnce(redirect(direct(SRC_ID)))
+            .mockResolvedValueOnce(htmlResponse(pageFor(direct(SRC_ID), direct(SRC_ID))));
+          await service.fetchMetadata('https://www.facebook.com/share/p/SENTINELSHARETOKEN/?mibextid=SENTINELQV');
+
+          expect(collect()).toHaveLength(3);
+          expect(fetchLines.map((line) => line.match(/fb_corr=\w+/)?.[0])).toEqual([
+            'fb_corr=STRONG',
+            'fb_corr=CONFLICT',
+            'fb_corr=PARTIAL',
+          ]);
+          for (const line of logged) {
+            expect(line).not.toMatch(/SENTINEL|731731731731|842842842842|\/posts\/|share\/p|fbcdn|https?:/);
+            // No hash-like hex runs (e.g. a SHA of an ID) anywhere in the line.
+            expect(line).not.toMatch(/[0-9a-f]{16,}/i);
+          }
+          for (const line of fetchLines) {
+            const diagnostic = line.slice(line.indexOf('fb_final='));
+            expect(diagnostic).not.toMatch(/\d/);
+            for (const token of diagnostic.split(' ')) {
+              expect(token).toMatch(/^[a-z_]+=[A-Za-z_]+$/);
+            }
+          }
+        });
       });
     });
   });
@@ -1165,7 +1289,11 @@ describe('UrlMetadataService', () => {
           markers: { ...noMarkers, hasConsentDialog: true },
         });
         expect(label).toBe(
-          'fb_final=WRAPPER fb_canonical=ITEM fb_og=non_facebook markers=consent title_generic=false desc_generic=false',
+          'fb_final=WRAPPER fb_canonical=ITEM fb_og=non_facebook markers=consent title_generic=false desc_generic=false ' +
+            'fb_id_src=none fb_id_final=wrapper fb_id_canon=item fb_id_og=non_fb ' +
+            'fb_kind_src=na fb_kind_final=na fb_kind_canon=post fb_kind_og=na ' +
+            'fb_idform_src=na fb_idform_final=na fb_idform_canon=numeric fb_idform_og=na ' +
+            'fb_m_src_final=na fb_m_src_canon=na fb_m_final_canon=na fb_m_final_og=na fb_m_canon_og=na fb_corr=NONE',
         );
       });
     });
@@ -1193,6 +1321,8 @@ describe('UrlMetadataService', () => {
         'https://www.facebook.com/marketplace/item/121212/',
       ])('ITEM: %s', (url) => {
         expect(classifyFacebookUrl(new URL(url))).toBe('ITEM');
+        // Parity: the identity extractor shares the classifier's pattern table.
+        expect(extractFacebookIdentity(new URL(url)).status).toBe('ITEM');
       });
 
       it.each([
@@ -1206,6 +1336,7 @@ describe('UrlMetadataService', () => {
         'https://fb.watch/SYNTH/',
       ])('WRAPPER: %s', (url) => {
         expect(classifyFacebookUrl(new URL(url))).toBe('WRAPPER');
+        expect(extractFacebookIdentity(new URL(url)).status).toBe('WRAPPER');
       });
 
       it.each([
@@ -1238,6 +1369,7 @@ describe('UrlMetadataService', () => {
         'https://www.facebook.com/watch/?v=pfbidSYNTH',
       ])('PROFILE_OR_PAGE (fail closed): %s', (url) => {
         expect(classifyFacebookUrl(new URL(url))).toBe('PROFILE_OR_PAGE');
+        expect(extractFacebookIdentity(new URL(url)).status).toBe('PROFILE_OR_PAGE');
       });
 
       it('ROOT and INTERSTITIAL', () => {
@@ -1245,6 +1377,10 @@ describe('UrlMetadataService', () => {
         expect(classifyFacebookUrl(new URL('https://www.facebook.com/login/?next=x'))).toBe('INTERSTITIAL');
         expect(classifyFacebookUrl(new URL('https://www.facebook.com/checkpoint/1/'))).toBe('INTERSTITIAL');
         expect(classifyFacebookUrl(new URL('https://login.facebook.com/'))).toBe('INTERSTITIAL');
+        expect(extractFacebookIdentity(new URL('https://www.facebook.com/')).status).toBe('ROOT');
+        expect(extractFacebookIdentity(new URL('https://www.facebook.com/login/?next=x')).status).toBe('INTERSTITIAL');
+        expect(extractFacebookIdentity(new URL('https://www.facebook.com/checkpoint/1/')).status).toBe('INTERSTITIAL');
+        expect(extractFacebookIdentity(new URL('https://login.facebook.com/')).status).toBe('INTERSTITIAL');
       });
     });
 
