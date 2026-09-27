@@ -277,6 +277,115 @@ describe('complete-upload: source screenshot evidence role and retry idempotency
     });
   });
 
+  // PR29 review M1: a source screenshot stores the canonical image type, which the AI receives.
+  describe('canonical MIME type for source screenshots', () => {
+    it.each([
+      ['image/PNG', 'image/png'],
+      ['image/png; charset=binary', 'image/png'],
+      [' Image/WebP ', 'image/webp'],
+      ['IMAGE/JPEG', 'image/jpeg'],
+    ])('declared %p is stored as %p', async (declared, canonical) => {
+      s3Send.mockResolvedValue({ ContentType: canonical });
+
+      await complete({ mime: declared });
+
+      expect(prisma.memoryAsset.create.mock.calls[0][0].data.mimeType).toBe(canonical);
+    });
+
+    it('a retry with a differently written but equivalent type returns the existing canonical asset', async () => {
+      prisma.memoryAsset.findFirst.mockResolvedValue({
+        id: 'asset-existing', memoryId: MEMORY_ID, objectKey: KEY, mimeType: 'image/png',
+        pageIndex: null, evidenceRole: 'source_screenshot', checksum: 'md5sum',
+      });
+
+      await expect(complete({ mime: 'image/PNG' })).resolves.toMatchObject({ id: 'asset-existing' });
+      expect(prisma.memoryAsset.create).not.toHaveBeenCalled();
+    });
+
+    it('ordinary uploads keep the declared type exactly as before', async () => {
+      prisma.memory.findUnique.mockResolvedValue(urlMemory({ sourceType: 'camera' }));
+      s3Send.mockResolvedValue({});
+
+      await complete({ mime: 'IMAGE/JPEG; q=1' }, undefined);
+
+      expect(prisma.memoryAsset.create.mock.calls[0][0].data.mimeType).toBe('IMAGE/JPEG; q=1');
+    });
+  });
+
+  // PR29 review M2: checksum conflicts on retry, and recovery of a missed enqueue.
+  describe('retry checksum and enqueue recovery', () => {
+    const existingRow = (overrides: Record<string, unknown> = {}) => ({
+      id: 'asset-existing', memoryId: MEMORY_ID, objectKey: KEY, mimeType: 'image/png',
+      pageIndex: null, evidenceRole: null, checksum: 'sum-a', ...overrides,
+    });
+    const retry = (checksum: string | undefined, pageIndex?: number) =>
+      service.completeUpload(MEMORY_ID, KEY, 'image/png', OWNER, checksum, pageIndex, undefined);
+
+    beforeEach(() => {
+      prisma.memory.findUnique.mockResolvedValue(urlMemory({ sourceType: 'camera', processingState: 'understood' }));
+    });
+
+    it.each([
+      ['the same checksum', 'sum-a', 'sum-a'],
+      ['a stored checksum and none on the retry', 'sum-a', undefined],
+      ['no stored checksum (older row) and one on the retry', null, 'sum-b'],
+      ['no checksum on either side', null, undefined],
+    ])('%s: returns the existing asset', async (_label, stored, sent) => {
+      prisma.memoryAsset.findFirst.mockResolvedValue(existingRow({ checksum: stored }));
+
+      await expect(retry(sent as string | undefined)).resolves.toMatchObject({ id: 'asset-existing' });
+      expect(prisma.memoryAsset.create).not.toHaveBeenCalled();
+    });
+
+    it('two different non-null checksums are a 409 conflict', async () => {
+      prisma.memoryAsset.findFirst.mockResolvedValue(existingRow({ checksum: 'sum-a' }));
+
+      await expect(retry('sum-b')).rejects.toBeInstanceOf(ConflictException);
+    });
+
+    it('a matching retry recovers a missed enqueue while the Memory is still queued', async () => {
+      prisma.memory.findUnique.mockResolvedValue(urlMemory({ sourceType: 'camera', processingState: 'queued' }));
+      prisma.memoryAsset.findFirst.mockResolvedValue(existingRow());
+
+      await retry('sum-a');
+
+      expect(aiQueue.enqueueUnderstanding).toHaveBeenCalledTimes(1);
+      expect(aiQueue.enqueueUnderstanding).toHaveBeenCalledWith(MEMORY_ID);
+    });
+
+    it.each(['processing', 'understood', 'partial', 'failed'])(
+      'does not enqueue once a run has started (state %s)',
+      async (processingState) => {
+        prisma.memory.findUnique.mockResolvedValue(urlMemory({ sourceType: 'camera', processingState }));
+        prisma.memoryAsset.findFirst.mockResolvedValue(existingRow());
+
+        await retry('sum-a');
+
+        expect(aiQueue.enqueueUnderstanding).not.toHaveBeenCalled();
+      },
+    );
+
+    it('does not enqueue for multi-page uploads or URL Memories (unchanged auto-enqueue rules)', async () => {
+      prisma.memory.findUnique.mockResolvedValue(urlMemory({ sourceType: 'camera', processingState: 'queued' }));
+      prisma.memoryAsset.findFirst.mockResolvedValue(existingRow({ pageIndex: 0 }));
+      await retry('sum-a', 0);
+
+      prisma.memory.findUnique.mockResolvedValue(urlMemory({ processingState: 'queued' }));
+      prisma.memoryAsset.findFirst.mockResolvedValue(existingRow());
+      await retry('sum-a');
+
+      expect(aiQueue.enqueueUnderstanding).not.toHaveBeenCalled();
+    });
+
+    it('a conflicting retry never enqueues', async () => {
+      prisma.memory.findUnique.mockResolvedValue(urlMemory({ sourceType: 'camera', processingState: 'queued' }));
+      prisma.memoryAsset.findFirst.mockResolvedValue(existingRow({ checksum: 'sum-a' }));
+
+      await expect(retry('sum-b')).rejects.toBeInstanceOf(ConflictException);
+      expect(aiQueue.enqueueUnderstanding).not.toHaveBeenCalled();
+    });
+  });
+
   describe('CompleteUploadDto validation', () => {
     const pipe = new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true });
     const body = (extra: Record<string, unknown>) => ({

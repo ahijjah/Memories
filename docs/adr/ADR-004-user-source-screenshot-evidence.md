@@ -27,7 +27,12 @@ were indistinguishable from any other.
 - Rules for `source_screenshot`, on top of the existing ones (owner, not deleted, object key bound
   to the Memory, object exists): the Memory is `sourceType = url` with a `sourceUri`; the declared
   type is one of `image/jpeg|png|gif|webp` (the provider's vision formats); the stored object's
-  type matches the declared type.
+  type matches the declared type. The row stores the canonical type (lower-case, no parameters),
+  which is what the AI receives. Ordinary uploads keep the declared type unchanged.
+- Retries of complete-upload for the same key: 409 if the role, type, page index or (when both
+  sides have one) checksum differs. A matching retry while the Memory is still `queued` re-runs the
+  normal image-source enqueue, recovering a first request whose enqueue failed; `jobId = memoryId`
+  makes that a no-op while the job exists, and once a run starts the state leaves `queued`.
 - Not Facebook-only, and no new Vault rule: Vault uploads are already allowed for the owner.
 
 ### D2: The screenshot is user evidence, never source evidence
@@ -48,6 +53,12 @@ were indistinguishable from any other.
   `assets` lists, in prompt order, exactly the user assets whose bytes reached the model.
 - Runs without one write the same rows as before (`llm_extraction`, no `evidenceRefs`).
 - The stale-output cleanup on a link-only fallback deletes both LLM provenances.
+- Inferences are appended and each field resolves to its newest present value. So when a
+  successful run did not send a source screenshot to the model (for example the screenshot failed
+  to load while another photo did), the same batch transaction that writes the new results first
+  deletes the Memory's `llm_user_source_screenshot` rows. This happens only after the AI call
+  succeeded, never in a run that used a screenshot, and only on Memories that have a source
+  screenshot asset (the only place such rows can exist).
 
 ### D4: Mobile
 
@@ -64,6 +75,8 @@ contract (ADR-003) is unchanged; the app reads provenance from the owner's detai
   check first.
 - **Vault reprocess:** Vault Detail and the document scanner call `POST /memories/:id/reprocess`,
   which returns 404 for Vault Memories. The screenshot prompt is therefore not shown in the Vault.
+- **Failed or partial screenshot run (UX):** once a screenshot exists the prompt hides; if that run
+  fails or falls back to a partial link, the app offers no retry, replace or delete path.
 - **Single-asset deletion:** none exists; a wrong screenshot can only be corrected by field
   confirmations or deleting the Memory. Any future asset deletion must also reprocess or clean up
   inferences that reference it.

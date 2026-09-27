@@ -171,13 +171,17 @@ export class AssetsService {
     if (!isUserUploadObjectKey(objectKey, memory.id)) {
       throw new BadRequestException('Invalid object key for this Memory');
     }
+    // Ordinary uploads keep the declared MIME type exactly as before. A source screenshot stores
+    // the canonical type (one of SOURCE_SCREENSHOT_MIME_TYPES), which is what the AI later receives.
+    let storedMimeType = mimeType;
     if (evidenceRole === 'source_screenshot') {
       // A source screenshot is the user's own evidence for the Memory's shared link, so the
       // Memory must be a URL Memory, and the image must be a type the AI can read.
       if (memory.sourceType !== 'url' || !memory.sourceUri) {
         throw new BadRequestException('A source screenshot can only be added to a link Memory');
       }
-      if (!SOURCE_SCREENSHOT_MIME_TYPES.includes(normalizeMimeType(mimeType))) {
+      storedMimeType = normalizeMimeType(mimeType);
+      if (!SOURCE_SCREENSHOT_MIME_TYPES.includes(storedMimeType)) {
         throw new BadRequestException('Unsupported image type for a source screenshot');
       }
     }
@@ -214,9 +218,19 @@ export class AssetsService {
     if (existing) {
       const sameRole = (existing.evidenceRole ?? null) === (evidenceRole ?? null);
       const sameShape =
-        existing.mimeType === mimeType && (existing.pageIndex ?? null) === (pageIndex ?? null);
-      if (!sameRole || !sameShape) {
+        existing.mimeType === storedMimeType && (existing.pageIndex ?? null) === (pageIndex ?? null);
+      // A checksum only conflicts when both sides have one; rows or retries without a checksum
+      // (older clients, missing md5) are compared on the other fields only.
+      const checksumConflict = !!existing.checksum && !!checksum && existing.checksum !== checksum;
+      if (!sameRole || !sameShape || checksumConflict) {
         throw new ConflictException('This upload was already completed with different details');
+      }
+      // Recover a missed enqueue (the first request created the row but queueing failed): only
+      // while the Memory is still 'queued', i.e. no run has started. The queue uses
+      // jobId = memoryId, so a job that is still pending makes this add a no-op; once a run
+      // starts the state leaves 'queued' and no new job is added.
+      if (memory.processingState === 'queued') {
+        await this.enqueueAfterUpload(memory.id, memory.sourceType, pageIndex);
       }
       return existing;
     }
@@ -225,7 +239,7 @@ export class AssetsService {
       data: {
         memoryId,
         objectKey,
-        mimeType,
+        mimeType: storedMimeType,
         checksum,
         pageIndex,
         variant: 'original',
@@ -234,11 +248,17 @@ export class AssetsService {
       },
     });
 
+    await this.enqueueAfterUpload(memoryId, memory.sourceType, pageIndex);
+
+    return asset;
+  }
+
+  private async enqueueAfterUpload(memoryId: string, sourceType: string, pageIndex?: number) {
     // Enqueue AI processing for image-sourced Memories now that asset exists.
     // Text/URL Memories were already enqueued in memory.service.ts's create().
     // For multi-page documents (pageIndex defined), skip auto-enqueue; frontend will call
     // reprocessMemory() once all pages are uploaded (spec §8: idempotent processing).
-    const isImageSource = ['image', 'camera', 'screenshot'].includes(memory.sourceType);
+    const isImageSource = ['image', 'camera', 'screenshot'].includes(sourceType);
     const isSingleAsset = pageIndex === undefined;
     if (isImageSource && isSingleAsset) {
       try {
@@ -251,7 +271,5 @@ export class AssetsService {
         // Non-fatal; asset is created and stored, just AI processing was not queued.
       }
     }
-
-    return asset;
   }
 }

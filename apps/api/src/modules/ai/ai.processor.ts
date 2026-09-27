@@ -212,6 +212,7 @@ export class AiProcessor extends WorkerHost {
       const userAssetImageCount = images.length;
       // A source screenshot participates only if its bytes were actually loaded above.
       const hasSourceScreenshot = imageEvidence.some((e) => e.kind === 'user_source_screenshot');
+      const memoryHasSourceScreenshotAsset = assets.some((a) => a.evidenceRole === 'source_screenshot');
       let pageMetadata: InferenceEvidenceRefsV1['pageMetadata'] = 'none';
 
       // Fetch URL metadata for url-sourced Memories to provide richer content to AI
@@ -779,6 +780,22 @@ export class AiProcessor extends WorkerHost {
           },
         }),
       );
+
+      // Inferences are appended and each field resolves to its newest present value, so a field
+      // this run does not produce would keep an older value. When no source screenshot reached the
+      // model in this run, output derived from an earlier screenshot run must not stay visible:
+      // remove it in the same transaction as the new results. This runs only after understand()
+      // succeeded (a failed call leaves earlier results untouched), and never in a run that used
+      // a screenshot. Such rows can only exist on a Memory that has a source screenshot asset (the
+      // role is immutable and assets are only deleted with their Memory), so Memories without one
+      // run exactly the same queries as before.
+      if (!hasSourceScreenshot && memoryHasSourceScreenshotAsset) {
+        inferencesToCreate.unshift(
+          this.prisma.aIInference.deleteMany({
+            where: { memoryId, provenance: LLM_USER_SOURCE_SCREENSHOT_PROVENANCE },
+          }),
+        );
+      }
 
       inferencesToCreate.push(
         this.prisma.memory.update({
