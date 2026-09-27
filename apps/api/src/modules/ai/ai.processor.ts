@@ -3,7 +3,9 @@ import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import type { Job } from 'bullmq';
+import type { Prisma } from '@prisma/client';
 import { AnthropicAiProvider } from '@memory-app/ai';
+import type { EvidenceKind, UnderstandInput } from '@memory-app/ai';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { FieldEncryptionService } from '../../common/crypto/field-encryption.service';
 import { ObjectStorageSseService } from '../../common/crypto/object-storage-sse.service';
@@ -13,6 +15,28 @@ import { EmbeddingService } from './embedding.service';
 import { UrlMetadataService } from './url-metadata.service';
 import { hostOf, isFacebookFamilyHost, isFacebookFamilyUrl } from './url-page-trust';
 import { AI_PROCESSING_QUEUE, AiProcessingJobData } from './ai-queue.service';
+
+/** Provenance of LLM output derived from ordinary evidence (unchanged behaviour). */
+export const LLM_EXTRACTION_PROVENANCE = 'llm_extraction';
+/** Provenance of LLM output from a run whose evidence included a user source screenshot. */
+export const LLM_USER_SOURCE_SCREENSHOT_PROVENANCE = 'llm_user_source_screenshot';
+/** Every provenance written by this processor; stale-output cleanup must cover all of them. */
+export const LLM_INFERENCE_PROVENANCES = [
+  LLM_EXTRACTION_PROVENANCE,
+  LLM_USER_SOURCE_SCREENSHOT_PROVENANCE,
+];
+
+/**
+ * Stored on each inference of a run that used a user source screenshot, so "what evidence caused
+ * this inference?" can be answered later. `assets` lists, in prompt order, exactly the user assets
+ * that reached the model (role null = ordinary attachment). `pageMetadata` says whether page
+ * metadata from the shared link was admitted, rejected, or not applicable/unavailable.
+ */
+export interface InferenceEvidenceRefsV1 {
+  v: 1;
+  assets: { id: string; role: 'source_screenshot' | null }[];
+  pageMetadata: 'none' | 'admitted' | 'rejected';
+}
 
 @Processor(AI_PROCESSING_QUEUE)
 export class AiProcessor extends WorkerHost {
@@ -139,6 +163,9 @@ export class AiProcessor extends WorkerHost {
       // For multi-page documents, include up to 5 pages in vision analysis, ordered by pageIndex.
       const MAX_IMAGES = 5;
       const images: { base64: string; mediaType: string }[] = [];
+      // Origin of each entry in `images`, index-aligned. Only used when a source screenshot is
+      // present; otherwise the request to the provider is built exactly as before.
+      const imageEvidence: { kind: EvidenceKind; assetId?: string; role: 'source_screenshot' | null }[] = [];
       const assets = await this.prisma.memoryAsset.findMany({
         where: { memoryId },
         orderBy: { pageIndex: 'asc' },
@@ -151,6 +178,12 @@ export class AiProcessor extends WorkerHost {
           const imageData = await this.fetchImageAsBase64(asset.objectKey, asset.mimeType);
           if (imageData) {
             images.push(imageData);
+            const isSourceScreenshot = asset.evidenceRole === 'source_screenshot';
+            imageEvidence.push({
+              kind: isSourceScreenshot ? 'user_source_screenshot' : 'user_attachment',
+              assetId: asset.id,
+              role: isSourceScreenshot ? 'source_screenshot' : null,
+            });
           }
         }
 
@@ -177,6 +210,10 @@ export class AiProcessor extends WorkerHost {
       // (memory_assets via object storage). Page-derived evidence is added below only when the
       // fetched page is trusted.
       const userAssetImageCount = images.length;
+      // A source screenshot participates only if its bytes were actually loaded above.
+      const hasSourceScreenshot = imageEvidence.some((e) => e.kind === 'user_source_screenshot');
+      const memoryHasSourceScreenshotAsset = assets.some((a) => a.evidenceRole === 'source_screenshot');
+      let pageMetadata: InferenceEvidenceRefsV1['pageMetadata'] = 'none';
 
       // Fetch URL metadata for url-sourced Memories to provide richer content to AI
       if (memory.sourceType === 'url' && memory.sourceUri) {
@@ -190,6 +227,7 @@ export class AiProcessor extends WorkerHost {
           (metadataResult.status !== 'unavailable' &&
             isFacebookFamilyHost(metadataResult.finalHost));
         if (metadataResult.status === 'ok' && !facebookInvolved) {
+          pageMetadata = 'admitted';
           const urlMetadata = metadataResult.metadata;
           // Use extracted metadata if available, falling back to title/sourceUri
           if (urlMetadata.title) {
@@ -231,6 +269,7 @@ export class AiProcessor extends WorkerHost {
                 base64: imageBytes.data.toString('base64'),
                 mediaType: imageBytes.mimeType,
               });
+              imageEvidence.push({ kind: 'fetched_page_image', role: null });
               this.logger.debug(
                 `Vision analysis enabled for URL-sourced Memory ${memoryId} (og:image, ${imageBytes.mimeType}, ${imageBytes.data.length} bytes)`,
               );
@@ -241,6 +280,7 @@ export class AiProcessor extends WorkerHost {
             }
           }
         } else if (metadataResult.status === 'rejected' || facebookInvolved) {
+          pageMetadata = 'rejected';
           // The page did not provide trustworthy post content (rejected wherever the source
           // pointed, or any Facebook-involved result): nothing page-derived (metadata or
           // og:image) is used, and a stale page image must not remain on the Memory.
@@ -255,7 +295,7 @@ export class AiProcessor extends WorkerHost {
             // title, sourceUri and assets are left untouched.
             await this.prisma.$transaction(async (tx) => {
               await tx.aIInference.deleteMany({
-                where: { memoryId, provenance: 'llm_extraction' },
+                where: { memoryId, provenance: { in: LLM_INFERENCE_PROVENANCES } },
               });
               await tx.$executeRaw`DELETE FROM "embeddings" WHERE "memoryId" = ${memoryId}`;
               await tx.memory.update({
@@ -278,12 +318,41 @@ export class AiProcessor extends WorkerHost {
         }
       }
 
-      const result = await provider.understand({
+      const understandInput: UnderstandInput = {
         text: inputText,
         sourceUri: memory.sourceUri ?? undefined,
         images: images.length > 0 ? images : undefined,
         capturedAt: memory.capturedAt.toISOString(),
-      });
+      };
+      // Evidence labelling applies only when a user source screenshot is present. It is user
+      // evidence only: it does not change which page metadata was admitted above.
+      if (hasSourceScreenshot) {
+        understandInput.images = images.map((img, i) => ({
+          ...img,
+          evidence: { kind: imageEvidence[i].kind, assetId: imageEvidence[i].assetId },
+        }));
+        understandInput.sourceEvidence = {
+          textKind: pageMetadata === 'admitted' ? 'fetched_page_metadata' : 'memory_text',
+        };
+      }
+      const result = await provider.understand(understandInput);
+
+      const inferenceProvenance = hasSourceScreenshot
+        ? LLM_USER_SOURCE_SCREENSHOT_PROVENANCE
+        : LLM_EXTRACTION_PROVENANCE;
+      const evidenceRefs: InferenceEvidenceRefsV1 | undefined = hasSourceScreenshot
+        ? {
+            v: 1,
+            assets: imageEvidence
+              .filter((e) => e.assetId !== undefined)
+              .map((e) => ({ id: e.assetId as string, role: e.role })),
+            pageMetadata,
+          }
+        : undefined;
+      // Runs without a source screenshot write exactly the same rows as before (no evidenceRefs).
+      const inferenceEvidence = evidenceRefs
+        ? { evidenceRefs: evidenceRefs as unknown as Prisma.InputJsonObject }
+        : {};
 
       // Store as AIInference records, never overwriting the original capture
       // (spec §6 precedence rule: confirmed > AI inference > raw fallback).
@@ -295,7 +364,8 @@ export class AiProcessor extends WorkerHost {
             valueJson: result.title,
             confidence: result.confidence,
             modelVersion: result.modelVersion,
-            provenance: 'llm_extraction',
+            provenance: inferenceProvenance,
+            ...inferenceEvidence,
           },
         }),
         this.prisma.aIInference.create({
@@ -305,7 +375,8 @@ export class AiProcessor extends WorkerHost {
             valueJson: result.summary,
             confidence: result.confidence,
             modelVersion: result.modelVersion,
-            provenance: 'llm_extraction',
+            provenance: inferenceProvenance,
+            ...inferenceEvidence,
           },
         }),
         this.prisma.aIInference.create({
@@ -315,7 +386,8 @@ export class AiProcessor extends WorkerHost {
             valueJson: result.topics,
             confidence: result.confidence,
             modelVersion: result.modelVersion,
-            provenance: 'llm_extraction',
+            provenance: inferenceProvenance,
+            ...inferenceEvidence,
           },
         }),
       ];
@@ -330,7 +402,8 @@ export class AiProcessor extends WorkerHost {
               valueJson: result.intent,
               confidence: result.fieldConfidence?.intent ?? result.confidence,
               modelVersion: result.modelVersion,
-              provenance: 'llm_extraction',
+              provenance: inferenceProvenance,
+              ...inferenceEvidence,
             },
           }),
         );
@@ -345,7 +418,8 @@ export class AiProcessor extends WorkerHost {
               valueJson: result.entities,
               confidence: result.fieldConfidence?.entities ?? result.confidence,
               modelVersion: result.modelVersion,
-              provenance: 'llm_extraction',
+              provenance: inferenceProvenance,
+              ...inferenceEvidence,
             },
           }),
         );
@@ -360,7 +434,8 @@ export class AiProcessor extends WorkerHost {
               valueJson: result.location,
               confidence: result.fieldConfidence?.location ?? result.confidence,
               modelVersion: result.modelVersion,
-              provenance: 'llm_extraction',
+              provenance: inferenceProvenance,
+              ...inferenceEvidence,
             },
           }),
         );
@@ -375,7 +450,8 @@ export class AiProcessor extends WorkerHost {
               valueJson: result.date,
               confidence: result.fieldConfidence?.date ?? result.confidence,
               modelVersion: result.modelVersion,
-              provenance: 'llm_extraction',
+              provenance: inferenceProvenance,
+              ...inferenceEvidence,
             },
           }),
         );
@@ -390,7 +466,8 @@ export class AiProcessor extends WorkerHost {
               valueJson: true,
               confidence: result.fieldConfidence?.dateYearInferred ?? result.confidence,
               modelVersion: result.modelVersion,
-              provenance: 'llm_extraction',
+              provenance: inferenceProvenance,
+              ...inferenceEvidence,
             },
           }),
         );
@@ -405,7 +482,8 @@ export class AiProcessor extends WorkerHost {
               valueJson: result.eventTime,
               confidence: result.fieldConfidence?.eventTime ?? result.confidence,
               modelVersion: result.modelVersion,
-              provenance: 'llm_extraction',
+              provenance: inferenceProvenance,
+              ...inferenceEvidence,
             },
           }),
         );
@@ -421,7 +499,8 @@ export class AiProcessor extends WorkerHost {
               valueJson: result.brand,
               confidence: result.fieldConfidence?.brand ?? result.confidence,
               modelVersion: result.modelVersion,
-              provenance: 'llm_extraction',
+              provenance: inferenceProvenance,
+              ...inferenceEvidence,
             },
           }),
         );
@@ -436,7 +515,8 @@ export class AiProcessor extends WorkerHost {
               valueJson: result.model,
               confidence: result.fieldConfidence?.model ?? result.confidence,
               modelVersion: result.modelVersion,
-              provenance: 'llm_extraction',
+              provenance: inferenceProvenance,
+              ...inferenceEvidence,
             },
           }),
         );
@@ -451,7 +531,8 @@ export class AiProcessor extends WorkerHost {
               valueJson: result.price,
               confidence: result.fieldConfidence?.price ?? result.confidence,
               modelVersion: result.modelVersion,
-              provenance: 'llm_extraction',
+              provenance: inferenceProvenance,
+              ...inferenceEvidence,
             },
           }),
         );
@@ -466,7 +547,8 @@ export class AiProcessor extends WorkerHost {
               valueJson: result.category,
               confidence: result.fieldConfidence?.category ?? result.confidence,
               modelVersion: result.modelVersion,
-              provenance: 'llm_extraction',
+              provenance: inferenceProvenance,
+              ...inferenceEvidence,
             },
           }),
         );
@@ -481,7 +563,8 @@ export class AiProcessor extends WorkerHost {
               valueJson: result.merchant,
               confidence: result.fieldConfidence?.merchant ?? result.confidence,
               modelVersion: result.modelVersion,
-              provenance: 'llm_extraction',
+              provenance: inferenceProvenance,
+              ...inferenceEvidence,
             },
           }),
         );
@@ -496,7 +579,8 @@ export class AiProcessor extends WorkerHost {
               valueJson: result.originalPrice,
               confidence: result.fieldConfidence?.originalPrice ?? result.confidence,
               modelVersion: result.modelVersion,
-              provenance: 'llm_extraction',
+              provenance: inferenceProvenance,
+              ...inferenceEvidence,
             },
           }),
         );
@@ -511,7 +595,8 @@ export class AiProcessor extends WorkerHost {
               valueJson: result.offerPrice,
               confidence: result.fieldConfidence?.offerPrice ?? result.confidence,
               modelVersion: result.modelVersion,
-              provenance: 'llm_extraction',
+              provenance: inferenceProvenance,
+              ...inferenceEvidence,
             },
           }),
         );
@@ -526,7 +611,8 @@ export class AiProcessor extends WorkerHost {
               valueJson: result.discount,
               confidence: result.fieldConfidence?.discount ?? result.confidence,
               modelVersion: result.modelVersion,
-              provenance: 'llm_extraction',
+              provenance: inferenceProvenance,
+              ...inferenceEvidence,
             },
           }),
         );
@@ -541,7 +627,8 @@ export class AiProcessor extends WorkerHost {
               valueJson: result.promoCode,
               confidence: result.fieldConfidence?.promoCode ?? result.confidence,
               modelVersion: result.modelVersion,
-              provenance: 'llm_extraction',
+              provenance: inferenceProvenance,
+              ...inferenceEvidence,
             },
           }),
         );
@@ -556,7 +643,8 @@ export class AiProcessor extends WorkerHost {
               valueJson: this.fieldEncryption.encrypt(result.issuer),
               confidence: result.fieldConfidence?.issuer ?? result.confidence,
               modelVersion: result.modelVersion,
-              provenance: 'llm_extraction',
+              provenance: inferenceProvenance,
+              ...inferenceEvidence,
             },
           }),
         );
@@ -571,7 +659,8 @@ export class AiProcessor extends WorkerHost {
               valueJson: this.fieldEncryption.encrypt(result.owner),
               confidence: result.fieldConfidence?.owner ?? result.confidence,
               modelVersion: result.modelVersion,
-              provenance: 'llm_extraction',
+              provenance: inferenceProvenance,
+              ...inferenceEvidence,
             },
           }),
         );
@@ -586,7 +675,8 @@ export class AiProcessor extends WorkerHost {
               valueJson: this.fieldEncryption.encrypt(result.documentNumber),
               confidence: result.fieldConfidence?.documentNumber ?? result.confidence,
               modelVersion: result.modelVersion,
-              provenance: 'llm_extraction',
+              provenance: inferenceProvenance,
+              ...inferenceEvidence,
             },
           }),
         );
@@ -601,7 +691,8 @@ export class AiProcessor extends WorkerHost {
               valueJson: result.issueDate,
               confidence: result.fieldConfidence?.issueDate ?? result.confidence,
               modelVersion: result.modelVersion,
-              provenance: 'llm_extraction',
+              provenance: inferenceProvenance,
+              ...inferenceEvidence,
             },
           }),
         );
@@ -617,7 +708,8 @@ export class AiProcessor extends WorkerHost {
               valueJson: result.author,
               confidence: result.fieldConfidence?.author ?? result.confidence,
               modelVersion: result.modelVersion,
-              provenance: 'llm_extraction',
+              provenance: inferenceProvenance,
+              ...inferenceEvidence,
             },
           }),
         );
@@ -633,7 +725,8 @@ export class AiProcessor extends WorkerHost {
               valueJson: result.publishedDate,
               confidence: result.fieldConfidence?.publishedDate ?? result.confidence,
               modelVersion: result.modelVersion,
-              provenance: 'llm_extraction',
+              provenance: inferenceProvenance,
+              ...inferenceEvidence,
             },
           }),
         );
@@ -649,7 +742,8 @@ export class AiProcessor extends WorkerHost {
               valueJson: result.phone,
               confidence: result.fieldConfidence?.phone ?? result.confidence,
               modelVersion: result.modelVersion,
-              provenance: 'llm_extraction',
+              provenance: inferenceProvenance,
+              ...inferenceEvidence,
             },
           }),
         );
@@ -665,7 +759,8 @@ export class AiProcessor extends WorkerHost {
               valueJson: result.serviceArea,
               confidence: result.fieldConfidence?.serviceArea ?? result.confidence,
               modelVersion: result.modelVersion,
-              provenance: 'llm_extraction',
+              provenance: inferenceProvenance,
+              ...inferenceEvidence,
             },
           }),
         );
@@ -680,10 +775,27 @@ export class AiProcessor extends WorkerHost {
             valueJson: result.type,
             confidence: result.confidence,
             modelVersion: result.modelVersion,
-            provenance: 'llm_extraction',
+            provenance: inferenceProvenance,
+            ...inferenceEvidence,
           },
         }),
       );
+
+      // Inferences are appended and each field resolves to its newest present value, so a field
+      // this run does not produce would keep an older value. When no source screenshot reached the
+      // model in this run, output derived from an earlier screenshot run must not stay visible:
+      // remove it in the same transaction as the new results. This runs only after understand()
+      // succeeded (a failed call leaves earlier results untouched), and never in a run that used
+      // a screenshot. Such rows can only exist on a Memory that has a source screenshot asset (the
+      // role is immutable and assets are only deleted with their Memory), so Memories without one
+      // run exactly the same queries as before.
+      if (!hasSourceScreenshot && memoryHasSourceScreenshotAsset) {
+        inferencesToCreate.unshift(
+          this.prisma.aIInference.deleteMany({
+            where: { memoryId, provenance: LLM_USER_SOURCE_SCREENSHOT_PROVENANCE },
+          }),
+        );
+      }
 
       inferencesToCreate.push(
         this.prisma.memory.update({

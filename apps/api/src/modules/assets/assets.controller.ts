@@ -29,6 +29,7 @@ export class AssetsController {
       user.sub,
       dto.checksum,
       dto.pageIndex,
+      dto.evidenceRole,
     );
   }
 

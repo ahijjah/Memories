@@ -91,14 +91,46 @@ export interface MemoryUnderstanding {
   };
 }
 
+/**
+ * Where a piece of evidence came from. Only the server assigns it; it is never derived from user
+ * or page text.
+ * - user_attachment: an ordinary image the user attached to the Memory.
+ * - user_source_screenshot: a screenshot the user provided, claimed to show the Memory's shared
+ *   link. User-asserted; never obtained from or verified by the linked site.
+ * - fetched_page_metadata / fetched_page_image: page metadata / og:image admitted by the existing
+ *   URL-metadata trust rules (never for Facebook).
+ * - provider_authenticated: reserved for a future official provider; nothing produces it today.
+ */
+export type EvidenceKind =
+  | 'user_attachment'
+  | 'user_source_screenshot'
+  | 'fetched_page_metadata'
+  | 'fetched_page_image'
+  | 'provider_authenticated';
+
+export interface UnderstandImage {
+  base64: string;
+  mediaType: string;
+  /** Set only when the evidence set contains a user source screenshot (see UnderstandInput). */
+  evidence?: { kind: EvidenceKind; assetId?: string };
+}
+
 export interface UnderstandInput {
   /** Raw text, OCR output, or a short description of the asset to understand. */
   text: string;
   sourceUri?: string;
   /** Array of images for vision analysis (e.g. for multi-page documents). */
-  images?: { base64: string; mediaType: string }[];
+  images?: UnderstandImage[];
   /** ISO date when the memory was captured — used as reference for resolving partial/relative dates. */
   capturedAt: string;
+  /**
+   * Present only when at least one image is a user source screenshot. The provider then labels
+   * every image and the text by origin. When absent, the request is built exactly as before.
+   */
+  sourceEvidence?: {
+    /** Whether `text` holds page metadata admitted by the URL trust rules. */
+    textKind: 'memory_text' | 'fetched_page_metadata';
+  };
 }
 
 export interface ContextMemory {

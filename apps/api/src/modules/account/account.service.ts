@@ -65,6 +65,7 @@ export class AccountService {
             checksum: true,
             pageIndex: true,
             variant: true,
+            evidenceRole: true,
             createdAt: true,
           },
         },

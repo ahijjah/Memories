@@ -59,6 +59,13 @@ model DeviceSession {
 // Memory core
 // ---------------------------------------------------------------------
 
+// Explicit evidence role of a user-uploaded asset. null = ordinary user attachment.
+// source_screenshot = a screenshot the user provided, claimed to show the Memory's shared link;
+// user-asserted, never authenticated by the linked site.
+enum AssetEvidenceRole {
+  source_screenshot
+}
+
 enum MemorySourceType {
   share
   url
@@ -155,6 +162,7 @@ model MemoryAsset {
   checksum    String?
   pageIndex   Int?
   variant     String? // e.g. original | thumbnail | ocr_page
+  evidenceRole AssetEvidenceRole? // set once at complete-upload; never changed afterwards
   createdAt   DateTime @default(now())
 
   @@index([memoryId])
@@ -174,6 +182,7 @@ model AIInference {
   valueJson     Json
   confidence    Float // 0..1
   provenance    String? // e.g. "ocr", "llm_extraction"
+  evidenceRefs  Json? // versioned record of the evidence the AI run used; null for older rows
   modelVersion  String
   createdAt     DateTime @default(now())
 
