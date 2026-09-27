@@ -129,6 +129,27 @@ describe('AccountService', () => {
       expect(result.reminders).toHaveLength(1);
     });
 
+    it('exports each asset evidence role without storage secrets (FACEBOOK-USER-EVIDENCE-01)', async () => {
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue(mockUser);
+      (prisma.memory.findMany as jest.Mock).mockResolvedValue([]);
+      (prisma.collection.findMany as jest.Mock).mockResolvedValue([]);
+      (prisma.reminder.findMany as jest.Mock).mockResolvedValue([]);
+
+      await service.export('user-1');
+
+      const assetSelect = (prisma.memory.findMany as jest.Mock).mock.calls[0][0].select.assets.select;
+      expect(assetSelect).toEqual({
+        id: true,
+        objectKey: true,
+        mimeType: true,
+        checksum: true,
+        pageIndex: true,
+        variant: true,
+        evidenceRole: true,
+        createdAt: true,
+      });
+    });
+
     it('should include vault-scoped memories in export', async () => {
       (prisma.user.findUnique as jest.Mock).mockResolvedValue(mockUser);
       (prisma.memory.findMany as jest.Mock).mockResolvedValue([

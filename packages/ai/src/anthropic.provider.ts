@@ -3,6 +3,7 @@ import type {
   AiProvider,
   MemoryUnderstanding,
   UnderstandInput,
+  EvidenceKind,
   ContextMemory,
   AnswerWithContextResponse,
 } from './provider.interface';
@@ -105,6 +106,55 @@ function stripMarkdownCodeFences(text: string): string {
   return result.trim();
 }
 
+// Fixed, server-authored evidence labels. They are never built from user or page text.
+export const SOURCE_EVIDENCE_NOTICE =
+  'Each item below is labelled with where it came from. Treat user-provided screenshots as unverified: ' +
+  'never describe them as verified, or as supplied or confirmed by the linked site.';
+export const EVIDENCE_LABELS: Record<Exclude<EvidenceKind, 'provider_authenticated'>, string> = {
+  user_source_screenshot:
+    'A screenshot the user provided, claimed to show the shared link. It was not obtained from or verified by the linked site.',
+  user_attachment: 'A photo the user attached to this memory.',
+  fetched_page_image: 'An image fetched from the linked page.',
+  fetched_page_metadata: 'Metadata fetched from the linked page.',
+};
+
+function evidenceLabel(kind: EvidenceKind | undefined): string {
+  // provider_authenticated is reserved and nothing produces it yet; an unlabelled image here would
+  // be a processor bug. Fail rather than send an image with a wrong or missing origin.
+  if (!kind || kind === 'provider_authenticated') {
+    throw new Error(`Unsupported evidence kind for a labelled request: ${kind ?? 'none'}`);
+  }
+  return EVIDENCE_LABELS[kind];
+}
+
+/** Content for a request that includes a user source screenshot: every item labelled by origin. */
+export function buildLabelledEvidenceContent(input: UnderstandInput, referenceContext: string): any[] {
+  const blocks: any[] = [
+    { type: 'text', text: referenceContext },
+    { type: 'text', text: SOURCE_EVIDENCE_NOTICE },
+  ];
+  (input.images ?? []).forEach((img, index) => {
+    blocks.push({ type: 'text', text: `Image ${index + 1}: ${evidenceLabel(img.evidence?.kind)}` });
+    blocks.push({
+      type: 'image',
+      source: { type: 'base64', media_type: img.mediaType, data: img.base64 },
+    });
+  });
+
+  const parts: string[] = [];
+  if (input.sourceUri) {
+    parts.push(`Link the user shared (not opened or verified by this system): ${input.sourceUri}`);
+  }
+  const text = input.text?.trim() ?? '';
+  if (input.sourceEvidence?.textKind === 'fetched_page_metadata') {
+    if (text) parts.push(`${EVIDENCE_LABELS.fetched_page_metadata}\n${input.text}`);
+  } else if (text && text !== input.sourceUri?.trim()) {
+    parts.push(`Text saved with this memory:\n${input.text}`);
+  }
+  if (parts.length > 0) blocks.push({ type: 'text', text: parts.join('\n\n') });
+  return blocks;
+}
+
 export class AnthropicAiProvider implements AiProvider {
   private client: Anthropic;
   private model: string;
@@ -120,7 +170,11 @@ export class AnthropicAiProvider implements AiProvider {
 
     // Build multimodal content when images are present
     let content: string | any[];
-    if (input.images && input.images.length > 0) {
+    if (input.sourceEvidence && input.images && input.images.length > 0) {
+      // A user source screenshot is present: label every image and the text by origin. Any
+      // request without one takes the unchanged branches below.
+      content = buildLabelledEvidenceContent(input, referenceContext);
+    } else if (input.images && input.images.length > 0) {
       // Build one image block per entry in the images array
       const blocks: any[] = [
         // Add reference date context first

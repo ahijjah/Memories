@@ -18,6 +18,14 @@ import { getActionsForMemory, MemoryAction } from '@/src/utils/memory-actions';
 import { splitDetailActions } from '@/src/utils/memory-detail-actions';
 import { ActionMenuModal, ActionMenuItem } from '@/src/components/ActionMenuModal';
 import { uploadPhotoToExistingMemory } from '@/src/utils/photo-upload';
+import {
+  SOURCE_SCREENSHOT_ROLE,
+  isSourceScreenshotAsset,
+  isUnderstandingFromSourceScreenshot,
+  shouldOfferSourceScreenshot,
+  sourceScreenshotDisclosure,
+  sourceScreenshotPromptCopy,
+} from '@/src/utils/source-evidence';
 import { CardHeader } from '@/src/components/memory-cards/CardHeader';
 import { CardIdentity } from '@/src/components/memory-cards/CardIdentity';
 import { GenericCard } from '@/src/components/memory-cards/GenericCard';
@@ -175,7 +183,8 @@ export default function MemoryDetailScreen() {
     },
   });
 
-  const handleAddPhoto = async () => {
+  // `evidenceRole` marks the image as a screenshot of the shared link (user-provided evidence).
+  const pickAndUploadPhoto = async (evidenceRole?: typeof SOURCE_SCREENSHOT_ROLE) => {
     try {
       setIsAddingPhoto(true);
       const result = await ImagePicker.launchImageLibraryAsync({
@@ -194,7 +203,7 @@ export default function MemoryDetailScreen() {
         }
 
         // Upload photo to existing memory
-        await uploadPhotoToExistingMemory(token, id, asset.uri, mimeType);
+        await uploadPhotoToExistingMemory(token, id, asset.uri, mimeType, undefined, evidenceRole);
 
         // Trigger reprocessing
         await reprocessMemory(token, id);
@@ -203,7 +212,7 @@ export default function MemoryDetailScreen() {
         await refetch();
         await refetchStatus();
 
-        Alert.alert('Success', 'Photo added! Analyzing details...');
+        Alert.alert('Success', evidenceRole ? 'Screenshot added! Analyzing it...' : 'Photo added! Analyzing details...');
       }
     } catch (err: any) {
       Alert.alert('Error', err.message || 'Failed to add photo');
@@ -211,6 +220,9 @@ export default function MemoryDetailScreen() {
       setIsAddingPhoto(false);
     }
   };
+
+  const handleAddPhoto = () => pickAndUploadPhoto();
+  const handleAddSourceScreenshot = () => pickAndUploadPhoto(SOURCE_SCREENSHOT_ROLE);
 
   const [shouldPoll, setShouldPoll] = useState(true);
 
@@ -503,6 +515,9 @@ export default function MemoryDetailScreen() {
     && (!memory.assets || memory.assets.length === 0);
 
   const isVaultScoped = memory.securityScope === 'vault';
+  const shouldShowSourceScreenshotPrompt = shouldOfferSourceScreenshot(memory, processingStatus?.processingState);
+  const sourceScreenshotCopy = sourceScreenshotPromptCopy(memory.sourceUri);
+  const showSourceScreenshotDisclosure = isUnderstandingFromSourceScreenshot(memory);
   const { primary: primaryAction, secondary: secondaryActions } = splitDetailActions(
     getActionsForMemory(memory),
   );
@@ -591,7 +606,33 @@ export default function MemoryDetailScreen() {
           </View>
         )}
 
+        {/* Source screenshot prompt: the shared link could not be read */}
+        {shouldShowSourceScreenshotPrompt && (
+          <View testID="source-screenshot-prompt" className="mb-6 p-4 rounded-lg bg-amber-50 border border-amber-200">
+            <Text className="text-amber-900 font-semibold text-sm">{sourceScreenshotCopy.title}</Text>
+            <Text className="text-amber-900 text-sm mt-1 mb-3">{sourceScreenshotCopy.body}</Text>
+            <TouchableOpacity
+              testID="add-source-screenshot"
+              onPress={handleAddSourceScreenshot}
+              disabled={isAddingPhoto}
+              className={`self-start rounded-lg py-2 px-4 ${isAddingPhoto ? 'bg-amber-200' : 'bg-amber-600'}`}
+            >
+              {isAddingPhoto ? (
+                <ActivityIndicator size="small" color="#78350f" />
+              ) : (
+                <Text className="text-white font-semibold text-sm">Add screenshot</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        )}
+
         <CardHeader title={displayTitle} />
+
+        {showSourceScreenshotDisclosure && (
+          <Text testID="source-screenshot-disclosure" className="text-xs text-gray-500 mb-4">
+            {sourceScreenshotDisclosure(memory.sourceUri)}
+          </Text>
+        )}
 
         {/* Card Display — type-specific layout */}
         <CardIdentity memory={memory} onOpenURL={handleOpenURL} />
@@ -761,6 +802,11 @@ export default function MemoryDetailScreen() {
                 const isImageMimeType = asset.mimeType?.startsWith('image/');
                 return (
                   <View key={asset.id} className="mb-3">
+                    {isSourceScreenshotAsset(asset) && (
+                      <Text testID="source-screenshot-tag" className="text-xs text-gray-500 mb-1">
+                        Your screenshot (not verified)
+                      </Text>
+                    )}
                     {isImageMimeType && asset.url ? (
                       <AuthenticatedAssetImage
                         assetId={asset.id}

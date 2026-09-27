@@ -61,6 +61,7 @@ export async function uploadPhotoToExistingMemory(
   fileUri: string,
   mimeType: string,
   pageIndex?: number,
+  evidenceRole?: 'source_screenshot',
 ): Promise<void> {
   const uploadTarget = await createUpload(token, memoryId, mimeType);
 
@@ -90,5 +91,6 @@ export async function uploadPhotoToExistingMemory(
     uploadTarget.mimeType,
     checksum,
     pageIndex,
+    evidenceRole,
   );
 }

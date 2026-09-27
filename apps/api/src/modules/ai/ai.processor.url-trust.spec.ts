@@ -89,8 +89,10 @@ describe('AiProcessor - URL page trust and evidence boundary', () => {
     expect(typeof prisma.$transaction.mock.calls[0][0]).toBe('function');
 
     expect(tx.aIInference.deleteMany).toHaveBeenCalledTimes(1);
+    // Both LLM provenances: output derived from a user source screenshot must not outlive a later
+    // link-only run either (FACEBOOK-USER-EVIDENCE-01).
     expect(tx.aIInference.deleteMany).toHaveBeenCalledWith({
-      where: { memoryId, provenance: 'llm_extraction' },
+      where: { memoryId, provenance: { in: ['llm_extraction', 'llm_user_source_screenshot'] } },
     });
     expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
     expect(rawSql(tx.$executeRaw.mock.calls[0])).toBe(

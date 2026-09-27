@@ -22,7 +22,7 @@ describe('Upload ownership and object-key binding', () => {
   let service: AssetsService;
   let prisma: {
     memory: { findUnique: jest.Mock };
-    memoryAsset: { create: jest.Mock };
+    memoryAsset: { create: jest.Mock; findFirst: jest.Mock };
   };
   let aiQueue: { enqueueUnderstanding: jest.Mock };
   let s3Send: jest.SpyInstance;
@@ -39,7 +39,11 @@ describe('Upload ownership and object-key binding', () => {
   beforeEach(async () => {
     prisma = {
       memory: { findUnique: jest.fn().mockResolvedValue(memory()) },
-      memoryAsset: { create: jest.fn().mockResolvedValue({ id: 'asset-1' }) },
+      memoryAsset: {
+        create: jest.fn().mockResolvedValue({ id: 'asset-1' }),
+        // complete-upload retry lookup: no earlier registration of the key by default.
+        findFirst: jest.fn().mockResolvedValue(null),
+      },
     };
     aiQueue = { enqueueUnderstanding: jest.fn().mockResolvedValue(undefined) };
 
@@ -263,7 +267,7 @@ describe('Upload ownership and object-key binding', () => {
         user,
       );
 
-      expect(assetsService.completeUpload).toHaveBeenCalledWith(MEMORY_ID, VALID_KEY, 'image/jpeg', OWNER, 'c', 2);
+      expect(assetsService.completeUpload).toHaveBeenCalledWith(MEMORY_ID, VALID_KEY, 'image/jpeg', OWNER, 'c', 2, undefined);
     });
   });
 });

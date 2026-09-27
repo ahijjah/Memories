@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
   InternalServerErrorException,
@@ -14,6 +15,18 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { AiQueueService } from '../ai/ai-queue.service';
 import { ObjectStorageSseService } from '../../common/crypto/object-storage-sse.service';
 import { generateUserUploadObjectKey, isUserUploadObjectKey } from './upload-object-key';
+import type { AssetEvidenceRoleValue } from './dto/asset.dto';
+
+/**
+ * Image types a source screenshot may have: the formats the AI vision provider accepts. The
+ * processor forwards an asset's MIME type to the provider unchanged, so anything else would fail
+ * there.
+ */
+export const SOURCE_SCREENSHOT_MIME_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+
+function normalizeMimeType(value: string | undefined): string {
+  return (value ?? '').split(';')[0].trim().toLowerCase();
+}
 
 @Injectable()
 export class AssetsService {
@@ -150,12 +163,23 @@ export class AssetsService {
     userId: string,
     checksum?: string,
     pageIndex?: number,
+    evidenceRole?: AssetEvidenceRoleValue,
   ) {
     // Authorize and bind the key before touching object storage: only a key of the shape
     // create-upload issues for this user's Memory can become a MemoryAsset.
     const memory = await this.findUploadableMemory(memoryId, userId);
     if (!isUserUploadObjectKey(objectKey, memory.id)) {
       throw new BadRequestException('Invalid object key for this Memory');
+    }
+    if (evidenceRole === 'source_screenshot') {
+      // A source screenshot is the user's own evidence for the Memory's shared link, so the
+      // Memory must be a URL Memory, and the image must be a type the AI can read.
+      if (memory.sourceType !== 'url' || !memory.sourceUri) {
+        throw new BadRequestException('A source screenshot can only be added to a link Memory');
+      }
+      if (!SOURCE_SCREENSHOT_MIME_TYPES.includes(normalizeMimeType(mimeType))) {
+        throw new BadRequestException('Unsupported image type for a source screenshot');
+      }
     }
 
     const sseParams = this.sseCrypto.getSseParams();
@@ -165,14 +189,49 @@ export class AssetsService {
       ...sseParams,
     });
 
+    let head: { ContentType?: string } | undefined;
     try {
-      await this.s3Client.send(headCommand);
+      head = await this.s3Client.send(headCommand);
     } catch (error) {
       throw new InternalServerErrorException('Object not found in storage');
     }
+    if (
+      evidenceRole === 'source_screenshot' &&
+      normalizeMimeType(head?.ContentType) !== normalizeMimeType(mimeType)
+    ) {
+      // The stored object's type (set by the signed upload) must match the declared image type.
+      throw new BadRequestException('Uploaded object type does not match the declared image type');
+    }
+
+    // Retry idempotency (service level only): completing the same key for the same Memory again
+    // returns the existing asset instead of registering a duplicate, and a retry that asks for a
+    // different role or shape is a conflict. This does not stop two concurrent first requests
+    // from both creating a row; that needs a DB unique constraint on objectKey, a separate
+    // hardening step (production has not been checked for existing duplicates yet).
+    const existing = await this.prisma.memoryAsset.findFirst({
+      where: { memoryId: memory.id, objectKey },
+    });
+    if (existing) {
+      const sameRole = (existing.evidenceRole ?? null) === (evidenceRole ?? null);
+      const sameShape =
+        existing.mimeType === mimeType && (existing.pageIndex ?? null) === (pageIndex ?? null);
+      if (!sameRole || !sameShape) {
+        throw new ConflictException('This upload was already completed with different details');
+      }
+      return existing;
+    }
 
     const asset = await this.prisma.memoryAsset.create({
-      data: { memoryId, objectKey, mimeType, checksum, pageIndex, variant: 'original' },
+      data: {
+        memoryId,
+        objectKey,
+        mimeType,
+        checksum,
+        pageIndex,
+        variant: 'original',
+        // Ordinary uploads write exactly the same row as before (no evidenceRole key).
+        ...(evidenceRole ? { evidenceRole } : {}),
+      },
     });
 
     // Enqueue AI processing for image-sourced Memories now that asset exists.

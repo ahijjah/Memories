@@ -185,6 +185,17 @@ describe('SSE-C Header Elimination from Read Responses', () => {
         expect(asset).not.toHaveProperty('headers');
       }
     });
+
+    it('returns the asset evidence role to the owner unchanged (FACEBOOK-USER-EVIDENCE-01)', async () => {
+      (prismaService.memory.findUnique as jest.Mock).mockResolvedValue({
+        ...mockMemory,
+        assets: [{ ...mockAsset, evidenceRole: 'source_screenshot' }, { ...mockAsset, id: 'asset-2', evidenceRole: null }],
+      });
+
+      const result = await memoryService.findOneForUser(mockUserId, mockMemoryId);
+
+      expect(result.assets.map((a: any) => a.evidenceRole)).toEqual(['source_screenshot', null]);
+    });
   });
 
   describe('CollectionsService.findOneForUser enrichment', () => {

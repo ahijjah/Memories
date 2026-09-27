@@ -13,6 +13,8 @@ export interface AIInference {
   valueJson: any;
   confidence: number;
   provenance?: string;
+  /** Versioned record of the evidence the AI run used (set for screenshot-derived runs). */
+  evidenceRefs?: unknown;
   modelVersion: string;
   createdAt: string;
 }
@@ -34,6 +36,8 @@ export interface MemoryAsset {
   checksum?: string;
   pageIndex?: number;
   variant?: string;
+  /** 'source_screenshot': a screenshot the user added for the shared link (user-provided, unverified). */
+  evidenceRole?: 'source_screenshot' | null;
   url?: string;
   createdAt: string;
 }
@@ -200,6 +204,7 @@ export async function completeUpload(
   mimeType: string,
   checksum?: string,
   pageIndex?: number,
+  evidenceRole?: 'source_screenshot',
 ): Promise<MemoryAsset> {
   return makeRequest('/assets/complete-upload', 'POST', token, {
     memoryId,
@@ -207,6 +212,8 @@ export async function completeUpload(
     mimeType,
     checksum,
     pageIndex,
+    // Omitted from the JSON body when undefined, so ordinary uploads send the same body as before.
+    evidenceRole,
   });
 }
 
