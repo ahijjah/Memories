@@ -17,6 +17,9 @@ export default function HandleShareScreen() {
   const [state, setState] = useState<ProcessingState>('loading');
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [memoryId, setMemoryId] = useState<string>('');
+  // URL shares open Detail with fromShare=1, which offers a source screenshot if the link
+  // can't be understood. Text and image shares navigate as before.
+  const [isUrlShare, setIsUrlShare] = useState(false);
 
   useEffect(() => {
     if (isResolving) {
@@ -39,11 +42,11 @@ export default function HandleShareScreen() {
     if (state === 'success' && memoryId) {
       const timeout = setTimeout(() => {
         clearSharedPayloads();
-        router.replace(`/memory/${memoryId}`);
+        router.replace(isUrlShare ? `/memory/${memoryId}?fromShare=1` : `/memory/${memoryId}`);
       }, 500);
       return () => clearTimeout(timeout);
     }
-  }, [state, memoryId]);
+  }, [state, memoryId, isUrlShare]);
 
   const processShare = async (payload: ResolvedSharePayload) => {
     try {
@@ -85,6 +88,7 @@ export default function HandleShareScreen() {
       isUrl ? text : text.substring(0, 100),
     );
 
+    setIsUrlShare(isUrl);
     setMemoryId(memory.id);
     setState('success');
   };

@@ -162,7 +162,7 @@ export class MemoryService {
   async reprocessMemory(userId: string, id: string) {
     const memory = await this.prisma.memory.findUnique({
       where: { id },
-      select: { id: true, userId: true, securityScope: true },
+      select: { id: true, userId: true, securityScope: true, processingState: true, updatedAt: true },
     });
     if (!memory) throw new NotFoundException('Memory not found');
     this.assertOwnership(memory.userId, userId);
@@ -170,7 +170,27 @@ export class MemoryService {
       throw new NotFoundException('Memory not found');
     }
 
-    await this.aiQueue.enqueueUnderstanding(memory.id);
+    // A queue error propagates before any state change, so a failed request never leaves the
+    // Memory looking queued.
+    const outcome = await this.aiQueue.requeueForReprocess(memory.id);
+
+    // An active job may already have written its final state ('partial' or 'failed') while BullMQ
+    // still lists it as active, and it will not run again. Marking the Memory 'queued' here could
+    // leave it queued with no job, so the state read above is left and reported as is.
+    if (outcome.kind === 'pending' && outcome.state === 'active') {
+      return { id: memory.id, processingState: memory.processingState };
+    }
+
+    // Every other outcome means a processor run that starts after the Memory was read (a new or
+    // re-queued job, or one waiting or delayed), so report 'queued' until the worker picks it up.
+    // Only if nothing has written the Memory since it was read: once that run has started (it
+    // writes 'processing' first) or finished, its own state stands.
+    if (memory.processingState !== 'queued' && memory.processingState !== 'processing') {
+      await this.prisma.memory.updateMany({
+        where: { id: memory.id, processingState: memory.processingState, updatedAt: memory.updatedAt },
+        data: { processingState: 'queued' },
+      });
+    }
     return { id: memory.id, processingState: 'queued' };
   }
 

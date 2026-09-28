@@ -45,6 +45,38 @@ export function shouldOfferSourceScreenshot(
   );
 }
 
+/**
+ * After a URL share, prompt once for a source screenshot: only when the processing-status poll
+ * reports the first job's terminal `partial` (never while queued/processing) and the Memory is
+ * eligible for the existing banner.
+ */
+export function shouldAutoPromptSourceScreenshot(
+  fromShare: boolean,
+  memory: Pick<Memory, 'sourceType' | 'sourceUri' | 'securityScope' | 'processingState' | 'assets'>,
+  polledState: ProcessingStatus['processingState'] | undefined,
+): boolean {
+  return fromShare && polledState === 'partial' && shouldOfferSourceScreenshot(memory, polledState);
+}
+
+/**
+ * Recovery for a link Memory that already has a source screenshot but no result: its last run
+ * ended partial or failed (or the reprocess request never reached the server). Offers "Analyze
+ * screenshot again", which only re-queues the Memory. Not in the Vault (reprocess returns 404).
+ */
+export function shouldOfferScreenshotReanalysis(
+  memory: Pick<Memory, 'sourceType' | 'sourceUri' | 'securityScope' | 'processingState' | 'assets'>,
+  processingState?: ProcessingStatus['processingState'],
+): boolean {
+  const state = processingState ?? memory.processingState;
+  return (
+    memory.sourceType === 'url' &&
+    !!memory.sourceUri &&
+    (state === 'partial' || state === 'failed') &&
+    memory.securityScope !== 'vault' &&
+    (memory.assets ?? []).some(isSourceScreenshotAsset)
+  );
+}
+
 export function sourceScreenshotPromptCopy(sourceUri: string | undefined | null): { title: string; body: string } {
   return isFacebookLink(sourceUri)
     ? {

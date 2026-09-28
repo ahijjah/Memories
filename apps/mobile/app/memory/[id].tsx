@@ -22,6 +22,8 @@ import {
   SOURCE_SCREENSHOT_ROLE,
   isSourceScreenshotAsset,
   isUnderstandingFromSourceScreenshot,
+  shouldAutoPromptSourceScreenshot,
+  shouldOfferScreenshotReanalysis,
   shouldOfferSourceScreenshot,
   sourceScreenshotDisclosure,
   sourceScreenshotPromptCopy,
@@ -42,7 +44,8 @@ import { AuthenticatedAssetImage } from '@/src/components/AuthenticatedAssetImag
 import { RelatedMemoriesSection } from '@/src/components/RelatedMemoriesSection';
 
 export default function MemoryDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  // fromShare=1 is set by handle-share for URL shares (one-time screenshot prompt below).
+  const { id, fromShare } = useLocalSearchParams<{ id: string; fromShare?: string }>();
   const { getToken } = useAuth();
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -54,6 +57,8 @@ export default function MemoryDetailScreen() {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [isAddingPhoto, setIsAddingPhoto] = useState(false);
+  const [isReanalyzing, setIsReanalyzing] = useState(false);
+  const sharePromptShownRef = useRef(false);
   const [isCapturingCard, setIsCapturingCard] = useState(false);
   const [summaryResult, setSummaryResult] = useState<string | null>(null);
   const [keyPointsResult, setKeyPointsResult] = useState<string[] | null>(null);
@@ -224,6 +229,26 @@ export default function MemoryDetailScreen() {
   const handleAddPhoto = () => pickAndUploadPhoto();
   const handleAddSourceScreenshot = () => pickAndUploadPhoto(SOURCE_SCREENSHOT_ROLE);
 
+  // Re-queue a Memory whose source screenshot is already uploaded but was never analyzed
+  // successfully. No picker, no upload, no new asset: only the existing reprocess call.
+  const handleReanalyzeScreenshot = async () => {
+    if (!id) return;
+    try {
+      setIsReanalyzing(true);
+      const token = await getToken();
+      if (!token) {
+        throw new Error('Authentication required');
+      }
+      await reprocessMemory(token, id);
+      await refetch();
+      await refetchStatus();
+    } catch (err: any) {
+      Alert.alert('Error', err?.message || "Couldn't restart the analysis. Please try again.");
+    } finally {
+      setIsReanalyzing(false);
+    }
+  };
+
   const [shouldPoll, setShouldPoll] = useState(true);
 
   const { data: processingStatus, refetch: refetchStatus } = useQuery({
@@ -263,6 +288,25 @@ export default function MemoryDetailScreen() {
     }, 3000);
     return () => clearInterval(interval);
   }, [processingStatus, refetchStatus]);
+
+  // After a URL share: once the first job has finished as partial (from the status poll, never
+  // before), offer the screenshot once per Detail mount. "Not now" saves nothing; the inline
+  // banner stays available.
+  useEffect(() => {
+    if (sharePromptShownRef.current || !memory || isAddingPhoto) return;
+    if (!shouldAutoPromptSourceScreenshot(fromShare === '1', memory, processingStatus?.processingState)) return;
+    sharePromptShownRef.current = true;
+    const copy = sourceScreenshotPromptCopy(memory.sourceUri);
+    Alert.alert(
+      copy.title,
+      copy.body,
+      [
+        { text: 'Not now', style: 'cancel' },
+        { text: 'Add screenshot', onPress: () => { handleAddSourceScreenshot(); } },
+      ],
+      { cancelable: true },
+    );
+  }, [fromShare, memory, processingStatus, isAddingPhoto]);
 
   // Structured fields come only from the server-resolved contract (ADR-003). A missing key means
   // unresolved; raw aiInferences/userConfirmations are never consulted for these values.
@@ -517,6 +561,8 @@ export default function MemoryDetailScreen() {
   const isVaultScoped = memory.securityScope === 'vault';
   const shouldShowSourceScreenshotPrompt = shouldOfferSourceScreenshot(memory, processingStatus?.processingState);
   const sourceScreenshotCopy = sourceScreenshotPromptCopy(memory.sourceUri);
+  const reanalysisState = processingStatus?.processingState ?? memory.processingState;
+  const shouldShowScreenshotReanalysis = shouldOfferScreenshotReanalysis(memory, processingStatus?.processingState);
   const showSourceScreenshotDisclosure = isUnderstandingFromSourceScreenshot(memory);
   const { primary: primaryAction, secondary: secondaryActions } = splitDetailActions(
     getActionsForMemory(memory),
@@ -621,6 +667,29 @@ export default function MemoryDetailScreen() {
                 <ActivityIndicator size="small" color="#78350f" />
               ) : (
                 <Text className="text-white font-semibold text-sm">Add screenshot</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Recovery: a source screenshot exists but its analysis never completed */}
+        {shouldShowScreenshotReanalysis && (
+          <View testID="source-screenshot-reanalyze" className="mb-6 p-4 rounded-lg bg-amber-50 border border-amber-200">
+            <Text className="text-amber-900 text-sm mb-3">
+              {reanalysisState === 'failed'
+                ? "We couldn't analyze your screenshot."
+                : "Your screenshot hasn't been analyzed yet."}
+            </Text>
+            <TouchableOpacity
+              testID="reanalyze-source-screenshot"
+              onPress={handleReanalyzeScreenshot}
+              disabled={isReanalyzing}
+              className={`self-start rounded-lg py-2 px-4 ${isReanalyzing ? 'bg-amber-200' : 'bg-amber-600'}`}
+            >
+              {isReanalyzing ? (
+                <ActivityIndicator size="small" color="#78350f" />
+              ) : (
+                <Text className="text-white font-semibold text-sm">Analyze screenshot again</Text>
               )}
             </TouchableOpacity>
           </View>
