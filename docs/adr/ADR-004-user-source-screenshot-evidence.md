@@ -75,8 +75,23 @@ contract (ADR-003) is unchanged; the app reads provenance from the owner's detai
   check first.
 - **Vault reprocess:** Vault Detail and the document scanner call `POST /memories/:id/reprocess`,
   which returns 404 for Vault Memories. The screenshot prompt is therefore not shown in the Vault.
-- **Failed or partial screenshot run (UX):** once a screenshot exists the prompt hides; if that run
-  fails or falls back to a partial link, the app offers no retry, replace or delete path.
+- **Failed or partial screenshot run (UX):** once a screenshot exists the prompt hides. PR30 adds
+  "Analyze screenshot again" (re-queue only; a retained failed job is moved back with BullMQ's
+  atomic retry); there is still no replace or delete path.
+- **PROCESSING-RETRY-STATE-01:** the processor writes `failed` before BullMQ schedules an automatic
+  retry, so `processing-status` reads `failed` while a retry is still pending and the app can offer
+  "Analyze screenshot again" too early. A tap then is harmless (the delayed job is left as is, no
+  duplicate, attempts not reset, polling resumes and the automatic retry decides the outcome) but
+  suggests a new attempt. `processing-status` should eventually distinguish terminal failure from
+  retry backoff.
+- **Reprocess while a job is active:** the processor writes its final state before BullMQ moves the
+  job out of active, so reprocess leaves the Memory state unchanged when it sees an active job
+  (marking it queued could leave it queued with no job). A tap in that brief window has no effect
+  and can be repeated.
+- **Minor UX (PR30):** the re-analysis banner can flash for one status fetch right after a
+  screenshot upload; the share prompt can show again if Android restores the Detail route with
+  `fromShare=1`; the `completed` branch of the re-queue is unreachable while `removeOnComplete` is
+  set.
 - **Single-asset deletion:** none exists; a wrong screenshot can only be corrected by field
   confirmations or deleting the Memory. Any future asset deletion must also reprocess or clean up
   inferences that reference it.

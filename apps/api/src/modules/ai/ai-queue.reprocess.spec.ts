@@ -31,7 +31,7 @@ describe('AiQueueService.requeueForReprocess', () => {
   it('no existing job: enqueues normally with jobId = memoryId and the usual options', async () => {
     const { queue, service } = setup(undefined);
 
-    await expect(service.requeueForReprocess('mem-1')).resolves.toBe('enqueued');
+    await expect(service.requeueForReprocess('mem-1')).resolves.toEqual({ kind: 'enqueued' });
 
     expect(queue.getJob).toHaveBeenCalledWith('mem-1');
     expect(queue.add).toHaveBeenCalledWith('understand', { memoryId: 'mem-1' }, QUEUE_OPTIONS);
@@ -41,7 +41,7 @@ describe('AiQueueService.requeueForReprocess', () => {
     const job = jobIn('unknown');
     const { queue, service } = setup(job);
 
-    await expect(service.requeueForReprocess('mem-1')).resolves.toBe('enqueued');
+    await expect(service.requeueForReprocess('mem-1')).resolves.toEqual({ kind: 'enqueued' });
 
     expect(queue.add).toHaveBeenCalledWith('understand', { memoryId: 'mem-1' }, QUEUE_OPTIONS);
     expect(job.retry).not.toHaveBeenCalled();
@@ -51,7 +51,7 @@ describe('AiQueueService.requeueForReprocess', () => {
     const job = jobIn('failed');
     const { queue, service } = setup(job);
 
-    await expect(service.requeueForReprocess('mem-1')).resolves.toBe('requeued');
+    await expect(service.requeueForReprocess('mem-1')).resolves.toEqual({ kind: 'requeued' });
 
     expect(job.retry).toHaveBeenCalledWith('failed', { resetAttemptsMade: true, resetAttemptsStarted: true });
     expect(job.remove).not.toHaveBeenCalled();
@@ -62,19 +62,19 @@ describe('AiQueueService.requeueForReprocess', () => {
     const job = jobIn('completed');
     const { queue, service } = setup(job);
 
-    await expect(service.requeueForReprocess('mem-1')).resolves.toBe('requeued');
+    await expect(service.requeueForReprocess('mem-1')).resolves.toEqual({ kind: 'requeued' });
 
     expect(job.retry).toHaveBeenCalledWith('completed', { resetAttemptsMade: true, resetAttemptsStarted: true });
     expect(queue.add).not.toHaveBeenCalled();
   });
 
   it.each(['waiting', 'active', 'delayed', 'prioritized', 'waiting-children'])(
-    'live job (%s, including a delayed automatic retry) is left untouched and nothing is added',
+    'live job (%s, including a delayed automatic retry) is left untouched, nothing is added, state reported',
     async (state) => {
       const job = jobIn(state);
       const { queue, service } = setup(job);
 
-      await expect(service.requeueForReprocess('mem-1')).resolves.toBe('pending');
+      await expect(service.requeueForReprocess('mem-1')).resolves.toEqual({ kind: 'pending', state });
 
       expect(job.retry).not.toHaveBeenCalled();
       expect(job.remove).not.toHaveBeenCalled();
@@ -82,14 +82,39 @@ describe('AiQueueService.requeueForReprocess', () => {
     },
   );
 
-  it('concurrent reprocess already re-queued the failed job: reported as pending, no error, no second job', async () => {
-    const job = jobIn('failed', 'waiting');
-    job.retry.mockRejectedValue(new Error('Job mem-1 is not in the failed state'));
-    const { queue, service } = setup(job);
+  it.each(['waiting', 'active', 'delayed'])(
+    'concurrent reprocess already re-queued the failed job (now %s): pending with that state, no error, no second job',
+    async (now) => {
+      const job = jobIn('failed', now);
+      job.retry.mockRejectedValue(new Error('Job mem-1 is not in the failed state. reprocessJob'));
+      const { queue, service } = setup(job);
 
-    await expect(service.requeueForReprocess('mem-1')).resolves.toBe('pending');
+      await expect(service.requeueForReprocess('mem-1')).resolves.toEqual({ kind: 'pending', state: now });
 
+      expect(queue.add).not.toHaveBeenCalled();
+    },
+  );
+
+  it('two simultaneous reprocess requests on one failed job: one re-queue, one pending, never a second job', async () => {
+    // Shared job whose state follows BullMQ: the first retry moves it failed -> waiting, a second
+    // retry then finds it outside the failed set (reprocessJob returns -3).
+    let state = 'failed';
+    const job = {
+      getState: jest.fn(async () => state),
+      retry: jest.fn(async (from: string) => {
+        if (state !== from) throw new Error('Job mem-1 is not in the failed state. reprocessJob');
+        state = 'waiting';
+      }),
+      remove: jest.fn(),
+    };
+    const queue = { add: jest.fn(), getJob: jest.fn().mockResolvedValue(job) };
+    const service = new AiQueueService(queue as any);
+
+    const results = await Promise.all([service.requeueForReprocess('mem-1'), service.requeueForReprocess('mem-1')]);
+
+    expect(results).toEqual(expect.arrayContaining([{ kind: 'requeued' }, { kind: 'pending', state: 'waiting' }]));
     expect(queue.add).not.toHaveBeenCalled();
+    expect(job.remove).not.toHaveBeenCalled();
   });
 
   it('re-queue failure is propagated and never followed by an add', async () => {
