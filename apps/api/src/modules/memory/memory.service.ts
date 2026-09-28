@@ -162,7 +162,7 @@ export class MemoryService {
   async reprocessMemory(userId: string, id: string) {
     const memory = await this.prisma.memory.findUnique({
       where: { id },
-      select: { id: true, userId: true, securityScope: true },
+      select: { id: true, userId: true, securityScope: true, processingState: true, updatedAt: true },
     });
     if (!memory) throw new NotFoundException('Memory not found');
     this.assertOwnership(memory.userId, userId);
@@ -170,7 +170,19 @@ export class MemoryService {
       throw new NotFoundException('Memory not found');
     }
 
-    await this.aiQueue.enqueueUnderstanding(memory.id);
+    // A queue error propagates before any state change, so a failed request never leaves the
+    // Memory looking queued.
+    await this.aiQueue.requeueForReprocess(memory.id);
+
+    // A job is now pending, so report 'queued' until the worker picks it up. Only if nothing has
+    // written the Memory since it was read: once the job has started (it writes 'processing'
+    // first) or finished, its own state stands.
+    if (memory.processingState !== 'queued' && memory.processingState !== 'processing') {
+      await this.prisma.memory.updateMany({
+        where: { id: memory.id, processingState: memory.processingState, updatedAt: memory.updatedAt },
+        data: { processingState: 'queued' },
+      });
+    }
     return { id: memory.id, processingState: 'queued' };
   }
 
