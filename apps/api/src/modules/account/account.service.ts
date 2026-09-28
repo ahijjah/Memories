@@ -71,6 +71,8 @@ export class AccountService {
         },
         createdAt: true,
         updatedAt: true,
+        // Full text the user saved (LOSSLESS-CAPTURE-01), Vault included like the rest of export.
+        content: { select: { text: true } },
       },
     });
 
@@ -105,7 +107,8 @@ export class AccountService {
 
     return {
       user,
-      memories,
+      // `body` is the full saved text (null when there is none), the same field name as Detail.
+      memories: memories.map(({ content, ...memory }) => ({ ...memory, body: content?.text ?? null })),
       collections,
       reminders,
     };

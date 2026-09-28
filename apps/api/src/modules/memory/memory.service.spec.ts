@@ -686,7 +686,7 @@ describe('MemoryService', () => {
 
       expect(prismaMock.memory.findUnique).toHaveBeenCalledWith({
         where: { id: 'mem-1' },
-        include: { assets: true, aiInferences: { orderBy: latestFirst }, userConfirmations: true },
+        include: { assets: true, aiInferences: { orderBy: latestFirst }, userConfirmations: true, content: true },
       });
 
       prismaMock.memory.findUnique.mockResolvedValueOnce({

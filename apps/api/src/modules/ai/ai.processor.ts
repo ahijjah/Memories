@@ -138,7 +138,7 @@ export class AiProcessor extends WorkerHost {
   async process(job: Job<AiProcessingJobData>): Promise<void> {
     const { memoryId } = job.data;
 
-    const memory = await this.prisma.memory.findUnique({ where: { id: memoryId } });
+    const memory = await this.prisma.memory.findUnique({ where: { id: memoryId }, include: { content: true } });
     if (!memory) {
       this.logger.warn(`Memory ${memoryId} not found — skipping (may have been deleted)`);
       return;
@@ -156,7 +156,15 @@ export class AiProcessor extends WorkerHost {
       }
 
       const provider = new AnthropicAiProvider(apiKey);
-      let inputText = memory.title ?? memory.sourceUri ?? '(no text content captured)';
+      // Full text saved with the Memory (LOSSLESS-CAPTURE-01); legacy Memories have none. Never log it.
+      const savedText = memory.content?.text || undefined;
+      // Only a URL Memory's text is user text shared alongside a link. It is passed separately and
+      // labelled as the user's own words; its title is derived from that text, so the link stands
+      // in for it, exactly as for a bare shared link. Other Memories use the full text as content.
+      const userText = memory.sourceType === 'url' && memory.sourceUri ? savedText : undefined;
+      let inputText = userText
+        ? memory.sourceUri!
+        : savedText ?? memory.title ?? memory.sourceUri ?? '(no text content captured)';
       let ogImageUrl: string | null | undefined;
 
       // Check for user-uploaded assets first (higher priority than og:image)
@@ -324,9 +332,10 @@ export class AiProcessor extends WorkerHost {
         images: images.length > 0 ? images : undefined,
         capturedAt: memory.capturedAt.toISOString(),
       };
-      // Evidence labelling applies only when a user source screenshot is present. It is user
-      // evidence only: it does not change which page metadata was admitted above.
-      if (hasSourceScreenshot) {
+      // Evidence labelling applies only when a user source screenshot or user text shared with the
+      // link is present. Both are user evidence only: they do not change which page metadata was
+      // admitted above, and user text alone never replaces the link-only fallback above.
+      if (hasSourceScreenshot || userText) {
         understandInput.images = images.map((img, i) => ({
           ...img,
           evidence: { kind: imageEvidence[i].kind, assetId: imageEvidence[i].assetId },
@@ -334,6 +343,7 @@ export class AiProcessor extends WorkerHost {
         understandInput.sourceEvidence = {
           textKind: pageMetadata === 'admitted' ? 'fetched_page_metadata' : 'memory_text',
         };
+        if (userText) understandInput.userText = userText;
       }
       const result = await provider.understand(understandInput);
 

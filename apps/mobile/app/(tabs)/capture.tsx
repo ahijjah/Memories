@@ -4,11 +4,21 @@ import { useState } from 'react';
 import { View, TextInput, TouchableOpacity, Text, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
+import {
+  MAX_MEMORY_TEXT,
+  deriveTitle,
+  isOverMemoryTextLimit,
+  memoryTextLength,
+  memoryTextTooLongMessage,
+} from '@/src/utils/share-text';
 import { v4 as uuidv4 } from 'uuid';
 import { createMemory } from '@/src/api/client';
 import { uploadPhotoToMemory } from '@/src/utils/photo-upload';
 
 type CaptureMode = 'text' | 'url' | 'photo';
+
+// The character counter appears as the text approaches the limit.
+const TEXT_COUNTER_FROM = 18_000;
 
 const requestLocation = async (): Promise<{ latitude: number; longitude: number } | null> => {
   try {
@@ -39,10 +49,17 @@ export default function CaptureScreen() {
   const [title, setTitle] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const textLength = memoryTextLength(input);
+  const textTooLong = textLength > MAX_MEMORY_TEXT;
 
   const handleTextCapture = async () => {
     if (!input.trim()) {
       setError('Please enter some text');
+      return;
+    }
+    // Over the limit nothing is saved and nothing is cut: the user shortens the text.
+    if (isOverMemoryTextLimit(input)) {
+      setError(memoryTextTooLongMessage(input));
       return;
     }
 
@@ -53,14 +70,16 @@ export default function CaptureScreen() {
       const idempotencyKey = uuidv4();
       const location = await requestLocation();
 
+      // The full text is the body, exactly as typed; the title is only a short display line.
       const memory = await createMemory(
         token,
         'text',
         idempotencyKey,
         undefined,
-        title || input.substring(0, 100),
+        title || deriveTitle(input) || input.trim(),
         location?.latitude,
         location?.longitude,
+        input,
       );
 
       router.push(`/memory/${memory.id}`);
@@ -242,12 +261,22 @@ export default function CaptureScreen() {
                 editable={!loading}
                 placeholderTextColor="#999"
               />
+              {mode === 'text' && textLength >= TEXT_COUNTER_FROM ? (
+                <Text
+                  testID="capture-text-counter"
+                  className={`text-xs mt-1 text-right ${textTooLong ? 'text-red-600 font-semibold' : 'text-gray-500'}`}
+                >
+                  {textLength.toLocaleString('en-US')} / {MAX_MEMORY_TEXT.toLocaleString('en-US')}
+                  {textTooLong ? ' — too long to save' : ''}
+                </Text>
+              ) : null}
             </View>
 
             <TouchableOpacity
+              testID="capture-save"
               onPress={mode === 'text' ? handleTextCapture : handleUrlCapture}
-              disabled={loading}
-              className="bg-blue-600 rounded-lg py-3"
+              disabled={loading || (mode === 'text' && textTooLong)}
+              className={`rounded-lg py-3 ${mode === 'text' && textTooLong ? 'bg-gray-300' : 'bg-blue-600'}`}
             >
               {loading ? (
                 <ActivityIndicator size="small" color="#fff" />

@@ -2,12 +2,17 @@ import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  // A Memory's full text may be up to MAX_MEMORY_TEXT (20,000) characters; JSON escaping can
+  // take that past Express's 100 KB default. 256 KB covers the worst case for that bound only.
+  app.useBodyParser('json', { limit: '256kb' });
 
   app.use(helmet());
 

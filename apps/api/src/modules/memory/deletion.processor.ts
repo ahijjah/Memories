@@ -91,10 +91,15 @@ export class MemoryDeletionProcessor extends WorkerHost {
       }
     }
 
-    await this.prisma.memory.update({
-      where: { id: memoryId },
-      data: { lifecycleState: 'deleted' },
-    });
+    // The full text goes with the deletion (no restore after finalization). Other Memory data
+    // keeps its existing retention.
+    await this.prisma.$transaction([
+      this.prisma.memoryContent.deleteMany({ where: { memoryId } }),
+      this.prisma.memory.update({
+        where: { id: memoryId },
+        data: { lifecycleState: 'deleted' },
+      }),
+    ]);
 
     this.logger.log(
       `Finalized deletion of memory ${memoryId} (${assets.length} assets, ${assetCleanupFailures} cleanup failures)`,

@@ -117,6 +117,8 @@ export const EVIDENCE_LABELS: Record<Exclude<EvidenceKind, 'provider_authenticat
   fetched_page_image: 'An image fetched from the linked page.',
   fetched_page_metadata: 'Metadata fetched from the linked page.',
 };
+export const USER_TEXT_LABEL =
+  "Text the user wrote or shared with this link. These are the user's own words: not content fetched from or verified by the linked page.";
 
 function evidenceLabel(kind: EvidenceKind | undefined): string {
   // provider_authenticated is reserved and nothing produces it yet; an unlabelled image here would
@@ -127,7 +129,10 @@ function evidenceLabel(kind: EvidenceKind | undefined): string {
   return EVIDENCE_LABELS[kind];
 }
 
-/** Content for a request that includes a user source screenshot: every item labelled by origin. */
+/**
+ * Content for a request that includes a user source screenshot or user text shared with a link:
+ * every item labelled by origin.
+ */
 export function buildLabelledEvidenceContent(input: UnderstandInput, referenceContext: string): any[] {
   const blocks: any[] = [
     { type: 'text', text: referenceContext },
@@ -151,6 +156,9 @@ export function buildLabelledEvidenceContent(input: UnderstandInput, referenceCo
   } else if (text && text !== input.sourceUri?.trim()) {
     parts.push(`Text saved with this memory:\n${input.text}`);
   }
+  if (input.userText?.trim()) {
+    parts.push(`${USER_TEXT_LABEL}\n${input.userText}`);
+  }
   if (parts.length > 0) blocks.push({ type: 'text', text: parts.join('\n\n') });
   return blocks;
 }
@@ -170,9 +178,9 @@ export class AnthropicAiProvider implements AiProvider {
 
     // Build multimodal content when images are present
     let content: string | any[];
-    if (input.sourceEvidence && input.images && input.images.length > 0) {
-      // A user source screenshot is present: label every image and the text by origin. Any
-      // request without one takes the unchanged branches below.
+    if (input.sourceEvidence && ((input.images && input.images.length > 0) || input.userText)) {
+      // A user source screenshot or user text shared with a link is present: label every image
+      // and the text by origin. Any request without either takes the unchanged branches below.
       content = buildLabelledEvidenceContent(input, referenceContext);
     } else if (input.images && input.images.length > 0) {
       // Build one image block per entry in the images array

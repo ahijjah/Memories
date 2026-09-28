@@ -131,6 +131,12 @@ export interface UnderstandInput {
     /** Whether `text` holds page metadata admitted by the URL trust rules. */
     textKind: 'memory_text' | 'fetched_page_metadata';
   };
+  /**
+   * Text the user wrote or shared together with the link of a URL memory: the user's own words,
+   * never content fetched from or verified by the linked page. When present, `sourceEvidence` is
+   * set too and the request is labelled item by item. When absent, the request is unchanged.
+   */
+  userText?: string;
 }
 
 export interface ContextMemory {

@@ -38,25 +38,46 @@ export class MemoryService {
   async create(userId: string, dto: CreateMemoryDto) {
     const existing = await this.prisma.memory.findUnique({
       where: { idempotencyKey: dto.idempotencyKey },
+      include: { content: true },
     });
     if (existing) {
       this.assertOwnership(existing.userId, userId);
-      return existing;
+      return withBody(existing);
     }
 
-    const memory = await this.prisma.memory.create({
-      data: {
-        userId,
-        sourceType: dto.sourceType,
-        sourceUri: dto.sourceUri,
-        title: dto.title,
-        idempotencyKey: dto.idempotencyKey,
-        processingState: 'queued',
-        lifecycleState: 'active',
-        latitude: dto.latitude,
-        longitude: dto.longitude,
-      },
-    });
+    let memory;
+    try {
+      memory = await this.prisma.memory.create({
+        data: {
+          userId,
+          sourceType: dto.sourceType,
+          sourceUri: dto.sourceUri,
+          title: dto.title,
+          idempotencyKey: dto.idempotencyKey,
+          processingState: 'queued',
+          lifecycleState: 'active',
+          latitude: dto.latitude,
+          longitude: dto.longitude,
+          // Full text, exactly as sent, written in the same statement as the Memory (atomic).
+          ...(dto.body ? { content: { create: { text: dto.body } } } : {}),
+        },
+        include: { content: true },
+      });
+    } catch (err) {
+      // Two concurrent requests with the same key: the loser returns the winner's Memory
+      // (whose own request enqueued it) instead of failing.
+      if (isIdempotencyKeyConflict(err)) {
+        const winner = await this.prisma.memory.findUnique({
+          where: { idempotencyKey: dto.idempotencyKey },
+          include: { content: true },
+        });
+        if (winner) {
+          this.assertOwnership(winner.userId, userId);
+          return withBody(winner);
+        }
+      }
+      throw err;
+    }
 
     // Capture success is independent of AI success (BR-001, FR-CAP-003):
     // enqueue is fire-and-forget from the caller's perspective.
@@ -68,7 +89,7 @@ export class MemoryService {
       await this.aiQueue.enqueueUnderstanding(memory.id);
     }
 
-    return memory;
+    return withBody(memory);
   }
 
   async findAllForUser(userId: string) {
@@ -110,14 +131,17 @@ export class MemoryService {
   }
 
   async findOneForUser(userId: string, id: string) {
-    const memory = await this.prisma.memory.findUnique({
+    const found = await this.prisma.memory.findUnique({
       where: { id },
       include: {
         assets: true,
         aiInferences: { orderBy: LATEST_AI_INFERENCE_ORDER },
         userConfirmations: true,
+        content: true,
       },
     });
+    // `body` (full text) is returned only here, after the ownership and Vault checks below.
+    const memory = found ? withBody(found) : null;
     if (!memory) throw new NotFoundException('Memory not found');
     this.assertOwnership(memory.userId, userId);
     if (memory.securityScope === 'vault') {
@@ -572,4 +596,21 @@ export class MemoryService {
       throw new ForbiddenException('You do not have access to this Memory');
     }
   }
+}
+
+/**
+ * Replace the loaded `content` relation with the API field `body` (the full text, or null for
+ * Memories without one, including every legacy Memory).
+ */
+function withBody<T extends { content?: { text: string } | null }>(
+  memory: T,
+): Omit<T, 'content'> & { body: string | null } {
+  const { content, ...rest } = memory;
+  return { ...rest, body: content?.text ?? null };
+}
+
+function isIdempotencyKeyConflict(err: unknown): boolean {
+  if (!(err instanceof Prisma.PrismaClientKnownRequestError) || err.code !== 'P2002') return false;
+  const target = (err.meta as { target?: unknown } | undefined)?.target;
+  return Array.isArray(target) ? target.includes('idempotencyKey') : String(target ?? '').includes('idempotencyKey');
 }

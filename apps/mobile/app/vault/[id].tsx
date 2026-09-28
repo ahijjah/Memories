@@ -24,6 +24,7 @@ import { resolveCardType } from '@/src/components/memory-cards/cardTypeResolver'
 import { checkBiometricEnrollment, authenticateVault, useVaultAutoLock, useVaultScreenProtection, type VaultAuthState } from '@/src/utils/vault-auth';
 import { AuthenticatedAssetImage } from '@/src/components/AuthenticatedAssetImage';
 import { RelatedMemoriesSection } from '@/src/components/RelatedMemoriesSection';
+import { MemoryBodySection } from '@/src/components/MemoryBodySection';
 
 export default function VaultDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -751,6 +752,9 @@ export default function VaultDetailScreen() {
 
         {/* Card Display — type-specific layout */}
         <CardIdentity memory={memory} onOpenURL={handleOpenURL} />
+
+        {/* Full text the user saved, when there is one */}
+        <MemoryBodySection body={memory.body} sourceType={memory.sourceType} />
 
         {(() => {
           const cardType = resolveCardType(memory);

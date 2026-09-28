@@ -1,6 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsEnum, IsOptional, IsString, IsUUID, IsNumber, Min, Max } from 'class-validator';
 import { MemorySourceType } from '@prisma/client';
+import { IsMemoryText, MAX_MEMORY_TEXT } from '../memory-text';
 
 // Client-supplied idempotency key (spec §8, §17): retrying the same
 // capture must never create a duplicate Memory.
@@ -18,6 +19,13 @@ export class CreateMemoryDto {
   @IsOptional()
   @IsString()
   title?: string;
+
+  // Full text the user wrote or shared, stored exactly as sent. Over the limit is rejected (400),
+  // never truncated.
+  @ApiProperty({ required: false, maxLength: MAX_MEMORY_TEXT, description: 'Full text of the capture' })
+  @IsOptional()
+  @IsMemoryText()
+  body?: string;
 
   @ApiProperty({
     description: 'Client-generated idempotency key — required, unique per capture attempt',

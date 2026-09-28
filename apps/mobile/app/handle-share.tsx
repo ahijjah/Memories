@@ -1,13 +1,12 @@
 import { useAuth } from "@clerk/clerk-expo";
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { View, Text, ScrollView, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { useIncomingShare, type ResolvedSharePayload } from 'expo-sharing';
-import { v4 as uuidv4 } from 'uuid';
-import { createMemory } from '@/src/api/client';
-import { uploadPhotoToMemory } from '@/src/utils/photo-upload';
+import { saveSharedPayloads, ShareSaveError } from '@/src/utils/save-share';
+import { beginShare, endShare, getShareAttempt, shareFingerprint } from '@/src/utils/share-dedupe';
 
-type ProcessingState = 'loading' | 'processing' | 'success' | 'error';
+type ProcessingState = 'loading' | 'processing' | 'success' | 'notice' | 'error';
 
 export default function HandleShareScreen() {
   const { getToken } = useAuth();
@@ -16,6 +15,7 @@ export default function HandleShareScreen() {
 
   const [state, setState] = useState<ProcessingState>('loading');
   const [errorMessage, setErrorMessage] = useState<string>('');
+  const [notices, setNotices] = useState<string[]>([]);
   const [memoryId, setMemoryId] = useState<string>('');
   // URL shares open Detail with fromShare=1, which offers a source screenshot if the link
   // can't be understood. Text and image shares navigate as before.
@@ -34,21 +34,27 @@ export default function HandleShareScreen() {
     }
 
     if (resolvedSharedPayloads && resolvedSharedPayloads.length > 0) {
-      processShare(resolvedSharedPayloads[0]);
+      processShare(resolvedSharedPayloads);
     }
   }, [isResolving, error, resolvedSharedPayloads]);
 
+  const openMemory = (id: string, url: boolean) => {
+    clearSharedPayloads();
+    router.replace(url ? `/memory/${id}?fromShare=1` : `/memory/${id}`);
+  };
+
   useEffect(() => {
+    // Everything was saved: continue automatically. With notices, the user continues by hand.
     if (state === 'success' && memoryId) {
-      const timeout = setTimeout(() => {
-        clearSharedPayloads();
-        router.replace(isUrlShare ? `/memory/${memoryId}?fromShare=1` : `/memory/${memoryId}`);
-      }, 500);
+      const timeout = setTimeout(() => openMemory(memoryId, isUrlShare), 500);
       return () => clearTimeout(timeout);
     }
   }, [state, memoryId, isUrlShare]);
 
-  const processShare = async (payload: ResolvedSharePayload) => {
+  const processShare = async (payloads: ResolvedSharePayload[]) => {
+    // One delivery at a time; the same delivery within the dedupe window reuses its key.
+    const fingerprint = shareFingerprint(payloads);
+    if (!beginShare(fingerprint)) return;
     try {
       setState('processing');
       const token = await getToken();
@@ -57,53 +63,18 @@ export default function HandleShareScreen() {
         throw new Error('Authentication required');
       }
 
-      if (payload.contentType === 'text' || payload.contentType === 'website') {
-        await handleTextOrUrl(token, payload);
-      } else if (payload.contentType === 'image') {
-        await handleImage(token, payload);
-      } else {
-        setErrorMessage(`${payload.contentType} sharing is not supported yet`);
-        setState('error');
-      }
+      const saved = await saveSharedPayloads(token, payloads, getShareAttempt(fingerprint));
+      setIsUrlShare(saved.isUrl);
+      setMemoryId(saved.memoryId);
+      setNotices(saved.notices);
+      setState(saved.notices.length > 0 ? 'notice' : 'success');
     } catch (err: any) {
-      setErrorMessage(err.message || 'Failed to process shared content');
+      setMemoryId(err instanceof ShareSaveError && err.memoryId ? err.memoryId : '');
+      setErrorMessage(err?.message || 'Failed to process shared content');
       setState('error');
+    } finally {
+      endShare(fingerprint);
     }
-  };
-
-  const handleTextOrUrl = async (token: string, payload: ResolvedSharePayload) => {
-    const text = (payload as any).value || (payload as any).text || '';
-
-    const isUrl =
-      text.startsWith('http://') ||
-      text.startsWith('https://') ||
-      text.startsWith('www.');
-
-    const idempotencyKey = uuidv4();
-    const memory = await createMemory(
-      token,
-      isUrl ? 'url' : 'text',
-      idempotencyKey,
-      isUrl ? text : undefined,
-      isUrl ? text : text.substring(0, 100),
-    );
-
-    setIsUrlShare(isUrl);
-    setMemoryId(memory.id);
-    setState('success');
-  };
-
-  const handleImage = async (token: string, payload: ResolvedSharePayload) => {
-    if (!payload.contentUri) {
-      throw new Error('Image content missing');
-    }
-
-    const mimeType = payload.contentMimeType || 'image/jpeg';
-    const fileName = payload.originalName || 'shared-image.jpg';
-
-    const id = await uploadPhotoToMemory(token, payload.contentUri, mimeType, fileName);
-    setMemoryId(id);
-    setState('success');
   };
 
   return (
@@ -133,6 +104,25 @@ export default function HandleShareScreen() {
           </View>
         )}
 
+        {state === 'notice' && (
+          <View className="items-center gap-4" testID="share-notice">
+            <View className="w-12 h-12 rounded-full bg-amber-100 justify-center items-center">
+              <Text className="text-2xl">!</Text>
+            </View>
+            <Text className="text-lg font-semibold text-gray-900">Saved, with exceptions</Text>
+            {notices.map((notice) => (
+              <Text key={notice} className="text-center text-amber-800">{notice}</Text>
+            ))}
+            <TouchableOpacity
+              testID="share-open-memory"
+              onPress={() => openMemory(memoryId, isUrlShare)}
+              className="bg-blue-600 rounded-lg py-3 px-6 mt-2"
+            >
+              <Text className="text-white font-semibold">Open memory</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         {state === 'error' && (
           <View className="items-center gap-4">
             <View className="w-12 h-12 rounded-full bg-red-100 justify-center items-center">
@@ -140,9 +130,19 @@ export default function HandleShareScreen() {
             </View>
             <Text className="text-lg font-semibold text-gray-900">Error</Text>
             <Text className="text-center text-red-600">{errorMessage}</Text>
-            <Text className="text-sm text-gray-500 text-center mt-4">
-              Please try again or use the Capture screen to manually save this content.
-            </Text>
+            {memoryId ? (
+              <TouchableOpacity
+                testID="share-open-memory"
+                onPress={() => openMemory(memoryId, isUrlShare)}
+                className="bg-blue-600 rounded-lg py-3 px-6 mt-2"
+              >
+                <Text className="text-white font-semibold">Open saved memory</Text>
+              </TouchableOpacity>
+            ) : (
+              <Text className="text-sm text-gray-500 text-center mt-4">
+                Please try again or use the Capture screen to manually save this content.
+              </Text>
+            )}
           </View>
         )}
       </View>
