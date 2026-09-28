@@ -379,3 +379,65 @@ describe('M3 recovery: Analyze screenshot again', () => {
     expect(byTestId(root, 'reanalyze-source-screenshot')[0].props.disabled).toBe(false);
   });
 });
+
+// LOSSLESS-CAPTURE-01: the full saved text on Memory Detail (read-only).
+describe('Memory Detail: saved full text', () => {
+  const bodyTexts = (root: ReactTestRenderer) =>
+    root.root.findAll((n) => (n.type as any) === 'Text').map((n) => [n.props.children].flat().join(''));
+
+  beforeEach(() => {
+    mockParams = { id: 'mem-1' };
+  });
+
+  it('text Memory: "Your text" with the exact body, selectable', async () => {
+    const body = 'Shopping list\n- milk\n- eggs';
+    const root = await render(['understood'], memoryOf({ sourceType: 'text', sourceUri: undefined, title: 'Shopping list', processingState: 'understood', body }));
+
+    expect(byTestId(root, 'memory-body')).toHaveLength(1);
+    expect(bodyTexts(root)).toContain('Your text');
+    const [text] = byTestId(root, 'memory-body-text');
+    expect(text.props.children).toBe(body);
+    expect(text.props.selectable).toBe(true);
+  });
+
+  it('URL Memory with shared text: "Shared with this link"', async () => {
+    const body = 'Look at this https://example.com/post';
+    const root = await render(['understood'], memoryOf({ sourceUri: 'https://example.com/post', processingState: 'understood', body }));
+
+    expect(bodyTexts(root)).toContain('Shared with this link');
+    expect(byTestId(root, 'memory-body-text')[0].props.children).toBe(body);
+  });
+
+  it('legacy response without body (older API or older Memory): no section, nothing invented', async () => {
+    const root = await render(['understood'], memoryOf({ sourceType: 'text', sourceUri: undefined, processingState: 'understood' }));
+
+    expect(byTestId(root, 'memory-body')).toHaveLength(0);
+  });
+
+  it('null body: no section', async () => {
+    const root = await render(['understood'], memoryOf({ processingState: 'understood', body: null }));
+
+    expect(byTestId(root, 'memory-body')).toHaveLength(0);
+  });
+
+  it('long text is collapsed to 12 lines with Show more / Show less; the full text is always there', async () => {
+    const body = Array.from({ length: 30 }, (_, i) => `line ${i + 1}`).join('\n');
+    const root = await render(['understood'], memoryOf({ sourceType: 'text', sourceUri: undefined, processingState: 'understood', body }));
+
+    let [text] = byTestId(root, 'memory-body-text');
+    expect(text.props.numberOfLines).toBe(12);
+    expect(text.props.children).toBe(body);
+
+    await act(async () => byTestId(root, 'memory-body-toggle')[0].props.onPress());
+    [text] = byTestId(root, 'memory-body-text');
+    expect(text.props.numberOfLines).toBeUndefined();
+    expect(bodyTexts(root)).toContain('Show less');
+  });
+
+  it('short text has no toggle', async () => {
+    const root = await render(['understood'], memoryOf({ sourceType: 'text', sourceUri: undefined, processingState: 'understood', body: 'Short' }));
+
+    expect(byTestId(root, 'memory-body-toggle')).toHaveLength(0);
+    expect(byTestId(root, 'memory-body-text')[0].props.numberOfLines).toBeUndefined();
+  });
+});

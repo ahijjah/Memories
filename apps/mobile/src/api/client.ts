@@ -61,6 +61,11 @@ export interface Memory {
   userConfirmations?: UserConfirmation[];
   /** Authoritative resolved fields (PR2). Present on GET /memories/:id, GET /vault/:id and GET /memories only. */
   resolved?: ResolvedMemoryView;
+  /**
+   * Full text the user saved (LOSSLESS-CAPTURE-01). Only on GET /memories/:id, GET /vault/:id and
+   * create responses; null or absent for Memories without saved text (including every older one).
+   */
+  body?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -155,6 +160,8 @@ export async function createMemory(
   title?: string,
   latitude?: number,
   longitude?: number,
+  /** Full text, sent exactly as given (max 20,000 characters; the API rejects longer text). */
+  body?: string,
 ): Promise<Memory> {
   return makeRequest('/memories', 'POST', token, {
     sourceType,
@@ -163,6 +170,8 @@ export async function createMemory(
     title,
     latitude,
     longitude,
+    // Omitted when absent, so requests without text are unchanged.
+    ...(body !== undefined ? { body } : {}),
   });
 }
 

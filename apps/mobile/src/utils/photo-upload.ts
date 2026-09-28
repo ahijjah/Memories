@@ -10,8 +10,9 @@ export async function uploadPhotoToMemory(
   title?: string,
   latitude?: number,
   longitude?: number,
+  /** Reuse a caller's key (e.g. one share delivery) so a retry returns the same Memory. */
+  idempotencyKey: string = uuidv4(),
 ): Promise<string> {
-  const idempotencyKey = uuidv4();
 
   const memory = await createMemory(
     token,

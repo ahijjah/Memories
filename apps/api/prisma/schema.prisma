@@ -144,6 +144,10 @@ model Memory {
   collections       CollectionMemory[]
   reminders         Reminder[]
   rediscoveryFeedback RediscoveryFeedback[]
+  // Full user-authored/shared text (LOSSLESS-CAPTURE-01). A separate table so that whole-row
+  // Memory reads (lists, feeds) never carry it; only Detail, Vault Detail, export and the AI
+  // processor load it.
+  content           MemoryContent?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -151,6 +155,17 @@ model Memory {
   @@index([userId, lifecycleState])
   @@index([userId, processingState])
   @@map("memories")
+}
+
+// Full text the user wrote or shared, stored exactly as received (no trimming or truncation).
+// Written once with its Memory; immutable. Legacy Memories have no row.
+model MemoryContent {
+  memoryId  String   @id
+  memory    Memory   @relation(fields: [memoryId], references: [id], onDelete: Cascade)
+  text      String   // PostgreSQL TEXT; char_length <= 20000 (CHECK in the migration)
+  createdAt DateTime @default(now())
+
+  @@map("memory_contents")
 }
 
 model MemoryAsset {

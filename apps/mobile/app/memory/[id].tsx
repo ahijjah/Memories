@@ -42,6 +42,7 @@ import { resolveCardType } from '@/src/components/memory-cards/cardTypeResolver'
 import { ShareCardView } from '@/src/components/memory-cards/ShareCardView';
 import { AuthenticatedAssetImage } from '@/src/components/AuthenticatedAssetImage';
 import { RelatedMemoriesSection } from '@/src/components/RelatedMemoriesSection';
+import { MemoryBodySection } from '@/src/components/MemoryBodySection';
 
 export default function MemoryDetailScreen() {
   // fromShare=1 is set by handle-share for URL shares (one-time screenshot prompt below).
@@ -705,6 +706,9 @@ export default function MemoryDetailScreen() {
 
         {/* Card Display — type-specific layout */}
         <CardIdentity memory={memory} onOpenURL={handleOpenURL} />
+
+        {/* Full text the user saved, when there is one */}
+        <MemoryBodySection body={memory.body} sourceType={memory.sourceType} />
 
         {(() => {
           const cardType = resolveCardType(memory);

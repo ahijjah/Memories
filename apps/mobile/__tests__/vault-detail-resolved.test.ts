@@ -171,4 +171,17 @@ describe('Vault Detail resolved adoption (PR3)', () => {
     expect(root.root.findAllByType('GenericCard' as any)).toHaveLength(1);
     expect(root.root.findAllByType('EventCard' as any)).toHaveLength(0);
   });
+
+  // LOSSLESS-CAPTURE-01: the Vault response's full text is shown the same way, read-only.
+  it('shows the saved full text from the Vault response', async () => {
+    await renderUnlocked(vaultMemory({ sourceType: 'text', body: 'Locker code is in the blue folder.\nSecond line' }));
+    const [text] = root.root.findAll((n) => n.props.testID === 'memory-body-text');
+    expect(text.props.children).toBe('Locker code is in the blue folder.\nSecond line');
+    expect(textOf(root.root)).toContain('Your text');
+  });
+
+  it('no body in the Vault response: no section', async () => {
+    await renderUnlocked(vaultMemory());
+    expect(root.root.findAll((n) => n.props.testID === 'memory-body')).toHaveLength(0);
+  });
 });

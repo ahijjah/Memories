@@ -160,10 +160,12 @@ describe('VaultService', () => {
         assets: true,
         aiInferences: { orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] },
         userConfirmations: true,
+        content: true,
       },
     });
-    // Existing shape unchanged, plus the additive `resolved` object (nothing resolvable here).
-    expect(result).toEqual({ ...mockMemory, resolved: {} });
+    // Existing shape unchanged, plus the additive `resolved` object (nothing resolvable here) and
+    // `body` (null: no saved full text).
+    expect(result).toEqual({ ...mockMemory, resolved: {}, body: null });
   });
 
   it('should throw NotFoundException when retrieving a non-vault memory via vault endpoint', async () => {

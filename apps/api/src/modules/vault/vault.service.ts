@@ -58,14 +58,22 @@ export class VaultService {
   }
 
   async findOneForUser(userId: string, id: string) {
-    const memory = await this.prisma.memory.findUnique({
+    const found = await this.prisma.memory.findUnique({
       where: { id },
       include: {
         assets: true,
         aiInferences: { orderBy: LATEST_AI_INFERENCE_ORDER },
         userConfirmations: true,
+        content: true,
       },
     });
+    // The full text (`body`) is returned only here, after the ownership and Vault checks below;
+    // no Vault list path loads it.
+    let memory = null;
+    if (found) {
+      const { content, ...rest } = found;
+      memory = { ...rest, body: content?.text ?? null };
+    }
     if (!memory) throw new NotFoundException('Memory not found');
     this.assertOwnership(memory.userId, userId);
     if (memory.securityScope !== 'vault') {
