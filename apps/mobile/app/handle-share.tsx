@@ -6,13 +6,14 @@ import { useIncomingShare, type ResolvedSharePayload } from 'expo-sharing';
 import { v4 as uuidv4 } from 'uuid';
 import { createMemory } from '@/src/api/client';
 import { uploadPhotoToMemory } from '@/src/utils/photo-upload';
+import { logShareIntentShape } from '@/modules/share-intent-diag';
 
 type ProcessingState = 'loading' | 'processing' | 'success' | 'error';
 
 export default function HandleShareScreen() {
   const { getToken } = useAuth();
   const router = useRouter();
-  const { resolvedSharedPayloads, isResolving, error, clearSharedPayloads } = useIncomingShare();
+  const { sharedPayloads, resolvedSharedPayloads, isResolving, error, clearSharedPayloads } = useIncomingShare();
 
   const [state, setState] = useState<ProcessingState>('loading');
   const [errorMessage, setErrorMessage] = useState<string>('');
@@ -47,6 +48,13 @@ export default function HandleShareScreen() {
       return () => clearTimeout(timeout);
     }
   }, [state, memoryId, isUrlShare]);
+
+  // Diagnostic only (share ingestion): logs the retained Android share Intent's shape (enums,
+  // booleans, bounded counts; never contents) on mount and whenever the hook reports new shared
+  // payloads. Runs before clearSharedPayloads(), which only happens 500 ms after a successful save.
+  useEffect(() => {
+    logShareIntentShape();
+  }, [sharedPayloads]);
 
   const processShare = async (payload: ResolvedSharePayload) => {
     try {
