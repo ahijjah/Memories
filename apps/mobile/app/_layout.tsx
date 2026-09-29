@@ -2,7 +2,7 @@ import '../global.css';
 import { ClerkProvider, useAuth } from "@clerk/clerk-expo";
 import * as SecureStore from 'expo-secure-store';
 import { Stack } from 'expo-router';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { AuthScopedQueryProvider, AuthScopedScreen } from '@/src/auth/auth-scope';
 
 const tokenCache = {
   async getToken(key: string) {
@@ -29,8 +29,6 @@ const tokenCache = {
   },
 };
 
-const queryClient = new QueryClient();
-
 export default function RootLayout() {
   const publishableKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
 
@@ -38,12 +36,14 @@ export default function RootLayout() {
     throw new Error('Missing EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY');
   }
 
+  // React Query data is scoped to the signed-in account (AUTH-CACHE-01): the query client lives
+  // inside ClerkProvider and is replaced whenever the auth identity changes.
   return (
-    <QueryClientProvider client={queryClient}>
-      <ClerkProvider tokenCache={tokenCache} publishableKey={publishableKey}>
+    <ClerkProvider tokenCache={tokenCache} publishableKey={publishableKey}>
+      <AuthScopedQueryProvider>
         <RootLayoutNav />
-      </ClerkProvider>
-    </QueryClientProvider>
+      </AuthScopedQueryProvider>
+    </ClerkProvider>
   );
 }
 
@@ -64,6 +64,16 @@ export const AUTHENTICATED_ROOT_ROUTES = [
 
 export const SIGNED_OUT_ROOT_ROUTES = ['(auth)'] as const;
 
+const AUTHENTICATED_ROUTE_NAMES: ReadonlySet<string> = new Set(AUTHENTICATED_ROOT_ROUTES);
+
+// Every root screen remounts on an auth identity change, so its queries bind to the new account's
+// query client in the same render (see src/auth/auth-scope.tsx).
+function screenLayout({ route, children }: { route: { name: string }; children: React.ReactElement }) {
+  return (
+    <AuthScopedScreen authenticated={AUTHENTICATED_ROUTE_NAMES.has(route.name)}>{children}</AuthScopedScreen>
+  );
+}
+
 export function RootLayoutNav() {
   const { isLoaded, isSignedIn } = useAuth();
 
@@ -77,7 +87,7 @@ export function RootLayoutNav() {
   // lands on the tab it was opened from. When a guard turns false, every route declared under
   // it is removed from history, so no signed-in screen stays reachable after sign-out.
   return (
-    <Stack screenOptions={{ headerShown: false, animation: 'none' }}>
+    <Stack screenOptions={{ headerShown: false, animation: 'none' }} screenLayout={screenLayout}>
       <Stack.Protected guard={signedIn}>
         {AUTHENTICATED_ROOT_ROUTES.map((name) => (
           <Stack.Screen key={name} name={name} />
