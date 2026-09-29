@@ -1,4 +1,4 @@
-import { createContext, Fragment, useContext, useEffect, useRef, type ReactNode } from 'react';
+import { createContext, Fragment, useContext, useEffect, useLayoutEffect, useRef, type ReactNode } from 'react';
 import { useAuth } from '@clerk/clerk-expo';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { resetShareDedupe } from '@/src/utils/share-dedupe';
@@ -15,7 +15,11 @@ import { resetShareDedupe } from '@/src/utils/share-dedupe';
  *   authenticated screens render nothing.
  * - The retired client's queries are cancelled and its cache cleared afterwards; nothing rendered
  *   reads from it by then, and a late response can only land in that detached client.
- * The in-memory share dedupe (share-dedupe.ts) is reset at the same boundary.
+ * The in-memory share dedupe (share-dedupe.ts) is reset once an identity change has committed (a
+ * layout effect), never during render: a render that is started and then discarded must not clear
+ * the committed account's dedupe. Layout effects run before any passive effect of the same commit,
+ * and the share screen reads the dedupe only from a passive effect, so it never sees the previous
+ * account's entries.
  */
 
 /** Auth identity as the cache sees it. Only a real change of identity replaces the client. */
@@ -32,10 +36,21 @@ export function useAuthIdentity(): AuthIdentity | null {
   return useContext(AuthScopeContext);
 }
 
+type Owner = Exclude<AuthIdentity, 'loading'>;
+
 interface Scope {
   /** The identity whose data this client may hold; null until Clerk first reports one. */
-  owner: Exclude<AuthIdentity, 'loading'> | null;
+  owner: Owner | null;
   client: QueryClient;
+}
+
+/**
+ * Whether the share dedupe must be reset when `committed` becomes the committed owner after
+ * `previousCommitted`: only on a change from one real identity to another (sign-out included), not
+ * when the first identity is reported at startup and not when it is unchanged.
+ */
+export function shouldResetShareDedupe(previousCommitted: Owner | null, committed: Owner | null): boolean {
+  return previousCommitted !== null && committed !== null && previousCommitted !== committed;
 }
 
 export function AuthScopedQueryProvider({
@@ -53,19 +68,27 @@ export function AuthScopedQueryProvider({
   if (scope.current === null) {
     scope.current = { owner: null, client: createClient() };
   }
-  // Decided during render, not in an effect. 'loading' never changes the scope (nothing below
-  // renders while Clerk loads). The first identity adopts the startup client, which has held no
-  // data; any later different identity gets a new client and a reset share dedupe. Token refreshes
-  // and rerenders with the same identity keep both.
+  // Decided during render, not in an effect, so no render for a new identity can see the previous
+  // one's client. 'loading' never changes the scope (nothing below renders while Clerk loads). The
+  // first identity adopts the startup client, which has held no data; any later different identity
+  // gets a new client. Token refreshes and rerenders with the same identity keep it.
   if (identity !== 'loading' && identity !== scope.current.owner) {
-    if (scope.current.owner === null) {
-      scope.current = { owner: identity, client: scope.current.client };
-    } else {
-      scope.current = { owner: identity, client: createClient() };
+    scope.current =
+      scope.current.owner === null
+        ? { owner: identity, client: scope.current.client }
+        : { owner: identity, client: createClient() };
+  }
+  const { client, owner } = scope.current;
+
+  // The share dedupe follows the committed owner only. A discarded render never runs this, and the
+  // ref is updated here, after commit, so it always holds the last committed owner.
+  const committedOwner = useRef<Owner | null>(null);
+  useLayoutEffect(() => {
+    if (shouldResetShareDedupe(committedOwner.current, owner)) {
       resetShareDedupe();
     }
-  }
-  const { client } = scope.current;
+    committedOwner.current = owner;
+  }, [owner]);
 
   // Retire a replaced client after it is no longer provided: stop its requests and drop its data.
   useEffect(

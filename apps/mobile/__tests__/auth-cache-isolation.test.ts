@@ -2,7 +2,7 @@ import React from 'react';
 import TestRenderer, { act, ReactTestRenderer } from 'react-test-renderer';
 import { useAuth } from '@clerk/clerk-expo';
 import { QueryClient, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AuthScopedQueryProvider, AuthScopedScreen, authIdentity } from '@/src/auth/auth-scope';
+import { AuthScopedQueryProvider, AuthScopedScreen, authIdentity, shouldResetShareDedupe, useAuthIdentity } from '@/src/auth/auth-scope';
 import { getShareAttempt, resetShareDedupe } from '@/src/utils/share-dedupe';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -238,5 +238,103 @@ describe('share dedupe is scoped to the auth identity', () => {
     await switchTo({ isLoaded: true, userId: 'user_a' });
 
     expect(getShareAttempt(FP).idempotencyKey).toBe(key);
+  });
+});
+
+// The reset follows committed identity changes only (never a render that is discarded), and happens
+// before any passive effect of the committing tree can read the dedupe.
+describe('share dedupe reset happens only after an identity change commits', () => {
+  const FP = '[["text","committed transitions",null]]';
+
+  describe('shouldResetShareDedupe (the committed-owner rule; a helper test, not React integration)', () => {
+    it.each([
+      [null, 'user:user_a', false], // startup: first identity
+      ['user:user_a', 'user:user_a', false], // rerender / token refresh
+      ['user:user_a', 'signed-out', true],
+      ['signed-out', 'user:user_b', true],
+      ['user:user_a', 'user:user_b', true],
+      [null, null, false],
+    ] as const)('%p -> %p: %p', (previous, committed, expected) => {
+      expect(shouldResetShareDedupe(previous as any, committed as any)).toBe(expected);
+    });
+  });
+
+  it.each([
+    ['same user rerender', { isLoaded: true, userId: 'user_a' }, false],
+    ['committed A -> signed out', { isLoaded: true, userId: null }, true],
+    ['committed A -> B', { isLoaded: true, userId: 'user_b' }, true],
+    ['A -> loading (Clerk reloading)', { isLoaded: false, userId: null }, false],
+  ])('%s: reset = %p', async (_label, next, reset) => {
+    await mount({ isLoaded: true, userId: 'user_a' });
+    const keyA = getShareAttempt(FP).idempotencyKey;
+
+    await switchTo(next);
+
+    expect(getShareAttempt(FP).idempotencyKey === keyA).toBe(!reset);
+  });
+
+  it('committed signed out -> B resets what was recorded while signed out', async () => {
+    await mount({ isLoaded: true, userId: null });
+    const keySignedOut = getShareAttempt(FP).idempotencyKey;
+
+    await switchTo({ isLoaded: true, userId: 'user_b' });
+
+    expect(getShareAttempt(FP).idempotencyKey).not.toBe(keySignedOut);
+  });
+
+  it("on a committed A -> B, a child's passive effect (where handle-share reads the dedupe) already sees it reset", async () => {
+    const seen: { identity: string | null; key: string }[] = [];
+    function ShareReader() {
+      const identity = useAuthIdentity();
+      React.useEffect(() => {
+        seen.push({ identity, key: getShareAttempt(FP).idempotencyKey });
+      }, [identity]);
+      return null;
+    }
+    const readerTree = () =>
+      React.createElement(AuthScopedQueryProvider, { createClient }, React.createElement(ShareReader));
+
+    auth({ isLoaded: true, userId: 'user_a' });
+    await act(async () => {
+      root = TestRenderer.create(readerTree());
+    });
+    auth({ isLoaded: true, userId: 'user_b' });
+    await act(async () => {
+      root!.update(readerTree());
+    });
+
+    expect(seen.map((s) => s.identity)).toEqual(['user:user_a', 'user:user_b']);
+    expect(seen[1].key).not.toBe(seen[0].key);
+  });
+
+  it("a B render that is started but never committed (suspended transition) does not reset A's dedupe", async () => {
+    // Real React: a transition whose render suspends is not committed; A stays on screen.
+    const never = new Promise<never>(() => undefined);
+    function SuspendsForB() {
+      if (useAuthIdentity() === 'user:user_b') throw never;
+      return React.createElement('Text', null, 'A-screen');
+    }
+    const suspenseTree = () =>
+      React.createElement(
+        AuthScopedQueryProvider,
+        { createClient },
+        React.createElement(React.Suspense, { fallback: React.createElement('Text', null, 'fallback') }, React.createElement(SuspendsForB)),
+      );
+
+    auth({ isLoaded: true, userId: 'user_a' });
+    await act(async () => {
+      root = TestRenderer.create(suspenseTree(), { unstable_isConcurrent: true } as any);
+    });
+    const keyA = getShareAttempt(FP).idempotencyKey;
+
+    auth({ isLoaded: true, userId: 'user_b' });
+    await act(async () => {
+      React.startTransition(() => root!.update(suspenseTree()));
+    });
+
+    // The B render ran (and suspended) but was not committed: A is still shown ...
+    expect(shownText()).toEqual(['A-screen']);
+    // ... and A's share dedupe is intact.
+    expect(getShareAttempt(FP).idempotencyKey).toBe(keyA);
   });
 });
