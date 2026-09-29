@@ -4,6 +4,8 @@ import path from 'path';
 // Everything app/_layout imports that can't load under Jest. Only the route constants are used.
 jest.mock('../global.css', () => ({}));
 jest.mock('expo-secure-store', () => ({}));
+// The root layout now loads the share dedupe (AUTH-CACHE-01), which imports the ESM-only uuid.
+jest.mock('uuid', () => ({ v4: () => '00000000-0000-4000-8000-000000000000' }));
 jest.mock('@clerk/clerk-expo', () => ({ ClerkProvider: () => null, useAuth: jest.fn() }));
 jest.mock('expo-router', () => ({ Stack: () => null }));
 

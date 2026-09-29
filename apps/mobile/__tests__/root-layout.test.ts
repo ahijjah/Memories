@@ -4,6 +4,8 @@ import { useAuth } from '@clerk/clerk-expo';
 
 jest.mock('../global.css', () => ({}));
 jest.mock('expo-secure-store', () => ({}));
+// The root layout now loads the share dedupe (AUTH-CACHE-01), which imports the ESM-only uuid.
+jest.mock('uuid', () => ({ v4: () => '00000000-0000-4000-8000-000000000000' }));
 jest.mock('@clerk/clerk-expo', () => ({ ClerkProvider: ({ children }: any) => children, useAuth: jest.fn() }));
 
 const mockRouter = { replace: jest.fn(), push: jest.fn(), navigate: jest.fn() };
@@ -16,6 +18,7 @@ jest.mock('expo-router', () => {
 });
 
 import { RootLayoutNav, AUTHENTICATED_ROOT_ROUTES } from '../app/_layout';
+import { AuthScopedQueryProvider } from '../src/auth/auth-scope';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -74,5 +77,38 @@ describe('RootLayoutNav', () => {
     expect(mockRouter.replace).not.toHaveBeenCalled();
     expect(mockRouter.push).not.toHaveBeenCalled();
     expect(mockRouter.navigate).not.toHaveBeenCalled();
+  });
+
+  // AUTH-CACHE-01: every root screen is scoped to the auth identity.
+  describe('screenLayout', () => {
+    const renderScreen = (auth: { isLoaded: boolean; userId: string | null }, routeName: string) => {
+      (useAuth as jest.Mock).mockReturnValue({ ...auth, isSignedIn: !!auth.userId });
+      const nav = render({ isLoaded: true, isSignedIn: true });
+      const screenLayout = nav.root.findByType('Stack' as any).props.screenLayout;
+      (useAuth as jest.Mock).mockReturnValue({ ...auth, isSignedIn: !!auth.userId });
+      let root!: ReactTestRenderer;
+      act(() => {
+        root = TestRenderer.create(
+          React.createElement(
+            AuthScopedQueryProvider,
+            null,
+            screenLayout({ route: { name: routeName }, children: React.createElement('Text', null, 'screen') }),
+          ),
+        );
+      });
+      return root.toJSON();
+    };
+
+    it('renders a screen for the signed-in account', () => {
+      expect(renderScreen({ isLoaded: true, userId: 'user_a' }, 'memory/[id]')).toMatchObject({ children: ['screen'] });
+    });
+
+    it.each([...AUTHENTICATED_ROOT_ROUTES])('%s renders nothing while signed out', (name) => {
+      expect(renderScreen({ isLoaded: true, userId: null }, name)).toBeNull();
+    });
+
+    it('the sign-in routes still render while signed out', () => {
+      expect(renderScreen({ isLoaded: true, userId: null }, '(auth)')).toMatchObject({ children: ['screen'] });
+    });
   });
 });
